@@ -8,7 +8,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import {
   Mic2, CloudSync, BrainCircuit, Search, Calendar,
   ChevronDown, ChevronUp, Play, Pause, ExternalLink,
-  FileAudio, AlignLeft, Cpu, Loader2, Clock, FileDown,
+  FileAudio, AlignLeft, Cpu, Loader2, Clock, FileDown, Plus
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -84,8 +84,34 @@ function exportMarkdown(memo: Memo) {
   URL.revokeObjectURL(url);
 }
 
-function MemoCard({ memo }: { memo: Memo }) {
-  const [expanded, setExpanded] = useState(false);
+function MemoListItem({ memo, isActive, onClick }: { memo: Memo, isActive: boolean, onClick: () => void }) {
+  const isFailed = memo.transcript === "[Transcription failed]" || !memo.transcript;
+  // Use a snippet of the transcript as the title, or a default
+  let title = "New Recording";
+  if (!isFailed && memo.transcript) {
+    title = memo.transcript.split(" ").slice(0, 6).join(" ") + (memo.transcript.split(" ").length > 6 ? "..." : "");
+  } else if (isFailed) {
+    title = "Transcription failed";
+  }
+
+  return (
+    <div
+      onClick={onClick}
+      className={`px-5 py-4 border-b border-white/5 cursor-pointer flex flex-col gap-1.5 transition-colors ${isActive ? "bg-blue-600/90 text-white" : "hover:bg-white/5 text-white/80"
+        }`}
+    >
+      <div className={`font-medium text-sm truncate ${isActive ? "text-white font-semibold" : "text-white/90"}`}>
+        {title}
+      </div>
+      <div className={`flex justify-between text-xs font-mono tabular-nums ${isActive ? "text-white/90" : "text-white/40"}`}>
+        <span>{formatDate(memo.createdAt)}</span>
+        <span>{memo.durationSeconds != null ? formatSecs(memo.durationSeconds) : "--:--"}</span>
+      </div>
+    </div>
+  );
+}
+
+function MemoDetailView({ memo }: { memo: Memo }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
@@ -112,137 +138,124 @@ function MemoCard({ memo }: { memo: Memo }) {
     setCurrentTime(ratio * audioDuration);
   };
 
+  // Reset state when memo changes
+  useEffect(() => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setAudioDuration(null);
+  }, [memo.id]);
+
   const progress = audioDuration ? (currentTime / audioDuration) * 100 : 0;
-  // Use audio element's real duration; fall back to prop only if not yet loaded
   const displayDuration = audioDuration ?? memo.durationSeconds ?? null;
 
   return (
     <motion.div
-      layout
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={`group relative bg-surface border rounded-2xl p-6 transition-all overflow-hidden backdrop-blur-sm ${isFailed ? "border-red-500/20" : "border-white/5 hover:border-accent/30"
-        }`}
+      key={memo.id}
+      initial={{ opacity: 0, scale: 0.98 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="w-full max-w-4xl mx-auto flex flex-col items-center p-8 py-16 min-h-full"
     >
-      <div className="absolute top-0 right-0 w-32 h-32 bg-accent/5 rounded-full blur-3xl -translate-y-16 translate-x-16 group-hover:bg-accent/10 transition-colors" />
+      <div className={`w-full relative bg-surface border rounded-3xl p-8 transition-all overflow-hidden shadow-2xl ${isFailed ? "border-red-500/20" : "border-white/5"}`}>
+        <div className="absolute top-0 right-0 w-64 h-64 bg-accent/5 rounded-full blur-3xl -translate-y-32 translate-x-32" />
 
-      {/* Header */}
-      <div className="flex justify-between items-start mb-3 relative">
-        <div className="flex items-center gap-2">
-          {isFailed ? (
-            <span className="text-xs text-red-400 bg-red-400/10 px-2 py-1 rounded-full">Transcription failed</span>
-          ) : (
-            <span className="text-xs text-green-400/80 bg-green-400/10 px-2 py-1 rounded-full">Transcribed</span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {displayDuration != null && (
-            <span className="text-xs text-white/40 font-mono bg-white/5 px-3 py-1 rounded-full flex items-center gap-1">
-              <Clock size={10} /> {formatSecs(displayDuration)}
-            </span>
-          )}
-          {!isFailed && memo.transcript && (
-            <button
-              id={`export-md-${memo.id}`}
-              onClick={() => exportMarkdown(memo)}
-              title="Export as Markdown"
-              className="flex items-center gap-1.5 text-xs text-white/35 hover:text-accent bg-white/5 hover:bg-accent/10 border border-white/8 hover:border-accent/30 px-2.5 py-1 rounded-full transition-all duration-200 group/export"
-            >
-              <FileDown size={11} className="transition-transform duration-200 group-hover/export:-translate-y-0.5" />
-              <span className="font-mono tracking-wide">.md</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Transcript */}
-      <p className={`text-sm leading-relaxed mb-4 line-clamp-3 relative z-10 ${isFailed ? "text-red-300/50 italic" : "text-white/70"
-        }`}>
-        {memo.transcript || "No transcript available."}
-      </p>
-
-      {/* Meta row */}
-      <div className="flex flex-wrap items-center gap-3 text-xs text-white/35 mb-3 relative z-10">
-        <span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(memo.createdAt)}</span>
-        {!isFailed && <span className="flex items-center gap-1"><AlignLeft size={10} /> {memo.wordCount} words</span>}
-        {memo.modelUsed && (
-          <span className="flex items-center gap-1"><Cpu size={10} /> {memo.modelUsed}</span>
-        )}
-        {memo.url && (
-          <a href={memo.url} target="_blank" rel="noopener noreferrer"
-            className="flex items-center gap-1 text-accent/50 hover:text-accent transition-colors">
-            <ExternalLink size={10} /> Storage
-          </a>
-        )}
-      </div>
-
-      {/* Audio player */}
-      {memo.url && (
-        <div className="flex items-center gap-3 mb-4 bg-white/[0.03] border border-white/5 rounded-xl px-4 py-3 relative z-10">
-          <audio
-            ref={audioRef}
-            src={memo.url}
-            preload="metadata"
-            onLoadedMetadata={(e) => setAudioDuration((e.target as HTMLAudioElement).duration)}
-            onTimeUpdate={(e) => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
-            onEnded={() => { setIsPlaying(false); setCurrentTime(0); }}
-          />
-
-          {/* Play / Pause */}
-          <button
-            onClick={togglePlay}
-            className="w-8 h-8 rounded-full bg-accent/20 text-accent hover:bg-accent hover:text-white flex items-center justify-center transition flex-shrink-0"
-          >
-            {isPlaying ? <Pause size={12} /> : <Play size={12} className="translate-x-px" />}
-          </button>
-
-          {/* Progress bar */}
-          <div
-            onClick={handleSeek}
-            className="flex-1 h-1.5 bg-white/10 rounded-full cursor-pointer overflow-hidden relative"
-          >
-            <div
-              className="absolute left-0 top-0 h-full bg-accent rounded-full"
-              style={{ width: `${progress}%`, transition: "width 0.1s linear" }}
-            />
+        {/* Header */}
+        <div className="flex justify-between items-start mb-6 relative">
+          <div>
+            <h2 className="text-3xl font-semibold mb-3 text-white">
+              {formatDate(memo.createdAt)}
+            </h2>
+            <div className="flex items-center gap-2">
+              {isFailed ? (
+                <span className="text-xs text-red-400 bg-red-400/10 px-2.5 py-1 rounded-full border border-red-500/20">Transcription failed</span>
+              ) : (
+                <span className="text-xs text-green-400/80 bg-green-400/10 px-2.5 py-1 rounded-full border border-green-500/20">Transcribed</span>
+              )}
+            </div>
           </div>
-
-          {/* Time */}
-          <span className="text-white/30 font-mono text-xs flex-shrink-0 tabular-nums">
-            {formatSecs(currentTime)} / {audioDuration != null ? formatSecs(audioDuration) : "--:--"}
-          </span>
-
-          <FileAudio size={12} className="text-white/20 flex-shrink-0" />
-        </div>
-      )}
-
-      {/* Expand toggle */}
-      {!isFailed && memo.transcript && (
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-1 text-xs text-accent/70 font-medium hover:text-accent transition relative z-10"
-        >
-          {expanded ? <><ChevronUp size={12} /> Collapse</> : <><ChevronDown size={12} /> Full transcript</>}
-        </button>
-      )}
-
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="overflow-hidden"
-          >
-            <p className="mt-3 text-white/60 text-sm leading-relaxed border-t border-white/5 pt-3">
-              {memo.transcript}
-            </p>
-            {memo.url && (
-              <p className="mt-2 text-white/20 text-xs font-mono break-all">{memo.url}</p>
+          <div className="flex items-center gap-3">
+            {!isFailed && memo.transcript && (
+              <button
+                onClick={() => exportMarkdown(memo)}
+                title="Export as Markdown"
+                className="flex items-center gap-1.5 text-sm text-white/50 hover:text-accent bg-white/5 hover:bg-accent/10 border border-white/8 hover:border-accent/30 px-3 py-1.5 rounded-full transition-all duration-200 group"
+              >
+                <FileDown size={14} className="transition-transform duration-200 group-hover:-translate-y-0.5" />
+                <span className="font-mono tracking-wide">Export .md</span>
+              </button>
             )}
-          </motion.div>
+          </div>
+        </div>
+
+        {/* Huge Audio player controls */}
+        {memo.url && (
+          <div className="flex flex-col gap-5 mb-8 bg-black/30 border border-white/5 rounded-3xl p-6 relative z-10">
+            <audio
+              ref={audioRef}
+              src={memo.url}
+              preload="metadata"
+              onLoadedMetadata={(e) => setAudioDuration((e.target as HTMLAudioElement).duration)}
+              onTimeUpdate={(e) => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
+              onEnded={() => { setIsPlaying(false); setCurrentTime(0); }}
+            />
+
+            {/* Simulated waveform playback UI */}
+            <div className="flex items-center justify-between font-mono text-xs text-white/40 mb-1 px-1">
+              <span>{formatSecs(currentTime)}</span>
+              <span>{displayDuration != null ? formatSecs(displayDuration) : "--:--"}</span>
+            </div>
+
+            <div
+              onClick={handleSeek}
+              className="w-full h-12 bg-white/5 rounded-xl cursor-pointer overflow-hidden relative group border border-white/5"
+            >
+              <div className="absolute inset-0 flex items-center justify-around opacity-30 px-1 pointer-events-none">
+                {Array.from({ length: 60 }).map((_, i) => {
+                  const active = (i / 60) * 100 <= progress;
+                  return (
+                    <div key={i} className={`w-1 rounded-full transition-colors ${active ? "bg-accent/80" : "bg-white/40"} ${isPlaying && active ? "animate-pulse" : ""}`} style={{ height: `${20 + Math.random() * 80}%` }} />
+                  )
+                })}
+              </div>
+              <div
+                className="absolute left-0 top-0 h-full bg-blue-500/20 mix-blend-screen"
+                style={{ width: `${progress}%`, transition: "width 0.1s linear" }}
+              />
+            </div>
+
+            <div className="flex items-center justify-center mt-2">
+              <button
+                onClick={togglePlay}
+                className="w-16 h-16 rounded-full bg-accent text-white hover:scale-105 shadow-[0_0_20px_rgba(139,92,246,0.3)] flex items-center justify-center transition-all flex-shrink-0 border border-white/10"
+              >
+                {isPlaying ? <Pause size={24} /> : <Play size={24} className="translate-x-1" />}
+              </button>
+            </div>
+          </div>
         )}
-      </AnimatePresence>
+
+        {/* Meta row */}
+        <div className="flex flex-wrap items-center gap-4 text-xs text-white/40 mb-6 relative z-10 border-t border-white/5 pt-6">
+          {!isFailed && <span className="flex items-center gap-1.5"><AlignLeft size={12} /> {memo.wordCount} words</span>}
+          {memo.modelUsed && (
+            <span className="flex items-center gap-1.5"><Cpu size={12} /> {memo.modelUsed}</span>
+          )}
+          {memo.url && (
+            <a href={memo.url} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-accent/60 hover:text-accent transition-colors">
+              <ExternalLink size={12} /> Open in Storage
+            </a>
+          )}
+        </div>
+
+        {/* Transcript */}
+        <div className="relative z-10 bg-white/[0.02] border border-white/5 rounded-2xl p-6">
+          <h3 className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-4">Transcript</h3>
+          <p className={`text-base leading-relaxed ${isFailed ? "text-red-300/50 italic" : "text-white/80"
+            }`}>
+            {memo.transcript || "No transcript available."}
+          </p>
+        </div>
+      </div>
     </motion.div>
   );
 }
@@ -251,6 +264,7 @@ export default function Home() {
   const [memos, setMemos] = useState<Memo[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedMemoId, setSelectedMemoId] = useState<string | null>(null);
 
   const fetchMemos = useCallback(async () => {
     try {
@@ -269,8 +283,9 @@ export default function Home() {
   }, [fetchMemos]);
 
   const handleUploadComplete = (data: UploadCompletePayload) => {
+    const newMemoId = `optimistic-${Date.now()}`;
     const newMemo: Memo = {
-      id: `optimistic-${Date.now()}`,
+      id: newMemoId,
       transcript: data?.text ?? "",
       createdAt: new Date().toISOString(),
       url: data?.url,
@@ -280,8 +295,13 @@ export default function Home() {
       success: data?.success,
     };
     setMemos((prev) => [newMemo, ...prev]);
+    setSelectedMemoId(newMemoId);
     // Re-fetch to replace optimistic row with real Supabase row
-    setTimeout(() => fetchMemos(), 1500);
+    setTimeout(() => {
+      fetchMemos().then(() => {
+        // Refresh list quietly
+      });
+    }, 1500);
   };
 
   const filteredMemos = memos.filter((m) =>
@@ -289,81 +309,87 @@ export default function Home() {
   );
 
   return (
-    <main className="container mx-auto px-4 py-12 max-w-6xl">
-      <header className="flex flex-col md:flex-row items-center justify-between mb-16 gap-6">
-        <div className="flex items-center space-x-4">
-          <div className="w-12 h-12 bg-accent/20 rounded-2xl flex items-center justify-center text-accent shadow-[0_0_30px_var(--theme-glow)] border border-accent/20">
-            <Mic2 size={24} />
+    <main className="flex h-screen w-full bg-[#0A0A0A] overflow-hidden text-white font-sans">
+      {/* Left Sidebar */}
+      <aside className="w-80 flex-shrink-0 flex flex-col border-r border-white/10 bg-[#0F0F0F] z-20">
+        {/* Header inside sidebar */}
+        <div className="p-5 border-b border-white/5 flex flex-col gap-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-accent/20 rounded-lg flex items-center justify-center text-accent shadow-[0_0_15px_var(--theme-glow)] border border-accent/20">
+                <Mic2 size={16} />
+              </div>
+              <h1 className="text-xl font-bold tracking-tight text-white/95">Memos</h1>
+            </div>
+            <button
+              onClick={() => setSelectedMemoId(null)}
+              className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/70 transition-colors border border-white/10"
+              title="New Recording"
+            >
+              <Plus size={18} />
+            </button>
           </div>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Sonic Memos</h1>
-            <p className="text-white/60 text-sm mt-1 flex items-center gap-2">
-              <CloudSync size={14} className="text-blue-400" /> Cloud Sync
-              <span className="w-1 h-1 rounded-full bg-white/20 mx-1" />
-              <BrainCircuit size={14} className="text-green-400" /> Parakeet AI
-              <span className="w-1 h-1 rounded-full bg-white/20 mx-1" />
-              <Link href="/docs" className="text-accent/70 hover:text-accent transition-colors flex items-center gap-1">
-                API Docs ↗
-              </Link>
-            </p>
-          </div>
-        </div>
 
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          <div className="relative flex-1 md:w-80">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={18} />
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={14} />
             <input
               type="text"
               placeholder="Search transcripts..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-surface border border-white/5 rounded-full py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all text-white/90 placeholder:text-white/30 shadow-inner"
+              className="w-full bg-black/40 border border-white/10 rounded-xl py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-accent/50 focus:border-accent transition-all text-white/90 placeholder:text-white/30"
             />
           </div>
-          <ThemeToggle />
-        </div>
-      </header>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-        {/* Recorder */}
-        <div className="lg:col-span-5 flex flex-col items-center">
-          <div className="sticky top-12 w-full">
-            <AudioRecorder onUploadComplete={handleUploadComplete} />
-            <div className="mt-8 text-center text-xs text-white/40 font-mono">
-              <p>Powered by Supabase &amp; NVIDIA NIM</p>
-            </div>
-          </div>
         </div>
 
-        {/* Memo list */}
-        <div className="lg:col-span-7 space-y-4">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-medium">Recent Transcripts</h2>
-            {!loading && <span className="text-sm text-white/40">{memos.length} Total</span>}
-          </div>
-
+        {/* Memo List */}
+        <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.1) transparent' }}>
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-20 text-white/30 gap-3">
-              <Loader2 size={28} className="animate-spin" />
-              <p className="text-sm">Loading from Supabase...</p>
+            <div className="flex flex-col items-center justify-center py-10 text-white/30 gap-3">
+              <Loader2 size={18} className="animate-spin" />
+              <p className="text-xs">Loading from Supabase...</p>
+            </div>
+          ) : filteredMemos.length === 0 ? (
+            <div className="text-center py-10 text-white/30 px-4">
+              <p className="text-sm">
+                {searchQuery ? "No results found." : "No recordings yet."}
+              </p>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="flex flex-col">
               {filteredMemos.map((memo) => (
-                <MemoCard key={memo.id} memo={memo} />
+                <MemoListItem
+                  key={memo.id}
+                  memo={memo}
+                  isActive={selectedMemoId === memo.id}
+                  onClick={() => setSelectedMemoId(memo.id)}
+                />
               ))}
-              {filteredMemos.length === 0 && (
-                <div className="text-center py-16 text-white/30 border border-dashed border-white/10 rounded-2xl bg-white/[0.02]">
-                  <Mic2 size={32} className="mx-auto mb-4 opacity-40" />
-                  <p className="text-sm">
-                    {searchQuery ? "No memos match your search." : "No memos yet — record your first one!"}
-                  </p>
-                </div>
-              )}
             </div>
           )}
         </div>
-      </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <section className="flex-1 flex flex-col relative bg-[#121212] overflow-y-auto">
+        <header className="absolute top-6 right-6 z-30 flex items-center gap-4">
+          <Link href="/docs" className="text-xs text-white/40 hover:text-accent transition-colors flex items-center gap-1 font-mono">
+            API Docs ↗
+          </Link>
+          <ThemeToggle />
+        </header>
+
+        {selectedMemoId ? (
+          <MemoDetailView memo={memos.find((m) => m.id === selectedMemoId) || memos[0]} />
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 mt-12">
+            <AudioRecorder onUploadComplete={handleUploadComplete} />
+            <div className="mt-8 text-center text-xs text-white/30 font-mono tracking-widest uppercase">
+              <p>Powered by Supabase &amp; NVIDIA NIM</p>
+            </div>
+          </div>
+        )}
+      </section>
     </main>
   );
 }
