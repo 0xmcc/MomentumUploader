@@ -24,14 +24,13 @@ export async function GET(req: NextRequest) {
     const offset = Number(searchParams.get("offset") ?? 0);
 
     let query = supabaseAdmin
-        .from("items")
-        .select("id, title, content, source_url, metadata, created_at, updated_at, source_type", { count: "exact" })
-        .eq("type", "voice")
+        .from("memos")
+        .select("id, title, transcript, audio_url, duration, created_at", { count: "exact" })
         .order("created_at", { ascending: false })
         .range(offset, offset + limit - 1);
 
     if (search) {
-        query = query.ilike("content", `%${search}%`);
+        query = query.ilike("transcript", `%${search}%`);
     }
 
     const { data, error, count } = await query;
@@ -43,11 +42,11 @@ export async function GET(req: NextRequest) {
     const memos = (data ?? []).map((row) => ({
         id: row.id,
         title: row.title ?? null,
-        transcript: row.content ?? "",
-        audioUrl: row.source_url ?? row.metadata?.file_url ?? null,
-        wordCount: row.content ? row.content.split(/\s+/).filter(Boolean).length : 0,
+        transcript: row.transcript ?? "",
+        url: row.audio_url ?? null,
+        wordCount: row.transcript ? row.transcript.split(/\s+/).filter(Boolean).length : 0,
         createdAt: row.created_at,
-        updatedAt: row.updated_at,
+        updatedAt: row.created_at, // No updated_at in schema, fallback to created_at
     }));
 
     return NextResponse.json(
@@ -74,18 +73,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "'transcript' is required" }, { status: 422, headers: CORS });
     }
 
-    const key = `manual_${Date.now()}`;
-    const { data, error } = await supabaseAdmin.from("items").insert({
-        user_id: "anonymous_user",
-        type: "voice",
-        source: "manual",
-        source_type: "text",
-        title: body.title ?? null,
-        content: body.transcript,
-        source_url: body.audioUrl ?? null,
-        metadata: body.audioUrl ? { file_url: body.audioUrl } : {},
-        dedupe_key: key,
-        content_hash: key,
+    const { data, error } = await supabaseAdmin.from("memos").insert({
+        title: body.title ?? "Manual Voice Memo",
+        transcript: body.transcript,
+        audio_url: body.audioUrl ?? "",
     }).select().single();
 
     if (error) {
@@ -97,8 +88,8 @@ export async function POST(req: NextRequest) {
             memo: {
                 id: data.id,
                 title: data.title,
-                transcript: data.content,
-                audioUrl: data.source_url,
+                transcript: data.transcript,
+                audioUrl: data.audio_url,
                 createdAt: data.created_at,
             },
         },

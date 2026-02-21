@@ -3,10 +3,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import AudioRecorder from "@/components/AudioRecorder";
+import type { UploadCompletePayload } from "@/components/AudioRecorder";
+import ThemeToggle from "@/components/ThemeToggle";
 import {
   Mic2, CloudSync, BrainCircuit, Search, Calendar,
   ChevronDown, ChevronUp, Play, Pause, ExternalLink,
-  FileAudio, AlignLeft, Cpu, Loader2, Clock,
+  FileAudio, AlignLeft, Cpu, Loader2, Clock, FileDown,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -36,6 +38,50 @@ function formatSecs(s: number) {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
   return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+
+function exportMarkdown(memo: Memo) {
+  const date = new Date(memo.createdAt).toISOString();
+  const duration = memo.durationSeconds != null ? formatSecs(memo.durationSeconds) : "unknown";
+  const safeTitle = date.slice(0, 10);
+
+  const md = [
+    "---",
+    `id: ${memo.id}`,
+    `date: "${date}"`,
+    `model: "${memo.modelUsed ?? "unknown"}"`,
+    `word_count: ${memo.wordCount}`,
+    `duration: "${duration}"`,
+    memo.url ? `audio_url: "${memo.url}"` : null,
+    "---",
+    "",
+    "# Voice Memo Transcript",
+    "",
+    "## Metadata",
+    "",
+    `| Field | Value |`,
+    `| ----- | ----- |`,
+    `| Date | ${new Date(memo.createdAt).toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" })} |`,
+    `| Duration | ${duration} |`,
+    `| Word count | ${memo.wordCount} |`,
+    `| Model | ${memo.modelUsed ?? "unknown"} |`,
+    memo.url ? `| Audio | [Listen](${memo.url}) |` : null,
+    "",
+    "## Transcript",
+    "",
+    memo.transcript || "*(no transcript)*",
+    "",
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
+
+  const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `memo-${safeTitle}-${memo.id.slice(0, 8)}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function MemoCard({ memo }: { memo: Memo }) {
@@ -89,11 +135,24 @@ function MemoCard({ memo }: { memo: Memo }) {
             <span className="text-xs text-green-400/80 bg-green-400/10 px-2 py-1 rounded-full">Transcribed</span>
           )}
         </div>
-        {displayDuration != null && (
-          <span className="text-xs text-white/40 font-mono bg-white/5 px-3 py-1 rounded-full flex items-center gap-1">
-            <Clock size={10} /> {formatSecs(displayDuration)}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {displayDuration != null && (
+            <span className="text-xs text-white/40 font-mono bg-white/5 px-3 py-1 rounded-full flex items-center gap-1">
+              <Clock size={10} /> {formatSecs(displayDuration)}
+            </span>
+          )}
+          {!isFailed && memo.transcript && (
+            <button
+              id={`export-md-${memo.id}`}
+              onClick={() => exportMarkdown(memo)}
+              title="Export as Markdown"
+              className="flex items-center gap-1.5 text-xs text-white/35 hover:text-accent bg-white/5 hover:bg-accent/10 border border-white/8 hover:border-accent/30 px-2.5 py-1 rounded-full transition-all duration-200 group/export"
+            >
+              <FileDown size={11} className="transition-transform duration-200 group-hover/export:-translate-y-0.5" />
+              <span className="font-mono tracking-wide">.md</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Transcript */}
@@ -209,7 +268,7 @@ export default function Home() {
     fetchMemos();
   }, [fetchMemos]);
 
-  const handleUploadComplete = (data: any) => {
+  const handleUploadComplete = (data: UploadCompletePayload) => {
     const newMemo: Memo = {
       id: `optimistic-${Date.now()}`,
       transcript: data?.text ?? "",
@@ -231,9 +290,9 @@ export default function Home() {
 
   return (
     <main className="container mx-auto px-4 py-12 max-w-6xl">
-      <header className="flex flex-col md:flex-row items-center justify-between mb-16 space-y-6 md:space-y-0">
+      <header className="flex flex-col md:flex-row items-center justify-between mb-16 gap-6">
         <div className="flex items-center space-x-4">
-          <div className="w-12 h-12 bg-accent/20 rounded-2xl flex items-center justify-center text-accent shadow-[0_0_30px_rgba(139,92,246,0.2)] border border-accent/20">
+          <div className="w-12 h-12 bg-accent/20 rounded-2xl flex items-center justify-center text-accent shadow-[0_0_30px_var(--theme-glow)] border border-accent/20">
             <Mic2 size={24} />
           </div>
           <div>
@@ -250,15 +309,18 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="relative w-full md:w-80">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={18} />
-          <input
-            type="text"
-            placeholder="Search transcripts..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-surface border border-white/5 rounded-full py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all text-white/90 placeholder:text-white/30 shadow-inner"
-          />
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <div className="relative flex-1 md:w-80">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={18} />
+            <input
+              type="text"
+              placeholder="Search transcripts..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-surface border border-white/5 rounded-full py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all text-white/90 placeholder:text-white/30 shadow-inner"
+            />
+          </div>
+          <ThemeToggle />
         </div>
       </header>
 

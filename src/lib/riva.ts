@@ -7,6 +7,11 @@
  * Riva only supports LINEAR_PCM, FLAC, MULAW, OGGOPUS — NOT WebM.
  * Browser MediaRecorder outputs audio/webm;codecs=opus, so we use
  * ffmpeg to transcode to 16kHz mono LINEAR_PCM before sending.
+ *
+ * CONCURRENCY: Riva's cloud endpoint degrades when two Recognize calls
+ * hit the same channel simultaneously (live + final calls overlap when
+ * recording stops). We enforce a sequential call queue so calls never
+ * run concurrently — the final transcript always gets a clean channel.
  */
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
@@ -20,9 +25,58 @@ const execFileAsync = promisify(execFile);
 
 const GRPC_TARGET = "grpc.nvcf.nvidia.com:443";
 const FUNCTION_ID = "d8dd4e9b-fbf5-4fb0-9dba-8cf436c8d965";
-const PROTO_ROOT = path.join(process.cwd(), "src/lib/proto"); // contains riva/proto/*.proto
+const PROTO_ROOT = path.join(process.cwd(), "src/lib/proto");
 
-let _asrClient: any = null;
+// ── Sequential call queue ─────────────────────────────────────────────────────
+// Ensures only ONE Recognize call runs at a time.  The live endpoint fires
+// every 5 s; when recording stops the final call queues behind it instead of
+// running concurrently and degrading both results.
+let _callQueue: Promise<unknown> = Promise.resolve();
+
+function enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    const next = _callQueue.then(fn);
+    // Prevent an rejected call from poisoning the queue for future calls
+    _callQueue = next.catch(() => { });
+    return next;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+type RecognizeRequest = {
+    config: {
+        encoding: number;
+        sample_rate_hertz: number;
+        language_code: string;
+        max_alternatives: number;
+        enable_automatic_punctuation: boolean;
+    };
+    audio: Buffer;
+};
+
+type RecognizeResult = {
+    alternatives?: Array<{
+        transcript?: string;
+    }>;
+};
+
+type RecognizeResponse = {
+    results?: RecognizeResult[];
+};
+
+type RivaAsrClient = {
+    Recognize: (
+        request: RecognizeRequest,
+        metadata: grpc.Metadata,
+        callback: (err: grpc.ServiceError | null, response?: RecognizeResponse) => void
+    ) => void;
+};
+
+type RivaAsrConstructor = new (
+    address: string,
+    credentials: grpc.ChannelCredentials,
+    options?: grpc.ClientOptions
+) => RivaAsrClient;
+
+let _asrClient: RivaAsrClient | null = null;
 
 function getAsrClient() {
     if (_asrClient) return _asrClient;
@@ -39,24 +93,40 @@ function getAsrClient() {
         }
     );
 
-    const proto = grpc.loadPackageDefinition(packageDef) as any;
-    const RivaASR = proto.nvidia.riva.asr.RivaSpeechRecognition;
+    const proto = grpc.loadPackageDefinition(packageDef) as unknown as {
+        nvidia?: {
+            riva?: {
+                asr?: {
+                    RivaSpeechRecognition?: RivaAsrConstructor;
+                };
+            };
+        };
+    };
+    const RivaASR = proto.nvidia?.riva?.asr?.RivaSpeechRecognition;
+    if (!RivaASR) {
+        throw new Error("RivaSpeechRecognition service definition missing from loaded proto");
+    }
     const credentials = grpc.credentials.createSsl();
 
     _asrClient = new RivaASR(GRPC_TARGET, credentials, {
         "grpc.default_authority": "grpc.nvcf.nvidia.com",
+        // Allow plenty of concurrent streams on the channel even though we
+        // serialize at the application level — keeps the channel healthy
+        "grpc.max_concurrent_streams": 10,
     });
 
     return _asrClient;
 }
 
 /**
- * Converts any audio buffer (webm, ogg, mp4, etc.) to raw 16kHz mono s16le PCM
+ * Converts any audio buffer (webm, ogg, mp4…) to raw 16kHz mono s16le PCM
  * using ffmpeg. This is what Riva expects for LINEAR_PCM encoding.
  */
 async function toPCM16(inputBuffer: Buffer, inputExt = "webm"): Promise<Buffer> {
-    const tmpIn = path.join(os.tmpdir(), `riva-in-${Date.now()}.${inputExt}`);
-    const tmpOut = path.join(os.tmpdir(), `riva-out-${Date.now()}.raw`);
+    // Use random suffix so concurrent ffmpeg calls don't collide on filenames
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const tmpIn = path.join(os.tmpdir(), `riva-in-${id}.${inputExt}`);
+    const tmpOut = path.join(os.tmpdir(), `riva-out-${id}.raw`);
 
     try {
         await fs.writeFile(tmpIn, inputBuffer);
@@ -64,41 +134,35 @@ async function toPCM16(inputBuffer: Buffer, inputExt = "webm"): Promise<Buffer> 
         await execFileAsync("ffmpeg", [
             "-y",
             "-i", tmpIn,
-            "-ar", "16000",       // 16kHz sample rate (Parakeet requirement)
+            "-ar", "16000",       // 16 kHz (Parakeet requirement)
             "-ac", "1",           // mono
             "-f", "s16le",        // raw signed 16-bit little-endian PCM
             "-acodec", "pcm_s16le",
             tmpOut,
         ]);
 
-        const pcmBuffer = await fs.readFile(tmpOut);
-        console.log(`[riva/ffmpeg] Converted ${inputBuffer.byteLength}b → ${pcmBuffer.byteLength}b PCM`);
-        return pcmBuffer;
+        const pcm = await fs.readFile(tmpOut);
+        console.log(`[riva/ffmpeg] ${inputBuffer.byteLength}b → ${pcm.byteLength}b PCM (${(pcm.byteLength / 32000).toFixed(1)}s)`);
+        return pcm;
     } finally {
         await fs.unlink(tmpIn).catch(() => { });
         await fs.unlink(tmpOut).catch(() => { });
     }
 }
 
-export async function transcribeAudio(
-    audioBytes: Buffer,
-    apiKey: string,
-    mimeType = "audio/webm"
-): Promise<string> {
+async function _doRecognize(audioBytes: Buffer, apiKey: string, mimeType: string): Promise<string> {
     const client = getAsrClient();
 
-    // Transcode to raw LINEAR_PCM — the only reliable format for Riva
     const inputExt = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
     const pcmBuffer = await toPCM16(audioBytes, inputExt);
 
-    // Build per-request metadata (not cached on client) so we can pass the current apiKey
     const metadata = new grpc.Metadata();
     metadata.set("authorization", `Bearer ${apiKey}`);
     metadata.set("function-id", FUNCTION_ID);
 
-    const request = {
+    const request: RecognizeRequest = {
         config: {
-            encoding: 1,              // LINEAR_PCM = 1 in riva_audio.proto
+            encoding: 1,                   // LINEAR_PCM = 1 in riva_audio.proto
             sample_rate_hertz: 16000,
             language_code: "en-US",
             max_alternatives: 1,
@@ -107,20 +171,32 @@ export async function transcribeAudio(
         audio: pcmBuffer,
     };
 
-    return new Promise((resolve, reject) => {
-        client.Recognize(request, metadata, (err: any, response: any) => {
+    return new Promise<string>((resolve, reject) => {
+        client.Recognize(request, metadata, (err, response) => {
             if (err) {
                 console.error("[riva/grpc] Recognize error:", err);
                 reject(err);
                 return;
             }
-            console.log("[riva/grpc] Raw response results:", JSON.stringify(response?.results));
-            // Riva splits on silence — join ALL result segments to get the full transcript
+            console.log("[riva/grpc] results:", JSON.stringify(response?.results?.length), "segments");
+            // Riva splits on silence — join ALL segments for the full transcript
             const transcript = (response?.results ?? [])
-                .map((r: any) => r.alternatives?.[0]?.transcript ?? "")
+                .map((segment) => segment.alternatives?.[0]?.transcript ?? "")
                 .join(" ")
                 .trim();
             resolve(transcript);
         });
     });
+}
+
+/**
+ * Public entry point — always queues behind any in-flight Recognize call.
+ */
+export async function transcribeAudio(
+    audioBytes: Buffer,
+    apiKey: string,
+    mimeType = "audio/webm"
+): Promise<string> {
+    console.log(`[riva] Queuing Recognize (${(audioBytes.byteLength / 1024).toFixed(0)} KB audio)`);
+    return enqueue(() => _doRecognize(audioBytes, apiKey, mimeType));
 }

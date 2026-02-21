@@ -18,10 +18,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
     const { id } = await params;
 
     const { data, error } = await supabaseAdmin
-        .from("items")
-        .select("id, title, content, source_url, metadata, created_at, updated_at")
+        .from("memos")
+        .select("id, title, transcript, audio_url, duration, created_at")
         .eq("id", id)
-        .eq("type", "voice")
         .single();
 
     if (error || !data) {
@@ -33,11 +32,12 @@ export async function GET(_req: NextRequest, { params }: Params) {
             memo: {
                 id: data.id,
                 title: data.title ?? null,
-                transcript: data.content ?? "",
-                audioUrl: data.source_url ?? data.metadata?.file_url ?? null,
-                wordCount: data.content ? data.content.split(/\s+/).filter(Boolean).length : 0,
+                transcript: data.transcript ?? "",
+                url: data.audio_url ?? null,
+                duration: data.duration ?? null,
+                wordCount: data.transcript ? data.transcript.split(/\s+/).filter(Boolean).length : 0,
                 createdAt: data.created_at,
-                updatedAt: data.updated_at,
+                updatedAt: data.created_at,
             },
         },
         { headers: CORS }
@@ -59,18 +59,16 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         return NextResponse.json({ error: "Invalid JSON body" }, { status: 400, headers: CORS });
     }
 
-    const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    const updates: Record<string, unknown> = {};
     if (body.title !== undefined) updates.title = body.title;
     if (body.transcript !== undefined) {
-        updates.content = body.transcript;
-        updates.content_hash = `manual_edit_${Date.now()}`;
+        updates.transcript = body.transcript;
     }
 
     const { data, error } = await supabaseAdmin
-        .from("items")
+        .from("memos")
         .update(updates)
         .eq("id", id)
-        .eq("type", "voice")
         .select()
         .single();
 
@@ -83,9 +81,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
             memo: {
                 id: data.id,
                 title: data.title ?? null,
-                transcript: data.content ?? "",
-                audioUrl: data.source_url,
-                updatedAt: data.updated_at,
+                transcript: data.transcript ?? "",
+                url: data.audio_url,
+                updatedAt: data.created_at,
             },
         },
         { headers: CORS }
@@ -97,10 +95,9 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     const { id } = await params;
 
     const { error } = await supabaseAdmin
-        .from("items")
+        .from("memos")
         .delete()
-        .eq("id", id)
-        .eq("type", "voice");
+        .eq("id", id);
 
     if (error) {
         return NextResponse.json({ error: error.message }, { status: 500, headers: CORS });
