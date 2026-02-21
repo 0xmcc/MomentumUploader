@@ -254,195 +254,143 @@ export default function AudioRecorder({
     );
 
     return (
-        <div className="w-full max-w-md mx-auto bg-surface/50 border border-white/5 rounded-3xl p-8 backdrop-blur-xl shadow-2xl">
-            <div className="flex flex-col items-center space-y-6">
-
-                {/* ── Recording state ── */}
-                {!audioUrl && (
-                    <div className="flex flex-col items-center w-full">
-                        <h2 className="text-2xl font-semibold mb-1">
-                            {isRecording ? "Listening..." : "Record Memo"}
-                        </h2>
-                        <p className="text-white/40 text-sm font-mono tracking-widest mb-6">
-                            {formatTime(recordingTime)}
-                        </p>
-
-                        {isRecording && (
-                            <div className="mb-6">
-                                <WaveformBars />
-                            </div>
-                        )}
-
-                        {/* Mic / Stop button */}
-                        <button
-                            onClick={isRecording ? stopRecording : startRecording}
-                            className={`relative flex items-center justify-center w-24 h-24 rounded-full transition-all duration-300 ${isRecording
-                                ? "bg-red-500/20 text-red-500"
-                                : "bg-accent/20 text-accent hover:bg-accent/30 hover:scale-105"
-                                }`}
-                        >
-                            <div className={`absolute inset-0 rounded-full border border-current ${isRecording ? "opacity-40 animate-ping" : "opacity-10"}`} />
-                            <div className="absolute inset-0 rounded-full border border-current opacity-20" />
-                            {isRecording ? <Square fill="currentColor" size={32} /> : <Mic size={36} />}
-                        </button>
-
-                        {/* ── Live transcript panel ── */}
-                        <AnimatePresence>
-                            {isRecording && (
+        <div className="flex flex-col h-full w-full bg-[#121212]">
+            {/* Header / Status */}
+            <div className="flex justify-between items-center px-8 py-6 border-b border-white/5 bg-[#121212]/50 backdrop-blur-md z-10">
+                <div className="flex flex-col">
+                    <h2 className="text-xl font-semibold text-white/90">
+                        {isRecording ? "Listening..." : (audioUrl ? "Review Recording" : "New Recording")}
+                    </h2>
+                    <p className="text-white/40 text-[10px] font-mono tracking-widest mt-1 uppercase">
+                        {isRecording ? formatTime(recordingTime) : (isUploading ? "Transcribing with NVIDIA..." : "Ready to record")}
+                    </p>
+                </div>
+                {isRecording && (
+                    <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1 h-4">
+                            {Array.from({ length: 8 }).map((_, i) => (
                                 <motion.div
-                                    initial={{ opacity: 0, y: 10, height: 0 }}
-                                    animate={{ opacity: 1, y: 0, height: "auto" }}
-                                    exit={{ opacity: 0, y: 10, height: 0 }}
-                                    transition={{ duration: 0.25 }}
-                                    className="w-full mt-8 overflow-hidden"
-                                >
-                                    <div className="bg-white/[0.03] border border-white/8 rounded-2xl p-5">
-                                        {/* Panel header */}
-                                        <div className="flex items-center gap-2 mb-3">
-                                            <Sparkles size={12} className="text-accent" />
-                                            <span className="text-xs font-bold text-accent/80 uppercase tracking-widest">
-                                                Live Transcript
-                                            </span>
-
-                                            {liveStatus === "pending" && (
-                                                <span className="ml-auto flex items-center gap-1.5 text-xs text-white/30">
-                                                    <Loader2 size={10} className="animate-spin" />
-                                                    Transcribing…
-                                                </span>
-                                            )}
-                                            {liveStatus === "ok" && (
-                                                <span className="ml-auto text-xs text-white/20">
-                                                    updating live
-                                                </span>
-                                            )}
-                                            {liveStatus === "idle" && recordingTime >= RECORDER_TIMESLICE_MS / 1000 && (
-                                                <span className="ml-auto text-xs text-white/20">
-                                                    listening…
-                                                </span>
-                                            )}
-                                        </div>
-
-                                        {/* Transcript text — scrollable, auto-scrolls to bottom */}
-                                        <div
-                                            ref={transcriptScrollRef}
-                                            className="max-h-40 overflow-y-auto pr-1 scrollbar-thin"
-                                            style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(139,92,246,0.3) transparent" }}
-                                        >
-                                            {liveTranscript ? (
-                                                <p className="text-white/80 text-sm leading-relaxed min-h-[40px]">
-                                                    {animatedWords.map((word, index) => {
-                                                        const isNewWord = index >= newWordStartIndex;
-                                                        return (
-                                                            <motion.span
-                                                                key={`${index}-${word}`}
-                                                                className="inline-block mr-1"
-                                                                initial={
-                                                                    isNewWord
-                                                                        ? { opacity: 0, y: 8, filter: "blur(6px)" }
-                                                                        : false
-                                                                }
-                                                                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                                                                transition={{
-                                                                    duration: 0.32,
-                                                                    ease: [0.22, 1, 0.36, 1],
-                                                                    delay: isNewWord ? (index - newWordStartIndex) * 0.03 : 0,
-                                                                }}
-                                                            >
-                                                                {word}
-                                                            </motion.span>
-                                                        );
-                                                    })}
-                                                    <motion.span
-                                                        className="inline-block w-0.5 h-[1em] bg-accent/80 ml-0.5 align-middle"
-                                                        animate={{ opacity: [1, 0, 1] }}
-                                                        transition={{ duration: 1, repeat: Infinity }}
-                                                    />
-                                                </p>
-                                            ) : (
-                                                <p className="text-white/25 text-sm italic min-h-[40px]">
-                                                    {recordingTime < RECORDER_TIMESLICE_MS / 1000
-                                                        ? "First update in ~1s — start speaking"
-                                                        : "Waiting for transcript…"}
-                                                </p>
-                                            )}
-                                        </div>
-                                    </div>
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
+                                    key={i}
+                                    className="w-0.5 rounded-full bg-red-500/50"
+                                    animate={{ height: ["4px", `${Math.random() * 12 + 4}px`, "4px"] }}
+                                    transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.05 }}
+                                />
+                            ))}
+                        </div>
                     </div>
                 )}
-
-                {/* ── Post-record / uploading state ── */}
-                {audioUrl && (
-                    <AnimatePresence>
-                        <motion.div
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="flex flex-col items-center w-full"
-                        >
-                            <h2 className="text-xl font-medium mb-1">
-                                {isUploading ? "Transcribing…" : "Review Recording"}
-                            </h2>
-                            <p className="text-white/35 text-sm mb-8">
-                                {isUploading ? "Uploading to Supabase · Running NVIDIA Parakeet" : "Play it back or upload to save"}
-                            </p>
-
-                            <audio
-                                ref={audioPlayerRef}
-                                src={audioUrl}
-                                onEnded={() => setIsPlaying(false)}
-                                className="hidden"
-                            />
-
-                            <div className="flex items-center space-x-6 w-full justify-center">
-                                <button
-                                    onClick={resetRecording}
-                                    disabled={isUploading}
-                                    className="p-4 rounded-full bg-white/5 text-white/60 hover:text-white hover:bg-white/10 transition disabled:opacity-40"
-                                    aria-label="Discard"
-                                >
-                                    <Trash2 size={22} />
-                                </button>
-
-                                <button
-                                    onClick={togglePlayback}
-                                    disabled={isUploading}
-                                    className="p-6 rounded-full bg-white/10 text-white hover:bg-white/15 transition shadow-lg disabled:opacity-40"
-                                    aria-label="Play"
-                                >
-                                    {isPlaying ? <Pause size={26} /> : <Play size={26} className="translate-x-0.5" />}
-                                </button>
-
-                                <button
-                                    onClick={() => handleUpload()}
-                                    disabled={isUploading}
-                                    className="p-4 rounded-full bg-accent/20 text-accent hover:bg-accent hover:text-white transition shadow-[0_0_20px_rgba(139,92,246,0.3)] disabled:opacity-40"
-                                    aria-label="Save"
-                                >
-                                    {isUploading
-                                        ? <Loader2 className="animate-spin" size={22} />
-                                        : <UploadCloud size={22} />}
-                                </button>
-                            </div>
-
-                            {isUploading && (
-                                <div className="mt-6 flex items-center gap-2 text-sm text-accent/70">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-                                    Running full transcription…
-                                </div>
-                            )}
-
-                            {/* Show last live transcript as a preview while uploading */}
-                            {liveTranscript && isUploading && (
-                                <div className="mt-4 w-full bg-white/[0.02] border border-white/5 rounded-xl p-4">
-                                    <p className="text-xs text-white/30 mb-1 font-mono uppercase tracking-widest">Last live preview</p>
-                                    <p className="text-white/50 text-sm leading-relaxed">{liveTranscript}</p>
-                                </div>
-                            )}
-                        </motion.div>
-                    </AnimatePresence>
+                {isUploading && (
+                    <div className="flex items-center gap-2">
+                        <Loader2 size={14} className="animate-spin text-accent" />
+                        <span className="text-[10px] text-accent/80 font-mono uppercase tracking-tight">Processing</span>
+                    </div>
                 )}
+            </div>
+
+            {/* Maximized Live Transcript Area */}
+            <div className="flex-1 overflow-y-auto px-8 py-10 relative">
+                <div className="max-w-3xl mx-auto">
+                    {isRecording || isUploading ? (
+                        <div
+                            ref={transcriptScrollRef}
+                            className="text-lg leading-relaxed"
+                        >
+                            {liveTranscript ? (
+                                <p className="text-white/80 whitespace-pre-wrap">
+                                    {animatedWords.map((word, index) => {
+                                        const isNewWord = index >= newWordStartIndex;
+                                        return (
+                                            <motion.span
+                                                key={`${index}-${word}`}
+                                                className="inline-block mr-1"
+                                                initial={
+                                                    isNewWord
+                                                        ? { opacity: 0, y: 8, filter: "blur(6px)" }
+                                                        : false
+                                                }
+                                                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                                                transition={{
+                                                    duration: 0.32,
+                                                    ease: [0.22, 1, 0.36, 1],
+                                                    delay: isNewWord ? (index - newWordStartIndex) * 0.03 : 0,
+                                                }}
+                                            >
+                                                {word}
+                                            </motion.span>
+                                        );
+                                    })}
+                                    {isRecording && (
+                                        <motion.span
+                                            className="inline-block w-0.5 h-[1em] bg-accent/80 ml-0.5 align-middle"
+                                            animate={{ opacity: [1, 0, 1] }}
+                                            transition={{ duration: 1, repeat: Infinity }}
+                                        />
+                                    )}
+                                </p>
+                            ) : (
+                                <p className="text-white/20 text-lg italic italic">
+                                    {recordingTime < 1 ? "Start speaking..." : "Waiting for transcript..."}
+                                </p>
+                            )}
+                        </div>
+                    ) : !audioUrl ? (
+                        <div className="h-full flex flex-col items-center justify-center text-white/10 select-none">
+                            <Mic size={80} strokeWidth={1} />
+                            <p className="mt-6 text-sm font-mono uppercase tracking-[0.2em]">Tap the button below to start</p>
+                        </div>
+                    ) : (
+                        <div className="text-lg text-white/40 italic">
+                            Recording finished. You can review it before saving.
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Bottom Controls */}
+            <div className="bg-[#161616] border-t border-white/10 px-8 py-10 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10">
+                <div className="max-w-3xl mx-auto flex flex-col items-center justify-center">
+
+                    {!audioUrl ? (
+                        <button
+                            onClick={isRecording ? stopRecording : startRecording}
+                            className={`relative flex items-center justify-center w-20 h-20 rounded-full transition-all duration-300 shadow-2xl ${isRecording
+                                ? "bg-red-500 text-white scale-110"
+                                : "bg-white text-black hover:scale-105 active:scale-95"
+                                }`}
+                        >
+                            {isRecording ? <Square fill="currentColor" size={24} /> : <div className="w-6 h-6 rounded-full bg-red-600 active:scale-90" />}
+                        </button>
+                    ) : (
+                        <div className="flex items-center gap-8">
+                            <button
+                                onClick={resetRecording}
+                                disabled={isUploading}
+                                className="w-12 h-12 rounded-full bg-white/5 text-white/40 hover:text-white hover:bg-white/10 transition flex items-center justify-center disabled:opacity-20"
+                                title="Discard"
+                            >
+                                <Trash2 size={20} />
+                            </button>
+
+                            <button
+                                onClick={togglePlayback}
+                                disabled={isUploading}
+                                className="w-20 h-20 rounded-full bg-white text-black hover:scale-105 active:scale-95 shadow-2xl flex items-center justify-center transition-all disabled:opacity-50"
+                                title="Play"
+                            >
+                                {isPlaying ? <Pause size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" className="translate-x-0.5" />}
+                            </button>
+
+                            <button
+                                onClick={() => handleUpload()}
+                                disabled={isUploading}
+                                className="w-12 h-12 rounded-full bg-accent text-white hover:scale-105 active:scale-95 shadow-lg flex items-center justify-center transition-all disabled:opacity-50 group"
+                                title="Save to Cloud"
+                            >
+                                {isUploading ? <Loader2 size={20} className="animate-spin" /> : <UploadCloud size={20} />}
+                            </button>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );

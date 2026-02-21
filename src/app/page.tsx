@@ -151,109 +151,111 @@ function MemoDetailView({ memo }: { memo: Memo }) {
   return (
     <motion.div
       key={memo.id}
-      initial={{ opacity: 0, scale: 0.98 }}
-      animate={{ opacity: 1, scale: 1 }}
-      className="w-full max-w-4xl mx-auto flex flex-col items-center p-8 py-16 min-h-full"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="flex flex-col h-full w-full"
     >
-      <div className={`w-full relative bg-surface border rounded-3xl p-8 transition-all overflow-hidden shadow-2xl ${isFailed ? "border-red-500/20" : "border-white/5"}`}>
-        <div className="absolute top-0 right-0 w-64 h-64 bg-accent/5 rounded-full blur-3xl -translate-y-32 translate-x-32" />
-
-        {/* Header */}
-        <div className="flex justify-between items-start mb-6 relative">
-          <div>
-            <h2 className="text-3xl font-semibold mb-3 text-white">
-              {formatDate(memo.createdAt)}
-            </h2>
-            <div className="flex items-center gap-2">
-              {isFailed ? (
-                <span className="text-xs text-red-400 bg-red-400/10 px-2.5 py-1 rounded-full border border-red-500/20">Transcription failed</span>
-              ) : (
-                <span className="text-xs text-green-400/80 bg-green-400/10 px-2.5 py-1 rounded-full border border-green-500/20">Transcribed</span>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            {!isFailed && memo.transcript && (
-              <button
-                onClick={() => exportMarkdown(memo)}
-                title="Export as Markdown"
-                className="flex items-center gap-1.5 text-sm text-white/50 hover:text-accent bg-white/5 hover:bg-accent/10 border border-white/8 hover:border-accent/30 px-3 py-1.5 rounded-full transition-all duration-200 group"
-              >
-                <FileDown size={14} className="transition-transform duration-200 group-hover:-translate-y-0.5" />
-                <span className="font-mono tracking-wide">Export .md</span>
-              </button>
+      {/* Minimized Header */}
+      <div className="flex justify-between items-center px-8 py-6 border-b border-white/5 bg-[#121212]/50 backdrop-blur-md z-10">
+        <div className="flex flex-col">
+          <h2 className="text-xl font-semibold text-white/90">
+            {formatDate(memo.createdAt)}
+          </h2>
+          <div className="flex items-center gap-2 mt-1">
+            {isFailed ? (
+              <span className="text-[10px] text-red-400 bg-red-400/10 px-2 py-0.5 rounded-full border border-red-500/20 uppercase tracking-tight">Failed</span>
+            ) : (
+              <span className="text-[10px] text-green-400/80 bg-green-400/10 px-2 py-0.5 rounded-full border border-green-500/20 uppercase tracking-tight">Transcribed</span>
             )}
+            {!isFailed && <span className="text-[10px] text-white/30 font-mono uppercase tracking-tight">{memo.wordCount} words</span>}
           </div>
         </div>
 
-        {/* Huge Audio player controls */}
-        {memo.url && (
-          <div className="flex flex-col gap-5 mb-8 bg-black/30 border border-white/5 rounded-3xl p-6 relative z-10">
-            <audio
-              ref={audioRef}
-              src={memo.url}
-              preload="metadata"
-              onLoadedMetadata={(e) => setAudioDuration((e.target as HTMLAudioElement).duration)}
-              onTimeUpdate={(e) => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
-              onEnded={() => { setIsPlaying(false); setCurrentTime(0); }}
-            />
-
-            {/* Simulated waveform playback UI */}
-            <div className="flex items-center justify-between font-mono text-xs text-white/40 mb-1 px-1">
-              <span>{formatSecs(currentTime)}</span>
-              <span>{displayDuration != null ? formatSecs(displayDuration) : "--:--"}</span>
-            </div>
-
-            <div
-              onClick={handleSeek}
-              className="w-full h-12 bg-white/5 rounded-xl cursor-pointer overflow-hidden relative group border border-white/5"
-            >
-              <div className="absolute inset-0 flex items-center justify-around opacity-30 px-1 pointer-events-none">
-                {Array.from({ length: 60 }).map((_, i) => {
-                  const active = (i / 60) * 100 <= progress;
-                  return (
-                    <div key={i} className={`w-1 rounded-full transition-colors ${active ? "bg-accent/80" : "bg-white/40"} ${isPlaying && active ? "animate-pulse" : ""}`} style={{ height: `${20 + Math.random() * 80}%` }} />
-                  )
-                })}
-              </div>
-              <div
-                className="absolute left-0 top-0 h-full bg-blue-500/20 mix-blend-screen"
-                style={{ width: `${progress}%`, transition: "width 0.1s linear" }}
-              />
-            </div>
-
-            <div className="flex items-center justify-center mt-2">
-              <button
-                onClick={togglePlay}
-                className="w-16 h-16 rounded-full bg-accent text-white hover:scale-105 shadow-[0_0_20px_rgba(139,92,246,0.3)] flex items-center justify-center transition-all flex-shrink-0 border border-white/10"
-              >
-                {isPlaying ? <Pause size={24} /> : <Play size={24} className="translate-x-1" />}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Meta row */}
-        <div className="flex flex-wrap items-center gap-4 text-xs text-white/40 mb-6 relative z-10 border-t border-white/5 pt-6">
-          {!isFailed && <span className="flex items-center gap-1.5"><AlignLeft size={12} /> {memo.wordCount} words</span>}
+        <div className="flex items-center gap-3">
           {memo.modelUsed && (
-            <span className="flex items-center gap-1.5"><Cpu size={12} /> {memo.modelUsed}</span>
+            <span className="hidden sm:flex items-center gap-1.5 text-[10px] text-white/30 font-mono uppercase tracking-tight">
+              <Cpu size={10} /> {memo.modelUsed}
+            </span>
           )}
-          {memo.url && (
-            <a href={memo.url} target="_blank" rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-accent/60 hover:text-accent transition-colors">
-              <ExternalLink size={12} /> Open in Storage
-            </a>
+          {!isFailed && memo.transcript && (
+            <button
+              onClick={() => exportMarkdown(memo)}
+              title="Export as Markdown"
+              className="flex items-center gap-1.5 text-xs text-white/50 hover:text-accent bg-white/5 hover:bg-accent/10 border border-white/10 hover:border-accent/30 px-3 py-1.5 rounded-full transition-all duration-200 group"
+            >
+              <FileDown size={14} className="transition-transform duration-200 group-hover:-translate-y-0.5" />
+              <span className="hidden sm:inline font-mono tracking-wide">Export .md</span>
+            </button>
           )}
         </div>
+      </div>
 
-        {/* Transcript */}
-        <div className="relative z-10 bg-white/[0.02] border border-white/5 rounded-2xl p-6">
-          <h3 className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-4">Transcript</h3>
-          <p className={`text-base leading-relaxed ${isFailed ? "text-red-300/50 italic" : "text-white/80"
-            }`}>
+      {/* Maximized Transcript Area */}
+      <div className="flex-1 overflow-y-auto px-8 py-10 relative">
+        <div className="max-w-3xl mx-auto">
+          <div className={`text-lg leading-relaxed whitespace-pre-wrap ${isFailed ? "text-red-300/40 italic" : "text-white/80"}`}>
             {memo.transcript || "No transcript available."}
-          </p>
+          </div>
+
+          {/* Subtle metadata at bottom of transcript */}
+          {memo.url && (
+            <div className="mt-12 pt-8 border-t border-white/5 flex items-center justify-between text-[11px] text-white/20 font-mono uppercase tracking-widest">
+              <span>Recorded {new Date(memo.createdAt).toLocaleString()}</span>
+              <a href={memo.url} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1.5 hover:text-accent transition-colors">
+                <ExternalLink size={11} /> Source
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Fixed Bottom Controls */}
+      <div className="bg-[#161616] border-t border-white/10 px-8 py-8 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10">
+        <div className="max-w-3xl mx-auto flex flex-col gap-6">
+          {memo.url && (
+            <div className="flex flex-col gap-3">
+              <audio
+                ref={audioRef}
+                src={memo.url}
+                preload="metadata"
+                onLoadedMetadata={(e) => setAudioDuration((e.target as HTMLAudioElement).duration)}
+                onTimeUpdate={(e) => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
+                onEnded={() => { setIsPlaying(false); setCurrentTime(0); }}
+              />
+
+              {/* Progress Bar & Times */}
+              <div className="flex flex-col gap-2">
+                <div
+                  onClick={handleSeek}
+                  className="w-full h-1.5 bg-white/10 rounded-full cursor-pointer relative group overflow-hidden"
+                >
+                  <div
+                    className="absolute left-0 top-0 h-full bg-blue-500 transition-all duration-100 ease-linear shadow-[0_0_8px_rgba(59,130,246,0.5)]"
+                    style={{ width: `${progress}%` }}
+                  />
+                  <div
+                    className="absolute h-full w-0.5 bg-white scale-y-150 transition-all opacity-0 group-hover:opacity-100"
+                    style={{ left: `${progress}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between font-mono text-[10px] text-white/30 tracking-tighter tabular-nums">
+                  <span>{formatSecs(currentTime)}</span>
+                  <span>{displayDuration != null ? formatSecs(displayDuration) : "--:--"}</span>
+                </div>
+              </div>
+
+              {/* Playback Controls */}
+              <div className="flex items-center justify-center">
+                <button
+                  onClick={togglePlay}
+                  className="w-14 h-14 rounded-full bg-white text-black hover:scale-105 active:scale-95 shadow-xl flex items-center justify-center transition-all flex-shrink-0"
+                >
+                  {isPlaying ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" className="translate-x-0.5" />}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </motion.div>
