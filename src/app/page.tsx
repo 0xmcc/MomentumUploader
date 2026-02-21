@@ -311,22 +311,22 @@ export default function Home() {
   return (
     <main className="flex h-screen w-full bg-[#0A0A0A] overflow-hidden text-white font-sans">
       {/* Left Sidebar */}
-      <aside className="w-80 flex-shrink-0 flex flex-col border-r border-white/10 bg-[#0F0F0F] z-20">
+      <aside className="w-80 flex-shrink-0 flex flex-col border-r border-white/10 bg-[#0F0F0F]/80 backdrop-blur-xl z-20">
         {/* Header inside sidebar */}
-        <div className="p-5 border-b border-white/5 flex flex-col gap-5">
+        <div className="p-6 border-b border-white/5 flex flex-col gap-6">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-accent/20 rounded-lg flex items-center justify-center text-accent shadow-[0_0_15px_var(--theme-glow)] border border-accent/20">
-                <Mic2 size={16} />
+            <div className="flex items-center gap-3 active:scale-95 transition-transform cursor-default">
+              <div className="w-10 h-10 bg-accent/20 rounded-xl flex items-center justify-center text-accent shadow-[0_0_20px_var(--theme-glow)] border border-accent/20">
+                <Mic2 size={20} />
               </div>
-              <h1 className="text-xl font-bold tracking-tight text-white/95">Memos</h1>
+              <h1 className="text-2xl font-bold tracking-tight text-white/95">Memos</h1>
             </div>
             <button
               onClick={() => setSelectedMemoId(null)}
-              className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/70 transition-colors border border-white/10"
+              className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 active:scale-90 flex items-center justify-center text-white/70 transition-all border border-white/10 shadow-lg"
               title="New Recording"
             >
-              <Plus size={18} />
+              <Plus size={22} />
             </button>
           </div>
 
