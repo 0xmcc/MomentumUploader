@@ -2,11 +2,11 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Palette, Check } from "lucide-react";
+import { Palette, Check, Zap } from "lucide-react";
 import { useTheme, THEMES, ThemeId } from "./ThemeProvider";
 
 export default function ThemeToggle() {
-    const { theme, setTheme } = useTheme();
+    const { theme, setTheme, playbackTheme, setPlaybackTheme } = useTheme();
     const [open, setOpen] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
 
@@ -163,12 +163,44 @@ export default function ThemeToggle() {
 
                         {/* Bottom decorative bar */}
                         <div
-                            className="mt-3 h-px rounded-full"
+                            className="mt-4 h-px rounded-full"
                             style={{
                                 background: `linear-gradient(to right, transparent, var(--accent), transparent)`,
                                 opacity: 0.3,
                             }}
                         />
+
+                        {/* Playback Theme Section */}
+                        <div className="mt-4 px-1">
+                            <p
+                                className="text-[10px] font-semibold uppercase tracking-widest mb-3 opacity-40"
+                                style={{ color: "var(--foreground)" }}
+                            >
+                                Playback Style
+                            </p>
+                            <div className="flex bg-black/40 border border-white/5 rounded-xl p-1 gap-1">
+                                <button
+                                    onClick={() => setPlaybackTheme("neutral")}
+                                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-mono uppercase tracking-tight transition-all ${playbackTheme === "neutral"
+                                        ? "bg-white text-black shadow-lg"
+                                        : "text-white/40 hover:text-white/60 hover:bg-white/5"
+                                        }`}
+                                >
+                                    <Palette size={10} />
+                                    Neutral
+                                </button>
+                                <button
+                                    onClick={() => setPlaybackTheme("accent")}
+                                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-mono uppercase tracking-tight transition-all ${playbackTheme === "accent"
+                                        ? "bg-accent text-white shadow-lg shadow-accent/20"
+                                        : "text-white/40 hover:text-white/60 hover:bg-white/5"
+                                        }`}
+                                >
+                                    <Zap size={10} />
+                                    Accent
+                                </button>
+                            </div>
+                        </div>
                     </motion.div>
                 )}
             </AnimatePresence>

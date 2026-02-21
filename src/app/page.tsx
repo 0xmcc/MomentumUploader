@@ -111,11 +111,14 @@ function MemoListItem({ memo, isActive, onClick }: { memo: Memo, isActive: boole
   );
 }
 
+import { useTheme } from "@/components/ThemeProvider";
+
 function MemoDetailView({ memo }: { memo: Memo }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const { playbackTheme } = useTheme();
 
   const isFailed = memo.transcript === "[Transcription failed]" || !memo.transcript;
 
@@ -211,10 +214,10 @@ function MemoDetailView({ memo }: { memo: Memo }) {
       </div>
 
       {/* Fixed Bottom Controls */}
-      <div className="bg-[#161616] border-t border-white/10 px-8 py-8 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10">
-        <div className="max-w-3xl mx-auto flex flex-col gap-6">
+      <div className="bg-[#161616] border-t border-white/10 px-8 py-10 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10">
+        <div className="max-w-3xl mx-auto flex flex-col gap-8">
           {memo.url && (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-6">
               <audio
                 ref={audioRef}
                 src={memo.url}
@@ -225,13 +228,14 @@ function MemoDetailView({ memo }: { memo: Memo }) {
               />
 
               {/* Progress Bar & Times */}
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-3">
                 <div
                   onClick={handleSeek}
-                  className="w-full h-1.5 bg-white/10 rounded-full cursor-pointer relative group overflow-hidden"
+                  className="w-full h-1.5 bg-white/5 rounded-full cursor-pointer relative group overflow-hidden"
                 >
                   <div
-                    className="absolute left-0 top-0 h-full bg-blue-500 transition-all duration-100 ease-linear shadow-[0_0_8px_rgba(59,130,246,0.5)]"
+                    className={`absolute left-0 top-0 h-full transition-all duration-100 ease-linear ${playbackTheme === "accent" ? "bg-accent shadow-[0_0_12px_var(--accent)]" : "bg-white/60 shadow-[0_0_12px_rgba(255,255,255,0.3)]"
+                      }`}
                     style={{ width: `${progress}%` }}
                   />
                   <div
@@ -239,19 +243,42 @@ function MemoDetailView({ memo }: { memo: Memo }) {
                     style={{ left: `${progress}%` }}
                   />
                 </div>
-                <div className="flex items-center justify-between font-mono text-[10px] text-white/30 tracking-tighter tabular-nums">
+                <div className="flex items-center justify-between font-mono text-[11px] text-white/20 tracking-tighter tabular-nums uppercase">
                   <span>{formatSecs(currentTime)}</span>
                   <span>{displayDuration != null ? formatSecs(displayDuration) : "--:--"}</span>
                 </div>
               </div>
 
-              {/* Playback Controls */}
-              <div className="flex items-center justify-center">
+              {/* Sophisticated Play Button */}
+              <div className="flex items-center justify-center py-4">
                 <button
                   onClick={togglePlay}
-                  className="w-14 h-14 rounded-full bg-white text-black hover:scale-105 active:scale-95 shadow-xl flex items-center justify-center transition-all flex-shrink-0"
+                  className="group relative flex items-center justify-center w-24 h-24 rounded-full transition-all duration-300 hover:scale-105 active:scale-95"
                 >
-                  {isPlaying ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" className="translate-x-0.5" />}
+                  {/* Outer Glow */}
+                  <div className={`absolute inset-0 rounded-full blur-2xl transition-opacity duration-500 ${playbackTheme === "accent" ? "bg-accent/20 group-hover:bg-accent/30" : "bg-white/5 group-hover:bg-white/10"
+                    }`} />
+
+                  {/* Layered Rings */}
+                  <div className="absolute inset-0 rounded-full bg-[#121212] border border-white/5 shadow-2xl" />
+                  <div className={`absolute inset-1.5 rounded-full border border-white/5 ${playbackTheme === "accent" ? "bg-accent/5" : "bg-white/[0.02]"
+                    }`} />
+
+                  {/* Inner Ring with Seeker-like color */}
+                  <div className={`absolute inset-4 rounded-full border transition-colors duration-300 ${playbackTheme === "accent" ? "border-accent/20 bg-accent/10" : "border-white/10 bg-white/5"
+                    }`} />
+
+                  {/* Core Button */}
+                  <div className={`absolute inset-[22%] rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 ${playbackTheme === "accent"
+                    ? "bg-white text-black group-hover:bg-accent group-hover:text-white"
+                    : "bg-white/10 text-white group-hover:bg-white group-hover:text-black"
+                    }`}>
+                    {isPlaying ? (
+                      <Pause size={32} fill="currentColor" />
+                    ) : (
+                      <Play size={32} fill="currentColor" className="translate-x-0.5" />
+                    )}
+                  </div>
                 </button>
               </div>
             </div>

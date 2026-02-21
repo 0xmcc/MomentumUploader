@@ -15,6 +15,8 @@ export type UploadCompletePayload = {
     durationSeconds?: number;
 };
 
+import { useTheme } from "./ThemeProvider";
+
 export default function AudioRecorder({
     onUploadComplete,
 }: {
@@ -30,6 +32,7 @@ export default function AudioRecorder({
     const [animatedWords, setAnimatedWords] = useState<string[]>([]);
     const [newWordStartIndex, setNewWordStartIndex] = useState(0);
     const [liveStatus, setLiveStatus] = useState<"idle" | "pending" | "ok">("idle");
+    const { playbackTheme } = useTheme();
 
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
@@ -347,46 +350,92 @@ export default function AudioRecorder({
             </div>
 
             {/* Bottom Controls */}
-            <div className="bg-[#161616] border-t border-white/10 px-8 py-10 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10">
-                <div className="max-w-3xl mx-auto flex flex-col items-center justify-center">
-
+            <div className="bg-[#161616] border-t border-white/10 px-8 py-10 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10 transition-all duration-500">
+                <div className="max-w-3xl mx-auto flex flex-col items-center justify-center gap-10">
                     {!audioUrl ? (
-                        <button
-                            onClick={isRecording ? stopRecording : startRecording}
-                            className={`relative flex items-center justify-center w-20 h-20 rounded-full transition-all duration-300 shadow-2xl ${isRecording
-                                ? "bg-red-500 text-white scale-110"
-                                : "bg-white text-black hover:scale-105 active:scale-95"
-                                }`}
-                        >
-                            {isRecording ? <Square fill="currentColor" size={24} /> : <div className="w-6 h-6 rounded-full bg-red-600 active:scale-90" />}
-                        </button>
+                        /* Recording Button Shell */
+                        <div className="relative flex items-center justify-center w-28 h-28">
+                            <button
+                                onClick={isRecording ? stopRecording : startRecording}
+                                className={`group relative flex items-center justify-center w-full h-full rounded-full transition-all duration-500 ${isRecording ? "scale-110" : "hover:scale-105 active:scale-95"
+                                    }`}
+                            >
+                                {/* Outer Glow/Ring */}
+                                <div className={`absolute inset-0 rounded-full blur-2xl transition-all duration-700 ${isRecording
+                                    ? "bg-red-500/40 animate-pulse"
+                                    : (playbackTheme === "accent" ? "bg-accent/20 group-hover:bg-accent/30" : "bg-white/5 group-hover:bg-white/10")
+                                    }`} />
+
+                                {/* Background Layers */}
+                                <div className="absolute inset-0 rounded-full bg-[#121212] border border-white/5 shadow-2xl" />
+                                <div className={`absolute inset-2 rounded-full border border-white/5 transition-colors duration-500 ${isRecording ? "bg-red-500/10 border-red-500/20" : "bg-white/[0.02]"
+                                    }`} />
+
+                                {/* Inner Ring */}
+                                <div className={`absolute inset-5 rounded-full border transition-all duration-500 ${isRecording
+                                    ? "border-red-500/40 bg-red-500/20"
+                                    : (playbackTheme === "accent" ? "border-accent/20 bg-accent/10" : "border-white/10 bg-white/5")
+                                    }`} />
+
+                                {/* Core Button Component */}
+                                <div className={`absolute inset-[24%] rounded-full flex items-center justify-center shadow-2xl transition-all duration-500 ${isRecording
+                                    ? "bg-red-500 text-white shadow-red-500/40"
+                                    : (playbackTheme === "accent" ? "bg-white text-black group-hover:bg-accent group-hover:text-white" : "bg-white/10 text-white group-hover:bg-white group-hover:text-black")
+                                    }`}>
+                                    {isRecording ? (
+                                        <Square fill="currentColor" size={28} className="animate-in zoom-in duration-300" />
+                                    ) : (
+                                        <div className="w-6 h-6 rounded-full bg-red-600 transition-transform group-hover:scale-110" />
+                                    )}
+                                </div>
+                            </button>
+                        </div>
                     ) : (
-                        <div className="flex items-center gap-8">
+                        <div className="flex items-center gap-12">
+                            {/* Discard Button */}
                             <button
                                 onClick={resetRecording}
                                 disabled={isUploading}
-                                className="w-12 h-12 rounded-full bg-white/5 text-white/40 hover:text-white hover:bg-white/10 transition flex items-center justify-center disabled:opacity-20"
+                                className="group relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-90 disabled:opacity-20"
                                 title="Discard"
                             >
-                                <Trash2 size={20} />
+                                <div className="absolute inset-0 rounded-full bg-white/5 border border-white/5 group-hover:bg-red-500/10 group-hover:border-red-500/20 transition-colors" />
+                                <Trash2 size={20} className="relative z-10 text-white/30 group-hover:text-red-400 transition-colors" />
                             </button>
 
+                            {/* Playback Button (Nested Aesthetic) */}
                             <button
                                 onClick={togglePlayback}
                                 disabled={isUploading}
-                                className="w-20 h-20 rounded-full bg-white text-black hover:scale-105 active:scale-95 shadow-2xl flex items-center justify-center transition-all disabled:opacity-50"
+                                className="group relative flex items-center justify-center w-24 h-24 rounded-full transition-all duration-300 hover:scale-105 active:scale-95 disabled:opacity-50"
                                 title="Play"
                             >
-                                {isPlaying ? <Pause size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" className="translate-x-0.5" />}
+                                <div className={`absolute inset-0 rounded-full blur-2xl transition-opacity duration-500 ${playbackTheme === "accent" ? "bg-accent/20 group-hover:bg-accent/30" : "bg-white/5 group-hover:bg-white/10"
+                                    }`} />
+                                <div className="absolute inset-0 rounded-full bg-[#121212] border border-white/5 shadow-2xl" />
+                                <div className={`absolute inset-4 rounded-full border transition-all duration-500 ${playbackTheme === "accent" ? "border-accent/20 bg-accent/10" : "border-white/10 bg-white/5"
+                                    }`} />
+                                <div className={`absolute inset-[24%] rounded-full flex items-center justify-center shadow-2xl transition-all duration-500 ${playbackTheme === "accent" ? "bg-white text-black group-hover:bg-accent group-hover:text-white" : "bg-white/10 text-white group-hover:bg-white group-hover:text-black"
+                                    }`}>
+                                    {isPlaying ? <Pause size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" className="translate-x-0.5" />}
+                                </div>
                             </button>
 
+                            {/* Upload Button */}
                             <button
                                 onClick={() => handleUpload()}
                                 disabled={isUploading}
-                                className="w-12 h-12 rounded-full bg-accent text-white hover:scale-105 active:scale-95 shadow-lg flex items-center justify-center transition-all disabled:opacity-50 group"
+                                className="group relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-90 disabled:opacity-20"
                                 title="Save to Cloud"
                             >
-                                {isUploading ? <Loader2 size={20} className="animate-spin" /> : <UploadCloud size={20} />}
+                                <div className={`absolute inset-0 rounded-full border border-white/5 transition-colors ${playbackTheme === "accent" ? "bg-accent/10 border-accent/20 group-hover:bg-accent/20" : "bg-white/5 group-hover:bg-white/10"
+                                    }`} />
+                                {isUploading ? (
+                                    <Loader2 size={24} className="relative z-10 animate-spin text-accent" />
+                                ) : (
+                                    <UploadCloud size={24} className={`relative z-10 transition-colors ${playbackTheme === "accent" ? "text-accent" : "text-white/40 group-hover:text-white"
+                                        }`} />
+                                )}
                             </button>
                         </div>
                     )}

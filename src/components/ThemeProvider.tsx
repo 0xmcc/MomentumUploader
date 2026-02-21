@@ -145,14 +145,20 @@ export const THEMES: Theme[] = [
 
 const DEFAULT_THEME = THEMES.find((theme) => theme.id === "orange") ?? THEMES[0];
 
+export type PlaybackTheme = "neutral" | "accent";
+
 interface ThemeContextValue {
     theme: Theme;
     setTheme: (id: ThemeId) => void;
+    playbackTheme: PlaybackTheme;
+    setPlaybackTheme: (theme: PlaybackTheme) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
     theme: DEFAULT_THEME,
     setTheme: () => { },
+    playbackTheme: "accent",
+    setPlaybackTheme: () => { },
 });
 
 export function useTheme() {
@@ -185,6 +191,12 @@ export default function ThemeProvider({
         return found ?? DEFAULT_THEME;
     });
 
+    const [playbackTheme, setPlaybackThemeState] = useState<PlaybackTheme>(() => {
+        if (typeof window === "undefined") return "accent";
+        const saved = window.localStorage.getItem("sonic-playback-theme") as PlaybackTheme | null;
+        return saved === "neutral" ? "neutral" : "accent";
+    });
+
     useEffect(() => {
         applyTheme(theme);
     }, [theme]);
@@ -196,8 +208,13 @@ export default function ThemeProvider({
         localStorage.setItem("sonic-theme", id);
     };
 
+    const setPlaybackTheme = (pTheme: PlaybackTheme) => {
+        setPlaybackThemeState(pTheme);
+        localStorage.setItem("sonic-playback-theme", pTheme);
+    };
+
     return (
-        <ThemeContext.Provider value={{ theme, setTheme }}>
+        <ThemeContext.Provider value={{ theme, setTheme, playbackTheme, setPlaybackTheme }}>
             {children}
         </ThemeContext.Provider>
     );
