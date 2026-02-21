@@ -97,7 +97,7 @@ describe("AudioRecorder live transcript cadence", () => {
         expect(liveCalls.length).toBeGreaterThan(0);
     });
 
-    it("should allow audio playback and not auto-upload upon stopping", async () => {
+    it("should auto-upload upon stopping", async () => {
         global.URL.createObjectURL = jest.fn(() => "blob:http://localhost/test");
 
         render(<AudioRecorder />);
@@ -122,17 +122,13 @@ describe("AudioRecorder live transcript cadence", () => {
             await Promise.resolve();
         });
 
-        // Verify that the upload fetch was NOT called
+        // Verify that the upload fetch WAS called
         const fetchMock = global.fetch as jest.Mock;
         const uploadCalls = fetchMock.mock.calls.filter(
             ([url]: [unknown]) => url === "/api/transcribe"
         );
 
-        expect(uploadCalls.length).toBe(0);
-
-        // Verify the play button is present and not disabled
-        const playButton = screen.getByRole("button", { name: /play/i });
-        expect(playButton).not.toBeDisabled();
+        expect(uploadCalls.length).toBe(1);
     });
 });
 

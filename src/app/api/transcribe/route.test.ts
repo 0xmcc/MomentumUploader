@@ -1,6 +1,7 @@
 import { POST } from "./route";
 import { supabaseAdmin, uploadAudio } from "@/lib/supabase";
 import { transcribeAudio } from "@/lib/riva";
+import { NextRequest } from "next/server";
 
 jest.mock("next/server", () => {
     return {
@@ -33,7 +34,6 @@ jest.mock("@/lib/supabase", () => {
                 insert: insertMock,
             })),
         },
-        __insertMock: insertMock,
     };
 });
 
@@ -65,7 +65,7 @@ describe("POST /api/transcribe", () => {
 
         const req = {
             formData: async () => formDataObj,
-        } as any;
+        } as unknown as NextRequest;
 
         const res = await POST(req);
         const json = await res.json();
@@ -83,8 +83,8 @@ describe("POST /api/transcribe", () => {
         expect(supabaseAdmin.from).toHaveBeenCalledWith("memos");
 
         // Ensure the insert payload matches the expected schema
-        const supabaseMod = require("@/lib/supabase");
-        const insertPayload = supabaseMod.__insertMock.mock.calls[0][0];
+        const insertMockFn = (supabaseAdmin.from as jest.Mock).mock.results[0].value.insert;
+        const insertPayload = insertMockFn.mock.calls[0][0];
         expect(insertPayload).toHaveProperty("title");
         expect(insertPayload).toHaveProperty("transcript", "hello world");
         expect(insertPayload).toHaveProperty("audio_url", "https://example.com/audio.webm");

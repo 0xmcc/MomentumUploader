@@ -6,11 +6,9 @@ import AudioRecorder from "@/components/AudioRecorder";
 import type { UploadCompletePayload } from "@/components/AudioRecorder";
 import ThemeToggle from "@/components/ThemeToggle";
 import {
-  Mic2, CloudSync, BrainCircuit, Search, Calendar,
-  ChevronDown, ChevronUp, Play, Pause, ExternalLink,
-  FileAudio, AlignLeft, Cpu, Loader2, Clock, FileDown, Plus
+  Mic2, Search, Play, Pause, ExternalLink, Cpu, Loader2, FileDown, Plus
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 
 type Memo = {
   id: string;
@@ -141,12 +139,6 @@ function MemoDetailView({ memo }: { memo: Memo }) {
     setCurrentTime(ratio * audioDuration);
   };
 
-  // Reset state when memo changes
-  useEffect(() => {
-    setIsPlaying(false);
-    setCurrentTime(0);
-    setAudioDuration(null);
-  }, [memo.id]);
 
   const progress = audioDuration ? (currentTime / audioDuration) * 100 : 0;
   const displayDuration = audioDuration ?? memo.durationSeconds ?? null;
@@ -409,7 +401,7 @@ export default function Home() {
         </header>
 
         {selectedMemoId ? (
-          <MemoDetailView memo={memos.find((m) => m.id === selectedMemoId) || memos[0]} />
+          <MemoDetailView key={selectedMemoId} memo={memos.find((m) => m.id === selectedMemoId) || memos[0]} />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-8 mt-12">
             <AudioRecorder onUploadComplete={handleUploadComplete} />

@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Mic, Square, Loader2, Play, Pause, Trash2, Sparkles, UploadCloud } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { Mic, Square, Loader2 } from "lucide-react";
+import { motion } from "framer-motion";
 
 const RECORDER_TIMESLICE_MS = 1000;
 const LIVE_INTERVAL_MS = 1500;
@@ -24,14 +24,10 @@ export default function AudioRecorder({
 }) {
     const [isRecording, setIsRecording] = useState(false);
     const [recordingTime, setRecordingTime] = useState(0);
-    const [audioUrl, setAudioUrl] = useState<string | null>(null);
-    const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-    const [isPlaying, setIsPlaying] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [liveTranscript, setLiveTranscript] = useState("");
     const [animatedWords, setAnimatedWords] = useState<string[]>([]);
     const [newWordStartIndex, setNewWordStartIndex] = useState(0);
-    const [liveStatus, setLiveStatus] = useState<"idle" | "pending" | "ok">("idle");
     const { playbackTheme } = useTheme();
 
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -44,7 +40,6 @@ export default function AudioRecorder({
     const abortRef = useRef<AbortController | null>(null);
     const recordingTimeRef = useRef(0);
     const previousTranscriptRef = useRef("");
-    const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
     // Keep ref in sync with state for use inside closures
     useEffect(() => { recordingTimeRef.current = recordingTime; }, [recordingTime]);
@@ -95,7 +90,6 @@ export default function AudioRecorder({
         if (audioChunksRef.current.length === 0) return;
 
         liveInFlightRef.current = true;
-        setLiveStatus("pending");
 
         abortRef.current?.abort();
         const controller = new AbortController();
@@ -112,11 +106,9 @@ export default function AudioRecorder({
             .then((r) => r.ok ? r.json() : Promise.reject(r.status))
             .then(({ text }: { text: string }) => {
                 if (text) setLiveTranscript(text);
-                setLiveStatus("ok");
             })
             .catch((err) => {
                 if (err?.name !== "AbortError") console.error("[live]", err);
-                setLiveStatus("idle");
             })
             .finally(() => {
                 liveInFlightRef.current = false;
@@ -165,9 +157,8 @@ export default function AudioRecorder({
 
             mr.onstop = () => {
                 const blob = new Blob(audioChunksRef.current, { type: mimeTypeRef.current });
-                setAudioBlob(blob);
-                setAudioUrl(URL.createObjectURL(blob));
                 stream.getTracks().forEach((t) => t.stop());
+                void handleUpload(blob);
             };
 
             mr.start(RECORDER_TIMESLICE_MS);
@@ -177,7 +168,6 @@ export default function AudioRecorder({
             setAnimatedWords([]);
             setNewWordStartIndex(0);
             previousTranscriptRef.current = "";
-            setLiveStatus("idle");
 
             timerRef.current = setInterval(() => {
                 setRecordingTime((p) => p + 1);
@@ -198,23 +188,17 @@ export default function AudioRecorder({
         abortRef.current?.abort();
         mediaRecorderRef.current.stop();
         setIsRecording(false);
-        setLiveStatus("idle");
     };
 
     const resetRecording = () => {
-        setAudioUrl(null);
-        setAudioBlob(null);
         setRecordingTime(0);
-        setIsPlaying(false);
         setLiveTranscript("");
         setAnimatedWords([]);
         setNewWordStartIndex(0);
         previousTranscriptRef.current = "";
-        setLiveStatus("idle");
     };
 
-    const handleUpload = async (blobToUpload?: Blob) => {
-        const blob = blobToUpload || audioBlob;
+    const handleUpload = async (blob: Blob) => {
         if (!blob) return;
         setIsUploading(true);
         try {
@@ -232,37 +216,13 @@ export default function AudioRecorder({
         }
     };
 
-    const togglePlayback = () => {
-        if (!audioPlayerRef.current) return;
-        if (isPlaying) {
-            audioPlayerRef.current.pause();
-        } else {
-            void audioPlayerRef.current.play();
-        }
-        setIsPlaying(!isPlaying);
-    };
-
-    // Waveform bars shown while recording
-    const WaveformBars = () => (
-        <div className="flex items-center gap-1 h-8">
-            {Array.from({ length: 12 }).map((_, i) => (
-                <motion.div
-                    key={i}
-                    className="w-1 rounded-full bg-red-400/70"
-                    animate={{ height: isRecording ? ["6px", `${Math.random() * 24 + 6}px`, "6px"] : "6px" }}
-                    transition={{ duration: 0.6 + i * 0.05, repeat: Infinity, ease: "easeInOut", delay: i * 0.04 }}
-                />
-            ))}
-        </div>
-    );
-
     return (
         <div className="flex flex-col h-full w-full bg-[#121212]">
             {/* Header / Status */}
             <div className="flex justify-between items-center px-8 py-6 border-b border-white/5 bg-[#121212]/50 backdrop-blur-md z-10">
                 <div className="flex flex-col">
                     <h2 className="text-xl font-semibold text-white/90">
-                        {isRecording ? "Listening..." : (audioUrl ? "Review Recording" : "New Recording")}
+                        {isRecording ? "Listening..." : (isUploading ? "Saving..." : "New Recording")}
                     </h2>
                     <p className="text-white/40 text-[10px] font-mono tracking-widest mt-1 uppercase">
                         {isRecording ? formatTime(recordingTime) : (isUploading ? "Transcribing with NVIDIA..." : "Ready to record")}
@@ -336,14 +296,10 @@ export default function AudioRecorder({
                                 </p>
                             )}
                         </div>
-                    ) : !audioUrl ? (
+                    ) : (
                         <div className="h-full flex flex-col items-center justify-center text-white/10 select-none">
                             <Mic size={80} strokeWidth={1} />
                             <p className="mt-6 text-sm font-mono uppercase tracking-[0.2em]">Tap the button below to start</p>
-                        </div>
-                    ) : (
-                        <div className="text-lg text-white/40 italic">
-                            Recording finished. You can review it before saving.
                         </div>
                     )}
                 </div>
@@ -352,93 +308,43 @@ export default function AudioRecorder({
             {/* Bottom Controls */}
             <div className="bg-[#161616] border-t border-white/10 px-8 py-10 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10 transition-all duration-500">
                 <div className="max-w-3xl mx-auto flex flex-col items-center justify-center gap-10">
-                    {!audioUrl ? (
-                        /* Recording Button Shell */
-                        <div className="relative flex items-center justify-center w-28 h-28">
-                            <button
-                                onClick={isRecording ? stopRecording : startRecording}
-                                className={`group relative flex items-center justify-center w-full h-full rounded-full transition-all duration-500 ${isRecording ? "scale-110" : "hover:scale-105 active:scale-95"
-                                    }`}
-                            >
-                                {/* Outer Glow/Ring */}
-                                <div className={`absolute inset-0 rounded-full blur-2xl transition-all duration-700 ${isRecording
-                                    ? "bg-red-500/40 animate-pulse"
-                                    : (playbackTheme === "accent" ? "bg-accent/20 group-hover:bg-accent/30" : "bg-white/5 group-hover:bg-white/10")
-                                    }`} />
+                    {/* Recording Button Shell */}
+                    <div className="relative flex items-center justify-center w-28 h-28">
+                        <button
+                            onClick={isRecording ? stopRecording : startRecording}
+                            disabled={isUploading}
+                            className={`group relative flex items-center justify-center w-full h-full rounded-full transition-all duration-500 ${(isRecording || isUploading) ? "scale-110" : "hover:scale-105 active:scale-95"} ${isUploading ? "opacity-50 cursor-not-allowed" : ""}`}
+                        >
+                            {/* Outer Glow/Ring */}
+                            <div className={`absolute inset-0 rounded-full blur-2xl transition-all duration-700 ${isRecording
+                                ? "bg-red-500/40 animate-pulse"
+                                : (playbackTheme === "accent" ? "bg-accent/20 group-hover:bg-accent/30" : "bg-white/5 group-hover:bg-white/10")
+                                }`} />
 
-                                {/* Background Layers */}
-                                <div className="absolute inset-0 rounded-full bg-[#121212] border border-white/5 shadow-2xl" />
-                                <div className={`absolute inset-2 rounded-full border border-white/5 transition-colors duration-500 ${isRecording ? "bg-red-500/10 border-red-500/20" : "bg-white/[0.02]"
-                                    }`} />
+                            {/* Background Layers */}
+                            <div className="absolute inset-0 rounded-full bg-[#121212] border border-white/5 shadow-2xl" />
+                            <div className={`absolute inset-2 rounded-full border border-white/5 transition-colors duration-500 ${isRecording ? "bg-red-500/10 border-red-500/20" : "bg-white/[0.02]"
+                                }`} />
 
-                                {/* Inner Ring */}
-                                <div className={`absolute inset-5 rounded-full border transition-all duration-500 ${isRecording
-                                    ? "border-red-500/40 bg-red-500/20"
-                                    : (playbackTheme === "accent" ? "border-accent/20 bg-accent/10" : "border-white/10 bg-white/5")
-                                    }`} />
+                            {/* Inner Ring */}
+                            <div className={`absolute inset-5 rounded-full border transition-all duration-500 ${isRecording
+                                ? "border-red-500/40 bg-red-500/20"
+                                : (playbackTheme === "accent" ? "border-accent/20 bg-accent/10" : "border-white/10 bg-white/5")
+                                }`} />
 
-                                {/* Core Button Component */}
-                                <div className={`absolute inset-[24%] rounded-full flex items-center justify-center shadow-2xl transition-all duration-500 ${isRecording
-                                    ? "bg-red-500 text-white shadow-red-500/40"
-                                    : (playbackTheme === "accent" ? "bg-white text-black group-hover:bg-accent group-hover:text-white" : "bg-white/10 text-white group-hover:bg-white group-hover:text-black")
-                                    }`}>
-                                    {isRecording ? (
-                                        <Square fill="currentColor" size={28} className="animate-in zoom-in duration-300" />
-                                    ) : (
-                                        <div className="w-6 h-6 rounded-full bg-red-600 transition-transform group-hover:scale-110" />
-                                    )}
-                                </div>
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="flex items-center gap-12">
-                            {/* Discard Button */}
-                            <button
-                                onClick={resetRecording}
-                                disabled={isUploading}
-                                className="group relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-90 disabled:opacity-20"
-                                title="Discard"
-                            >
-                                <div className="absolute inset-0 rounded-full bg-white/5 border border-white/5 group-hover:bg-red-500/10 group-hover:border-red-500/20 transition-colors" />
-                                <Trash2 size={20} className="relative z-10 text-white/30 group-hover:text-red-400 transition-colors" />
-                            </button>
-
-                            {/* Playback Button (Nested Aesthetic) */}
-                            <button
-                                onClick={togglePlayback}
-                                disabled={isUploading}
-                                className="group relative flex items-center justify-center w-24 h-24 rounded-full transition-all duration-300 hover:scale-105 active:scale-95 disabled:opacity-50"
-                                title="Play"
-                            >
-                                <div className={`absolute inset-0 rounded-full blur-2xl transition-opacity duration-500 ${playbackTheme === "accent" ? "bg-accent/20 group-hover:bg-accent/30" : "bg-white/5 group-hover:bg-white/10"
-                                    }`} />
-                                <div className="absolute inset-0 rounded-full bg-[#121212] border border-white/5 shadow-2xl" />
-                                <div className={`absolute inset-4 rounded-full border transition-all duration-500 ${playbackTheme === "accent" ? "border-accent/20 bg-accent/10" : "border-white/10 bg-white/5"
-                                    }`} />
-                                <div className={`absolute inset-[24%] rounded-full flex items-center justify-center shadow-2xl transition-all duration-500 ${playbackTheme === "accent" ? "bg-white text-black group-hover:bg-accent group-hover:text-white" : "bg-white/10 text-white group-hover:bg-white group-hover:text-black"
-                                    }`}>
-                                    {isPlaying ? <Pause size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" className="translate-x-0.5" />}
-                                </div>
-                            </button>
-
-                            {/* Upload Button */}
-                            <button
-                                onClick={() => handleUpload()}
-                                disabled={isUploading}
-                                className="group relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-90 disabled:opacity-20"
-                                title="Save to Cloud"
-                            >
-                                <div className={`absolute inset-0 rounded-full border border-white/5 transition-colors ${playbackTheme === "accent" ? "bg-accent/10 border-accent/20 group-hover:bg-accent/20" : "bg-white/5 group-hover:bg-white/10"
-                                    }`} />
-                                {isUploading ? (
-                                    <Loader2 size={24} className="relative z-10 animate-spin text-accent" />
+                            {/* Core Button Component */}
+                            <div className={`absolute inset-[24%] rounded-full flex items-center justify-center shadow-2xl transition-all duration-500 ${isRecording
+                                ? "bg-red-500 text-white shadow-red-500/40"
+                                : (playbackTheme === "accent" ? "bg-white text-black group-hover:bg-accent group-hover:text-white" : "bg-white/10 text-white group-hover:bg-white group-hover:text-black")
+                                }`}>
+                                {isRecording ? (
+                                    <Square fill="currentColor" size={28} className="animate-in zoom-in duration-300" />
                                 ) : (
-                                    <UploadCloud size={24} className={`relative z-10 transition-colors ${playbackTheme === "accent" ? "text-accent" : "text-white/40 group-hover:text-white"
-                                        }`} />
+                                    <div className="w-6 h-6 rounded-full bg-red-600 transition-transform group-hover:scale-110" />
                                 )}
-                            </button>
-                        </div>
-                    )}
+                            </div>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
