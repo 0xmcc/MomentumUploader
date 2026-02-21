@@ -14,10 +14,12 @@ export const supabaseAdmin = createClient(
     { auth: { autoRefreshToken: false, persistSession: false } }
 );
 
-export async function uploadAudio(file: Blob, fileName: string) {
+export async function uploadAudio(file: Blob | Buffer | ArrayBuffer, fileName: string, contentType?: string) {
     const { data, error } = await supabaseAdmin.storage
         .from("voice-memos")
-        .upload(`audio/${fileName}`, file);
+        .upload(`audio/${fileName}`, file, {
+            contentType: contentType || "audio/webm",
+        });
 
     if (error) {
         console.error("Supabase Upload Error:", error);

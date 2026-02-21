@@ -41,9 +41,12 @@ export async function POST(req: NextRequest) {
         const fileName = `${Date.now()}_${file.name || "audio.webm"}`;
         LOG("storage", `Uploading as: audio/${fileName}`);
 
+        const audioBuffer = Buffer.from(await file.arrayBuffer());
+        LOG("storage", `Audio buffer size: ${audioBuffer.byteLength} bytes`);
+
         let fileUrl = "";
         try {
-            const uploadResult = await uploadAudio(file, fileName);
+            const uploadResult = await uploadAudio(audioBuffer, fileName, file.type);
             LOG("storage", "Upload result", uploadResult);
 
             const { data } = supabase.storage
@@ -63,8 +66,6 @@ export async function POST(req: NextRequest) {
         LOG("nvidia", "Sending audio to NVIDIA Parakeet via gRPC...");
         let transcriptionText = "";
         try {
-            const audioBuffer = Buffer.from(await file.arrayBuffer());
-            LOG("nvidia", `Audio buffer size: ${audioBuffer.byteLength} bytes`);
 
             transcriptionText = await transcribeAudio(
                 audioBuffer,
@@ -79,18 +80,12 @@ export async function POST(req: NextRequest) {
         }
 
         // --- Step 3: Save to Supabase DB ---
-        LOG("db", "Inserting into items table...");
+        LOG("db", "Inserting into memos table...");
         try {
-            const { data: dbData, error: dbError } = await supabaseAdmin.from("items").insert({
-                user_id: "anonymous_user",
-                type: "voice",
-                source: "other",
-                source_type: "audio",
-                content: transcriptionText,
-                source_url: fileUrl,
-                metadata: { file_url: fileUrl },
-                dedupe_key: fileName,
-                content_hash: fileName,
+            const { data: dbData, error: dbError } = await supabaseAdmin.from("memos").insert({
+                title: file.name || "Voice Memo",
+                transcript: transcriptionText,
+                audio_url: fileUrl,
             }).select();
 
             if (dbError) {
