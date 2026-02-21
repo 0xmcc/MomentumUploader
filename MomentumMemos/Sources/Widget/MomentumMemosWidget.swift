@@ -1,20 +1,19 @@
 import WidgetKit
 import SwiftUI
+import AppIntents
 
-struct Provider: TimelineProvider {
+struct Provider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> MomentumEntry {
         MomentumEntry(date: Date(), configuration: ConfigurationAppIntent())
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (MomentumEntry) -> ()) {
-        let entry = MomentumEntry(date: Date(), configuration: ConfigurationAppIntent())
-        completion(entry)
+    func snapshot(for configuration: ConfigurationAppIntent, in context: Context) async -> MomentumEntry {
+        MomentumEntry(date: Date(), configuration: configuration)
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> ()) {
-        let entries = [MomentumEntry(date: Date(), configuration: ConfigurationAppIntent())]
-        let timeline = Timeline(entries: entries, policy: .never)
-        completion(timeline)
+    func timeline(for configuration: ConfigurationAppIntent, in context: Context) async -> Timeline<MomentumEntry> {
+        let entries = [MomentumEntry(date: Date(), configuration: configuration)]
+        return Timeline(entries: entries, policy: .never)
     }
 }
 
@@ -23,9 +22,11 @@ struct MomentumEntry: TimelineEntry {
     let configuration: ConfigurationAppIntent
 }
 
-struct ConfigurationAppIntent: AppIntent {
+struct ConfigurationAppIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource = "Momentum Widget"
     static var description = IntentDescription("Shows immediate access to your memos")
+    
+    init() {}
 }
 
 struct MomentumWidgetEntryView : View {

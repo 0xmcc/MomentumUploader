@@ -20,6 +20,11 @@ import { promisify } from "util";
 import path from "path";
 import os from "os";
 import fs from "fs/promises";
+import dns from "node:dns";
+
+// Prefer IPv4 for node requests to avoid IPv6 'EHOSTUNREACH' routing issues
+// that could affect gRPC or other downstream service connections.
+dns.setDefaultResultOrder("ipv4first");
 
 const execFileAsync = promisify(execFile);
 
