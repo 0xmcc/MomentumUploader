@@ -22,6 +22,7 @@ import {
   UserButton,
 } from "@clerk/nextjs";
 import AudioRecorder from "@/components/AudioRecorder";
+import VoiceoverStudio from "@/components/VoiceoverStudio";
 import type {
   RecordingStopPayload,
   UploadCompletePayload,
@@ -218,6 +219,8 @@ export function MemoDetailView({ memo }: { memo: Memo }) {
           >
             {memo.transcript || "No transcript available."}
           </div>
+
+          {!isFailed && memo.transcript && memo.url && <VoiceoverStudio memo={memo} />}
 
           {memo.url && (
             <div className="mt-12 pt-8 border-t border-white/5 flex items-center justify-between text-[11px] text-white/20 font-mono uppercase tracking-widest">

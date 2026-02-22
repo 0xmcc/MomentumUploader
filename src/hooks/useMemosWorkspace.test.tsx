@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { useMemosWorkspace } from "./useVoiceoverStudio";
+import { useMemosWorkspace } from "./useMemosWorkspace";
 import { MEMO_RECONCILE_DELAY_MS } from "@/lib/memo-ui";
 
 describe("useMemosWorkspace", () => {

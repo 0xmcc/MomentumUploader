@@ -7,7 +7,7 @@ import {
   PrimaryHeaderControls,
   RecorderPanel,
 } from "@/components/memos/MemoStudioSections";
-import { useMemosWorkspace } from "@/hooks/useVoiceoverStudio";
+import { useMemosWorkspace } from "@/hooks/useMemosWorkspace";
 
 export default function Home() {
   const { isSignedIn, isLoaded } = useUser();

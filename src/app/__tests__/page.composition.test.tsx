@@ -1,7 +1,7 @@
 import React from "react";
 import { render, screen } from "@testing-library/react";
 import Home from "../page";
-import { useMemosWorkspace } from "@/hooks/useVoiceoverStudio";
+import { useMemosWorkspace } from "@/hooks/useMemosWorkspace";
 
 const memoSidebarMock = jest.fn();
 const memoDetailViewMock = jest.fn();
@@ -13,7 +13,7 @@ jest.mock("@clerk/nextjs", () => ({
   useClerk: () => ({ openSignIn: jest.fn() }),
 }));
 
-jest.mock("@/hooks/useVoiceoverStudio", () => ({
+jest.mock("@/hooks/useMemosWorkspace", () => ({
   useMemosWorkspace: jest.fn(),
 }));
 
