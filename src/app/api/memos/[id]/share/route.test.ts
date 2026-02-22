@@ -1,8 +1,13 @@
 /** @jest-environment node */
 
 import { POST } from "./route";
+import { auth } from "@clerk/nextjs/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { NextRequest } from "next/server";
+
+jest.mock("@clerk/nextjs/server", () => ({
+    auth: jest.fn(),
+}));
 
 jest.mock("@/lib/supabase", () => ({
     supabaseAdmin: {
@@ -22,20 +27,28 @@ function setupSupabaseMock(state: MockState) {
         data: state.currentMemo,
         error: state.currentError,
     });
-    const eqAfterSelect = jest.fn(() => ({ maybeSingle }));
-    const selectAfterEq = jest.fn(() => ({ eq: eqAfterSelect }));
+    const currentQuery = {
+        eq: jest.fn(),
+        maybeSingle,
+    };
+    currentQuery.eq.mockReturnValue(currentQuery);
 
     const single = jest.fn().mockResolvedValue({
         data: state.updatedMemo,
         error: state.updateError,
     });
-    const selectAfterUpdate = jest.fn(() => ({ single }));
-    const eqAfterUpdate = jest.fn(() => ({ select: selectAfterUpdate }));
-    const update = jest.fn(() => ({ eq: eqAfterUpdate }));
+    const updateQuery = {
+        eq: jest.fn(),
+        select: jest.fn(() => ({ single })),
+    };
+    updateQuery.eq.mockReturnValue(updateQuery);
+    const update = jest.fn((updates: Record<string, unknown>) => {
+        void updates;
+        return updateQuery;
+    });
 
     (supabaseAdmin.from as jest.Mock).mockReturnValue({
-        select: selectAfterEq,
-        eq: eqAfterSelect,
+        select: jest.fn(() => currentQuery),
         update,
     });
 
@@ -45,6 +58,18 @@ function setupSupabaseMock(state: MockState) {
 describe("POST /api/memos/:id/share", () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        (auth as unknown as jest.Mock).mockResolvedValue({ userId: "user_123" });
+    });
+
+    it("returns 404 when user is signed out", async () => {
+        (auth as unknown as jest.Mock).mockResolvedValue({ userId: null });
+        const req = { nextUrl: { origin: "https://example.com" } } as NextRequest;
+
+        const res = await POST(req, { params: Promise.resolve({ id: "memo-1" }) });
+        const body = await res.json();
+
+        expect(res.status).toBe(404);
+        expect(body.error).toBe("Memo not found");
     });
 
     it("returns existing active share link when token is already valid", async () => {

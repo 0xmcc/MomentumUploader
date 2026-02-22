@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
 const CORS = {
@@ -15,12 +16,18 @@ type Params = { params: Promise<{ id: string }> };
 
 /** GET /api/memos/:id */
 export async function GET(_req: NextRequest, { params }: Params) {
+    const { userId } = await auth();
+    if (!userId) {
+        return NextResponse.json({ error: "Memo not found" }, { status: 404, headers: CORS });
+    }
+
     const { id } = await params;
 
     const { data, error } = await supabaseAdmin
         .from("memos")
         .select("id, title, transcript, audio_url, duration, created_at")
         .eq("id", id)
+        .eq("user_id", userId)
         .single();
 
     if (error || !data) {
@@ -50,6 +57,11 @@ export async function GET(_req: NextRequest, { params }: Params) {
  *   transcript  string - optional
  */
 export async function PATCH(req: NextRequest, { params }: Params) {
+    const { userId } = await auth();
+    if (!userId) {
+        return NextResponse.json({ error: "Memo not found" }, { status: 404, headers: CORS });
+    }
+
     const { id } = await params;
 
     let body: { title?: string; transcript?: string };
@@ -69,6 +81,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         .from("memos")
         .update(updates)
         .eq("id", id)
+        .eq("user_id", userId)
         .select()
         .single();
 
@@ -92,15 +105,23 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
 /** DELETE /api/memos/:id */
 export async function DELETE(_req: NextRequest, { params }: Params) {
+    const { userId } = await auth();
+    if (!userId) {
+        return NextResponse.json({ error: "Memo not found" }, { status: 404, headers: CORS });
+    }
+
     const { id } = await params;
 
-    const { error } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
         .from("memos")
         .delete()
-        .eq("id", id);
+        .eq("id", id)
+        .eq("user_id", userId)
+        .select("id")
+        .single();
 
-    if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500, headers: CORS });
+    if (error || !data) {
+        return NextResponse.json({ error: "Memo not found" }, { status: 404, headers: CORS });
     }
 
     return NextResponse.json({ success: true, deleted: id }, { headers: CORS });

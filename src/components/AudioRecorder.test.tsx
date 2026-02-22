@@ -130,5 +130,39 @@ describe("AudioRecorder live transcript cadence", () => {
 
         expect(uploadCalls.length).toBe(1);
     });
-});
 
+    it("calls onRecordingStop and does not auto-upload when callback is provided", async () => {
+        const onRecordingStop = jest.fn();
+        render(<AudioRecorder onRecordingStop={onRecordingStop} />);
+
+        fireEvent.click(screen.getByRole("button"));
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+        await act(async () => {
+            jest.advanceTimersByTime(2000);
+        });
+
+        fireEvent.click(screen.getByRole("button"));
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        expect(onRecordingStop).toHaveBeenCalledTimes(1);
+        expect(onRecordingStop).toHaveBeenCalledWith(
+            expect.objectContaining({
+                blob: expect.any(Blob),
+                durationSeconds: expect.any(Number),
+                mimeType: expect.stringContaining("audio/"),
+            })
+        );
+
+        const fetchMock = global.fetch as jest.Mock;
+        const uploadCalls = fetchMock.mock.calls.filter(
+            ([url]: [unknown]) => url === "/api/transcribe"
+        );
+        expect(uploadCalls.length).toBe(0);
+    });
+});

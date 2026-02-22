@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
 const CORS = {
@@ -80,12 +81,18 @@ export async function OPTIONS() {
  * Returns a canonical share URL for this memo.
  */
 export async function POST(req: NextRequest, { params }: Params) {
+    const { userId } = await auth();
+    if (!userId) {
+        return NextResponse.json({ error: "Memo not found" }, { status: 404, headers: CORS });
+    }
+
     const { id } = await params;
 
     const { data: currentMemo, error: currentError } = await supabaseAdmin
         .from("memos")
         .select("*")
         .eq("id", id)
+        .eq("user_id", userId)
         .maybeSingle();
 
     if (currentError || !currentMemo) {
@@ -120,6 +127,7 @@ export async function POST(req: NextRequest, { params }: Params) {
         .from("memos")
         .update(updates)
         .eq("id", id)
+        .eq("user_id", userId)
         .select("id, share_token")
         .single();
 

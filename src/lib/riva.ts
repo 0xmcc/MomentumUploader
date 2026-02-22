@@ -32,10 +32,9 @@ const GRPC_TARGET = "grpc.nvcf.nvidia.com:443";
 const FUNCTION_ID = "d8dd4e9b-fbf5-4fb0-9dba-8cf436c8d965";
 const PROTO_ROOT = path.join(process.cwd(), "src/lib/proto");
 
-// ── Sequential call queue ─────────────────────────────────────────────────────
-// Ensures only ONE Recognize call runs at a time.  The live endpoint fires
-// every 5 s; when recording stops the final call queues behind it instead of
-// running concurrently and degrading both results.
+// ── Live call queue ────────────────────────────────────────────────────────────
+// Live ticks are best-effort and can queue behind each other. Final transcripts
+// should never wait behind live updates after the user stops speaking.
 let _callQueue: Promise<unknown> = Promise.resolve();
 
 function enqueue<T>(fn: () => Promise<T>): Promise<T> {
@@ -200,8 +199,19 @@ async function _doRecognize(audioBytes: Buffer, apiKey: string, mimeType: string
 export async function transcribeAudio(
     audioBytes: Buffer,
     apiKey: string,
-    mimeType = "audio/webm"
+    mimeType = "audio/webm",
+    options?: { priority?: "live" | "final" }
 ): Promise<string> {
-    console.log(`[riva] Queuing Recognize (${(audioBytes.byteLength / 1024).toFixed(0)} KB audio)`);
-    return enqueue(() => _doRecognize(audioBytes, apiKey, mimeType));
+    const priority = options?.priority ?? "final";
+    console.log(
+        `[riva] Recognize request priority=${priority} size=${(audioBytes.byteLength / 1024).toFixed(0)} KB`
+    );
+
+    // Keep live polling serialized to protect provider stability.
+    // Final transcripts bypass this queue to prevent stop->result lag.
+    if (priority === "live") {
+        return enqueue(() => _doRecognize(audioBytes, apiKey, mimeType));
+    }
+
+    return _doRecognize(audioBytes, apiKey, mimeType);
 }

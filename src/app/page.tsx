@@ -3,8 +3,20 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import AudioRecorder from "@/components/AudioRecorder";
-import type { UploadCompletePayload } from "@/components/AudioRecorder";
+import type {
+  RecordingStopPayload,
+  UploadCompletePayload,
+} from "@/components/AudioRecorder";
 import ThemeToggle from "@/components/ThemeToggle";
+import { useTheme } from "@/components/ThemeProvider";
+import {
+  SignedIn,
+  SignedOut,
+  SignInButton,
+  UserButton,
+  useClerk,
+  useUser,
+} from "@clerk/nextjs";
 import {
   Mic2, Search, Play, Pause, ExternalLink, Cpu, Loader2, FileDown, Plus, Link2, Check
 } from "lucide-react";
@@ -20,6 +32,14 @@ type Memo = {
   durationSeconds?: number;
   success?: boolean;
 };
+
+function getFileExtensionFromMime(mimeType: string) {
+  if (mimeType.includes("ogg")) return "ogg";
+  if (mimeType.includes("mp4")) return "mp4";
+  if (mimeType.includes("wav")) return "wav";
+  if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return "mp3";
+  return "webm";
+}
 
 function formatDate(iso: string) {
   const d = new Date(iso);
@@ -137,7 +157,22 @@ function MemoListItem({ memo, isActive, onClick }: { memo: Memo, isActive: boole
   );
 }
 
-import { useTheme } from "@/components/ThemeProvider";
+function AuthControls() {
+  return (
+    <>
+      <SignedOut>
+        <SignInButton mode="modal">
+          <button className="text-xs text-white/50 hover:text-accent border border-white/10 hover:border-accent/30 px-3 py-1.5 rounded-full font-mono transition-all">
+            Sign In
+          </button>
+        </SignInButton>
+      </SignedOut>
+      <SignedIn>
+        <UserButton appearance={{ elements: { avatarBox: "w-8 h-8" } }} />
+      </SignedIn>
+    </>
+  );
+}
 
 function MemoDetailView({ memo }: { memo: Memo }) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -302,6 +337,7 @@ function MemoDetailView({ memo }: { memo: Memo }) {
             API Docs ↗
           </Link>
           <ThemeToggle />
+          <AuthControls />
         </div>
       </div>
 
@@ -402,16 +438,41 @@ function MemoDetailView({ memo }: { memo: Memo }) {
 }
 
 export default function Home() {
+  const { isSignedIn, isLoaded } = useUser();
+  const { openSignIn } = useClerk();
   const [memos, setMemos] = useState<Memo[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMemoId, setSelectedMemoId] = useState<string | null>(null);
+  const [pendingBlob, setPendingBlob] = useState<Blob | null>(null);
+  const [pendingDuration, setPendingDuration] = useState(0);
+  const [pendingMimeType, setPendingMimeType] = useState("audio/webm");
+  const [uploadError, setUploadError] = useState(false);
+  const reconcilingMemoIdsRef = useRef<Set<string>>(new Set());
 
   const fetchMemos = useCallback(async () => {
     try {
       const res = await fetch("/api/memos");
       const json = await res.json();
-      if (json.memos) setMemos(json.memos);
+      if (Array.isArray(json.memos)) {
+        const fetchedMemos = json.memos as Memo[];
+        const fetchedIds = new Set(fetchedMemos.map((memo) => memo.id));
+
+        for (const memoId of Array.from(reconcilingMemoIdsRef.current)) {
+          if (fetchedIds.has(memoId)) {
+            reconcilingMemoIdsRef.current.delete(memoId);
+          }
+        }
+
+        setMemos((prev) => {
+          const stillReconciling = prev.filter(
+            (memo) =>
+              reconcilingMemoIdsRef.current.has(memo.id) &&
+              !fetchedIds.has(memo.id)
+          );
+          return [...stillReconciling, ...fetchedMemos];
+        });
+      }
     } catch (err) {
       console.error("Failed to fetch memos:", err);
     } finally {
@@ -420,11 +481,14 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    fetchMemos();
-  }, [fetchMemos]);
+    if (!isLoaded) return;
+    setLoading(true);
+    void fetchMemos();
+  }, [fetchMemos, isLoaded, isSignedIn]);
 
-  const handleUploadComplete = (data: UploadCompletePayload) => {
-    const newMemoId = `optimistic-${Date.now()}`;
+  const handleUploadComplete = useCallback((data: UploadCompletePayload) => {
+    const newMemoId = data.id ?? `optimistic-${Date.now()}`;
+    reconcilingMemoIdsRef.current.add(newMemoId);
     const newMemo: Memo = {
       id: newMemoId,
       transcript: data?.text ?? "",
@@ -443,11 +507,55 @@ export default function Home() {
         // Refresh list quietly
       });
     }, 1500);
-  };
+  }, [fetchMemos]);
+
+  const uploadBlob = useCallback(async (blob: Blob, durationSeconds: number, mimeType: string) => {
+    setUploadError(false);
+    try {
+      const fd = new FormData();
+      const ext = getFileExtensionFromMime(mimeType);
+      fd.append("file", blob, `memo_${Date.now()}.${ext}`);
+      const res = await fetch("/api/transcribe", { method: "POST", body: fd });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      handleUploadComplete({ ...data, durationSeconds });
+      setPendingBlob(null);
+      setPendingDuration(0);
+      setPendingMimeType("audio/webm");
+    } catch (err) {
+      console.error("Upload error:", err);
+      setUploadError(true);
+    }
+  }, [handleUploadComplete]);
+
+  const handleRecordingStop = useCallback((payload: RecordingStopPayload) => {
+    setUploadError(false);
+    setPendingBlob(payload.blob);
+    setPendingDuration(payload.durationSeconds);
+    setPendingMimeType(payload.mimeType);
+    if (!isSignedIn) {
+      void openSignIn();
+    }
+  }, [isSignedIn, openSignIn]);
+
+  useEffect(() => {
+    if (isSignedIn && isLoaded && pendingBlob) {
+      void uploadBlob(pendingBlob, pendingDuration, pendingMimeType);
+    }
+  }, [isSignedIn, isLoaded, pendingBlob, pendingDuration, pendingMimeType, uploadBlob]);
+
+  useEffect(() => {
+    if (!selectedMemoId) return;
+    if (!memos.some((memo) => memo.id === selectedMemoId)) {
+      if (reconcilingMemoIdsRef.current.has(selectedMemoId)) return;
+      setSelectedMemoId(null);
+    }
+  }, [memos, selectedMemoId]);
 
   const filteredMemos = memos.filter((m) =>
     m.transcript.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  const selectedMemo = selectedMemoId ? memos.find((memo) => memo.id === selectedMemoId) ?? null : null;
 
   return (
     <main className="flex h-screen w-full bg-[#0A0A0A] overflow-hidden text-white font-sans">
@@ -493,7 +601,7 @@ export default function Home() {
           ) : filteredMemos.length === 0 ? (
             <div className="text-center py-10 text-white/30 px-4">
               <p className="text-sm">
-                {searchQuery ? "No results found." : "No recordings yet."}
+                {!isSignedIn ? "Sign in to see your recordings." : searchQuery ? "No results found." : "No recordings yet."}
               </p>
             </div>
           ) : (
@@ -513,20 +621,35 @@ export default function Home() {
 
       {/* Main Content Area */}
       <section className="flex-1 flex flex-col relative bg-[#121212] overflow-y-auto">
-        {!selectedMemoId && (
+        {!selectedMemo && (
           <header className="absolute top-6 right-6 z-30 flex items-center gap-4">
             <Link href="/docs" className="text-xs text-white/40 hover:text-accent transition-colors flex items-center gap-1 font-mono">
               API Docs ↗
             </Link>
             <ThemeToggle />
+            <AuthControls />
           </header>
         )}
 
-        {selectedMemoId ? (
-          <MemoDetailView key={selectedMemoId} memo={memos.find((m) => m.id === selectedMemoId) || memos[0]} />
+        {selectedMemo ? (
+          <MemoDetailView key={selectedMemo.id} memo={selectedMemo} />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-8 mt-12">
-            <AudioRecorder onUploadComplete={handleUploadComplete} />
+            {uploadError && pendingBlob && (
+              <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                Recording failed to save.
+                <button
+                  onClick={() => void uploadBlob(pendingBlob, pendingDuration, pendingMimeType)}
+                  className="ml-2 underline underline-offset-2 hover:text-red-100"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            <AudioRecorder
+              onUploadComplete={handleUploadComplete}
+              onRecordingStop={handleRecordingStop}
+            />
             <div className="mt-8 text-center text-xs text-white/30 font-mono tracking-widest uppercase">
               <p>Powered by Supabase &amp; NVIDIA NIM</p>
             </div>

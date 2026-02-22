@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { uploadAudio, supabase, supabaseAdmin } from "@/lib/supabase";
 import { transcribeAudio } from "@/lib/riva";
 
@@ -15,7 +16,12 @@ const ERR = (step: string, msg: string, err: unknown) => {
 };
 
 export async function POST(req: NextRequest) {
+    const startedAtMs = Date.now();
     LOG("init", "Request received");
+    const { userId } = await auth();
+    if (!userId) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     // --- Env check ---
     LOG("env", "NEXT_PUBLIC_SUPABASE_URL set?", !!process.env.NEXT_PUBLIC_SUPABASE_URL);
@@ -28,6 +34,7 @@ export async function POST(req: NextRequest) {
 
     try {
         const formData = await req.formData();
+        LOG("timing", "Parsed form data ms", Date.now() - startedAtMs);
         const file = formData.get("file") as File | null;
 
         if (!file) {
@@ -54,6 +61,7 @@ export async function POST(req: NextRequest) {
                 .getPublicUrl(`audio/${fileName}`);
             fileUrl = data.publicUrl;
             LOG("storage", "Public URL", fileUrl);
+            LOG("timing", "Storage upload ms", Date.now() - startedAtMs);
         } catch (uploadError) {
             ERR("storage", "Supabase upload failed", uploadError);
             return NextResponse.json(
@@ -64,16 +72,19 @@ export async function POST(req: NextRequest) {
 
         // --- Step 2: Transcribe via NVIDIA Parakeet-CTC (gRPC) ---
         LOG("nvidia", "Sending audio to NVIDIA Parakeet via gRPC...");
+        const transcribeStartMs = Date.now();
         let transcriptionText = "";
         try {
 
             transcriptionText = await transcribeAudio(
                 audioBuffer,
                 process.env.NVIDIA_API_KEY!,
-                file.type || "audio/webm"
+                file.type || "audio/webm",
+                { priority: "final" }
             );
 
             LOG("nvidia", "Transcription result", transcriptionText);
+            LOG("timing", "Transcription ms", Date.now() - transcribeStartMs);
         } catch (transcriptionError) {
             ERR("nvidia", "Transcription failed", transcriptionError);
             transcriptionText = "[Transcription failed]";
@@ -86,24 +97,43 @@ export async function POST(req: NextRequest) {
                 title: file.name || "Voice Memo",
                 transcript: transcriptionText,
                 audio_url: fileUrl,
+                user_id: userId,
             }).select();
 
             if (dbError) {
                 ERR("db", "DB insert error", dbError);
-            } else {
-                LOG("db", "Inserted row", dbData);
+                return NextResponse.json(
+                    { error: "Failed to save memo", detail: dbError.message },
+                    { status: 500 }
+                );
             }
+
+            const insertedId = dbData?.[0]?.id as string | undefined;
+            if (!insertedId) {
+                ERR("db", "Insert returned no ID", dbData);
+                return NextResponse.json(
+                    { error: "Failed to save memo", detail: "No ID returned" },
+                    { status: 500 }
+                );
+            }
+
+            LOG("db", "Inserted row", dbData);
+            LOG("timing", "Total request ms", Date.now() - startedAtMs);
+            LOG("done", "Returning success response");
+            return NextResponse.json({
+                success: true,
+                id: insertedId,
+                text: transcriptionText,
+                url: fileUrl,
+                modelUsed: "nvidia/parakeet-rnnt-1.1b",
+            });
         } catch (dbErr) {
             ERR("db", "Unexpected DB error", dbErr);
+            return NextResponse.json(
+                { error: "Failed to save memo", detail: String(dbErr) },
+                { status: 500 }
+            );
         }
-
-        LOG("done", "Returning success response");
-        return NextResponse.json({
-            success: true,
-            text: transcriptionText,
-            url: fileUrl,
-            modelUsed: "nvidia/parakeet-rnnt-1.1b",
-        });
 
     } catch (error) {
         ERR("catch", "Unhandled error in POST handler", error);

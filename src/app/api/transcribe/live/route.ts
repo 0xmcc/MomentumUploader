@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { transcribeAudio } from "@/lib/riva";
 
 export async function POST(req: NextRequest) {
+    const startedAtMs = Date.now();
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
 
@@ -15,8 +16,10 @@ export async function POST(req: NextRequest) {
         const text = await transcribeAudio(
             audioBuffer,
             process.env.NVIDIA_API_KEY!,
-            file.type || "audio/webm"
+            file.type || "audio/webm",
+            { priority: "live" }
         );
+        console.log("[api/transcribe/live] timing_ms", Date.now() - startedAtMs);
         return NextResponse.json({ text });
     } catch (err) {
         // Non-fatal — live transcription is best-effort

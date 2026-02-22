@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
 const CORS = {
@@ -18,6 +19,14 @@ export async function OPTIONS() {
  *   offset   - pagination offset (default 0)
  */
 export async function GET(req: NextRequest) {
+    const { userId } = await auth();
+    if (!userId) {
+        return NextResponse.json(
+            { memos: [], total: 0, limit: 50, offset: 0 },
+            { headers: CORS }
+        );
+    }
+
     const { searchParams } = req.nextUrl;
     const search = searchParams.get("search") ?? "";
     const limit = Math.min(Number(searchParams.get("limit") ?? 50), 200);
@@ -26,6 +35,7 @@ export async function GET(req: NextRequest) {
     let query = supabaseAdmin
         .from("memos")
         .select("id, title, transcript, audio_url, duration, created_at", { count: "exact" })
+        .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .range(offset, offset + limit - 1);
 
@@ -62,6 +72,8 @@ export async function GET(req: NextRequest) {
  *   audioUrl    string  - optional, link to existing audio file
  */
 export async function POST(req: NextRequest) {
+    const { userId } = await auth();
+
     let body: { transcript?: string; title?: string; audioUrl?: string };
     try {
         body = await req.json();
@@ -77,6 +89,7 @@ export async function POST(req: NextRequest) {
         title: body.title ?? "Manual Voice Memo",
         transcript: body.transcript,
         audio_url: body.audioUrl ?? "",
+        user_id: userId ?? null,
     }).select().single();
 
     if (error) {

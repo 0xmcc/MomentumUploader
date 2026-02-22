@@ -8,6 +8,7 @@ const RECORDER_TIMESLICE_MS = 1000;
 const LIVE_INTERVAL_MS = 1500;
 
 export type UploadCompletePayload = {
+    id?: string;
     success?: boolean;
     text?: string;
     url?: string;
@@ -15,12 +16,20 @@ export type UploadCompletePayload = {
     durationSeconds?: number;
 };
 
+export type RecordingStopPayload = {
+    blob: Blob;
+    durationSeconds: number;
+    mimeType: string;
+};
+
 import { useTheme } from "./ThemeProvider";
 
 export default function AudioRecorder({
     onUploadComplete,
+    onRecordingStop,
 }: {
     onUploadComplete?: (data: UploadCompletePayload) => void;
+    onRecordingStop?: (payload: RecordingStopPayload) => void;
 }) {
     const [isRecording, setIsRecording] = useState(false);
     const [recordingTime, setRecordingTime] = useState(0);
@@ -158,7 +167,15 @@ export default function AudioRecorder({
             mr.onstop = () => {
                 const blob = new Blob(audioChunksRef.current, { type: mimeTypeRef.current });
                 stream.getTracks().forEach((t) => t.stop());
-                void handleUpload(blob);
+                if (onRecordingStop) {
+                    onRecordingStop({
+                        blob,
+                        durationSeconds: recordingTimeRef.current,
+                        mimeType: mimeTypeRef.current,
+                    });
+                } else {
+                    void handleUpload(blob);
+                }
             };
 
             mr.start(RECORDER_TIMESLICE_MS);
