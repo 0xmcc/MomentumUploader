@@ -165,4 +165,34 @@ describe("AudioRecorder live transcript cadence", () => {
         );
         expect(uploadCalls.length).toBe(0);
     });
+
+    it("shows an actionable user-facing error when microphone APIs are unavailable on non-secure origins", async () => {
+        const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => { });
+        const consoleWarnSpy = jest.spyOn(console, "warn").mockImplementation(() => { });
+        Object.defineProperty(navigator, "mediaDevices", {
+            writable: true,
+            value: undefined,
+        });
+        Object.defineProperty(window, "isSecureContext", {
+            configurable: true,
+            value: false,
+        });
+
+        render(<AudioRecorder />);
+
+        fireEvent.click(screen.getByRole("button"));
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        expect(screen.getByText("Microphone access requires HTTPS (or localhost). Open this page over a secure origin and try again.")).toBeInTheDocument();
+        expect(screen.getByText("New Recording")).toBeInTheDocument();
+        expect(screen.queryByText("Listening...")).not.toBeInTheDocument();
+        expect(consoleErrorSpy).not.toHaveBeenCalled();
+        expect(consoleWarnSpy).toHaveBeenCalled();
+
+        consoleErrorSpy.mockRestore();
+        consoleWarnSpy.mockRestore();
+    });
 });

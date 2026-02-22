@@ -34,6 +34,7 @@ export default function AudioRecorder({
     const [isRecording, setIsRecording] = useState(false);
     const [recordingTime, setRecordingTime] = useState(0);
     const [isUploading, setIsUploading] = useState(false);
+    const [micError, setMicError] = useState<string | null>(null);
     const [liveTranscript, setLiveTranscript] = useState("");
     const [animatedWords, setAnimatedWords] = useState<string[]>([]);
     const [newWordStartIndex, setNewWordStartIndex] = useState(0);
@@ -125,6 +126,22 @@ export default function AudioRecorder({
     };
 
     const startRecording = async () => {
+        setMicError(null);
+
+        if (!navigator.mediaDevices?.getUserMedia) {
+            const secureContext = window.isSecureContext;
+            setMicError(
+                secureContext
+                    ? "Microphone access is not available in this browser."
+                    : "Microphone access requires HTTPS (or localhost). Open this page over a secure origin and try again."
+            );
+            console.warn("Mic unavailable: navigator.mediaDevices.getUserMedia is unavailable", {
+                isSecureContext: secureContext,
+                origin: window.location.origin,
+            });
+            return;
+        }
+
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
@@ -195,6 +212,11 @@ export default function AudioRecorder({
 
         } catch (err) {
             console.error("Mic error:", err);
+            if (err instanceof DOMException && err.name === "NotAllowedError") {
+                setMicError("Microphone permission was denied. Please allow access and try again.");
+            } else {
+                setMicError("Unable to access microphone. Check your browser settings and try again.");
+            }
         }
     };
 
@@ -315,6 +337,14 @@ export default function AudioRecorder({
                         </div>
                     ) : (
                         <div className="h-full flex flex-col items-center justify-center text-white/10 select-none">
+                            {micError && (
+                                <p
+                                    role="alert"
+                                    className="mb-4 max-w-md text-center text-xs font-medium tracking-wide text-red-400"
+                                >
+                                    {micError}
+                                </p>
+                            )}
                             <Mic size={80} strokeWidth={1} />
                             <p className="mt-6 text-sm font-mono uppercase tracking-[0.2em]">Tap the button below to start</p>
                         </div>
