@@ -188,6 +188,7 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
       border-radius: 18px;
       padding: 1.25rem;
       box-shadow: 0 22px 44px rgba(0, 0, 0, 0.34);
+      min-height: 80vh;
     }
     h1 { margin: 0 0 .35rem; font-size: clamp(1.5rem, 4vw, 2.15rem); }
     h2 { margin-top: 1.25rem; margin-bottom: .5rem; font-size: 1.1rem; }
@@ -202,8 +203,69 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 12px;
       padding: 1rem;
+      min-height: 40vh;
+      overflow-y: auto;
     }
-    audio { width: 100%; margin-top: 1rem; }
+    .share-audio {
+      width: 100%;
+      margin: 1rem 0 .65rem;
+      border-radius: 14px;
+      background:
+        linear-gradient(180deg, rgba(83, 48, 21, 0.36), rgba(39, 24, 12, 0.72)),
+        rgba(26, 16, 8, 0.72);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 213, 167, 0.1),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.24),
+        0 10px 22px rgba(0, 0, 0, 0.24);
+      border: 1px solid rgba(251, 191, 126, 0.18);
+      accent-color: #e5924f;
+      overflow: hidden;
+    }
+    .share-audio::-webkit-media-controls-enclosure {
+      border-radius: 14px;
+      background:
+        linear-gradient(180deg, rgba(84, 49, 24, 0.34), rgba(31, 20, 10, 0.78)),
+        rgba(23, 15, 8, 0.72);
+    }
+    .share-audio::-webkit-media-controls-panel {
+      background:
+        radial-gradient(circle at 14% 50%, rgba(255, 169, 92, 0.1), transparent 48%),
+        linear-gradient(180deg, rgba(87, 53, 27, 0.3), rgba(30, 20, 11, 0.82));
+      color: #ffe8d1;
+      padding-inline: .45rem;
+    }
+    section[aria-labelledby="transcript-heading"] { margin-top: .15rem; }
+    section[aria-labelledby="transcript-heading"] h2 { margin-top: 0; }
+    .share-audio::-webkit-media-controls-play-button {
+      border-radius: 999px;
+      background-color: rgba(96, 57, 28, 0.72);
+      border: 1px solid rgba(255, 205, 161, 0.24);
+      color: #ffe6ce;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 227, 198, 0.22),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.34),
+        0 1px 2px rgba(0, 0, 0, 0.35);
+    }
+    .share-audio::-webkit-media-controls-current-time-display,
+    .share-audio::-webkit-media-controls-time-remaining-display {
+      color: #ffd7b2;
+      text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
+    }
+    .share-audio::-webkit-media-controls-timeline {
+      border-radius: 999px;
+      height: .42rem;
+      margin-inline: .55rem;
+      background:
+        linear-gradient(90deg, rgba(241, 154, 84, 0.92), rgba(211, 116, 51, 0.85) 45%, rgba(141, 72, 33, 0.64));
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 211, 167, 0.2),
+        inset 0 0 7px rgba(255, 176, 112, 0.35),
+        0 0 0 1px rgba(0, 0, 0, 0.26);
+    }
+    .share-audio::-webkit-media-controls-volume-slider {
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(217, 129, 63, 0.78), rgba(122, 68, 34, 0.6));
+    }
     dl {
       margin: 0;
       padding: 0;
@@ -251,24 +313,12 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
     <article>
       <h1>${escapedTitle}</h1>
       <p class="meta">Shared ${escapedArtifactType} • canonical URL: <a href="${escapedCanonicalUrl}" style="color:#fdba74">${escapedCanonicalUrl}</a></p>
-      ${payload.mediaUrl ? `<audio controls preload="metadata" src="${escapedAudioUrl}"></audio>` : ""}
+      ${payload.mediaUrl ? `<audio class="share-audio" controls preload="metadata" src="${escapedAudioUrl}"></audio>` : ""}
       <section aria-labelledby="transcript-heading">
         <h2 id="transcript-heading">Transcript</h2>
         <div class="transcript">${escapedTranscript}</div>
       </section>
-      <section aria-labelledby="metadata-heading">
-        <h2 id="metadata-heading">Metadata</h2>
-        <dl>
-          <dt>Artifact type</dt><dd>${escapedArtifactType}</dd>
-          <dt>Artifact ID</dt><dd>${escapedArtifactId}</dd>
-          <dt>Share token</dt><dd>${escapeHtml(payload.shareToken)}</dd>
-          <dt>Created at</dt><dd>${escapedCreatedAt}</dd>
-          <dt>Shared at</dt><dd>${escapedSharedAt}</dd>
-          <dt>Expires at</dt><dd>${escapedExpiresAt}</dd>
-          <dt>Markdown</dt><dd><a href="${encodedMarkdown}">${encodedMarkdown}</a></dd>
-          <dt>JSON</dt><dd><a href="${encodedJson}">${encodedJson}</a></dd>
-        </dl>
-      </section>
+      
     </article>
   </main>
   <header class="promo" aria-label="MomentumUploader app call to action">
