@@ -14,6 +14,7 @@ export const DEFAULT_PENDING_MIME_TYPE = "audio/webm";
 export const SHARE_STATE_RESET_MS = 5000;
 export const MEMO_RECONCILE_DELAY_MS = 1500;
 export const MEMO_TITLE_WORD_LIMIT = 6;
+export const MEMO_ESTIMATED_COST_PER_MINUTE_USD = 0.3;
 
 export function isMemoFailed(memo: Pick<Memo, "transcript">) {
   return memo.transcript === FAILED_TRANSCRIPT || !memo.transcript;
@@ -60,6 +61,29 @@ export function formatSecs(s: number) {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
   return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+
+export function getMemoEstimatedCostUsd(durationSeconds?: number | null) {
+  if (
+    durationSeconds == null ||
+    !isFinite(durationSeconds) ||
+    durationSeconds < 0
+  ) {
+    return null;
+  }
+
+  const rawCost =
+    (durationSeconds / 60) * MEMO_ESTIMATED_COST_PER_MINUTE_USD;
+  return Math.round(rawCost * 100) / 100;
+}
+
+export function formatUsd(amount: number) {
+  return `$${amount.toFixed(2)}`;
+}
+
+export function formatMemoEstimatedCost(durationSeconds?: number | null) {
+  const estimatedCost = getMemoEstimatedCostUsd(durationSeconds);
+  return estimatedCost == null ? "--" : formatUsd(estimatedCost);
 }
 
 export function exportMarkdown(memo: Memo) {

@@ -31,8 +31,10 @@ import ThemeToggle from "@/components/ThemeToggle";
 import { useTheme } from "@/components/ThemeProvider";
 import { useMemoPlayback } from "@/hooks/useMemoPlayback";
 import {
+  MEMO_ESTIMATED_COST_PER_MINUTE_USD,
   exportMarkdown,
   formatDate,
+  formatMemoEstimatedCost,
   formatSecs,
   getMemoTitle,
   isMemoFailed,
@@ -50,6 +52,9 @@ function MemoListItem({
 }) {
   const isFailed = isMemoFailed(memo);
   const title = getMemoTitle(memo);
+  const durationLabel =
+    memo.durationSeconds != null ? formatSecs(memo.durationSeconds) : "--:--";
+  const costLabel = formatMemoEstimatedCost(memo.durationSeconds);
 
   return (
     <div
@@ -71,9 +76,7 @@ function MemoListItem({
         }`}
       >
         <span>{formatDate(memo.createdAt)}</span>
-        <span>
-          {memo.durationSeconds != null ? formatSecs(memo.durationSeconds) : "--:--"}
-        </span>
+        <span>{`${durationLabel} · ${costLabel}`}</span>
       </div>
     </div>
   );
@@ -141,6 +144,12 @@ export function MemoDetailView({ memo }: { memo: Memo }) {
             {!isFailed && (
               <span className="text-[10px] text-white/30 font-mono uppercase tracking-tight">
                 {memo.wordCount} words
+              </span>
+            )}
+            {memo.durationSeconds != null && (
+              <span className="text-[10px] text-white/35 font-mono tracking-tight">
+                Est. {formatMemoEstimatedCost(memo.durationSeconds)} at $
+                {MEMO_ESTIMATED_COST_PER_MINUTE_USD.toFixed(2)}/min
               </span>
             )}
           </div>
