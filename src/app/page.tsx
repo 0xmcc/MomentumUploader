@@ -235,7 +235,7 @@ function MemoDetailView({ memo }: { memo: Memo }) {
       className="flex flex-col h-full w-full"
     >
       {/* Minimized Header */}
-      <div className="flex justify-between items-center pl-8 pr-40 py-6 border-b border-white/5 bg-[#121212]/50 backdrop-blur-md z-10">
+      <div className="flex justify-between items-center pl-8 pr-8 py-6 border-b border-white/5 bg-[#121212]/50 backdrop-blur-md z-10">
         <div className="flex flex-col">
           <h2 className="text-xl font-semibold text-white/90">
             {formatDate(memo.createdAt)}
@@ -295,6 +295,13 @@ function MemoDetailView({ memo }: { memo: Memo }) {
               <span className="hidden sm:inline font-mono tracking-wide">Export .md</span>
             </button>
           )}
+          <Link
+            href="/docs"
+            className="inline-flex items-center h-9 text-xs text-white/40 hover:text-accent transition-colors font-mono"
+          >
+            API Docs ↗
+          </Link>
+          <ThemeToggle />
         </div>
       </div>
 
@@ -506,12 +513,14 @@ export default function Home() {
 
       {/* Main Content Area */}
       <section className="flex-1 flex flex-col relative bg-[#121212] overflow-y-auto">
-        <header className="absolute top-6 right-6 z-30 flex items-center gap-4">
-          <Link href="/docs" className="text-xs text-white/40 hover:text-accent transition-colors flex items-center gap-1 font-mono">
-            API Docs ↗
-          </Link>
-          <ThemeToggle />
-        </header>
+        {!selectedMemoId && (
+          <header className="absolute top-6 right-6 z-30 flex items-center gap-4">
+            <Link href="/docs" className="text-xs text-white/40 hover:text-accent transition-colors flex items-center gap-1 font-mono">
+              API Docs ↗
+            </Link>
+            <ThemeToggle />
+          </header>
+        )}
 
         {selectedMemoId ? (
           <MemoDetailView key={selectedMemoId} memo={memos.find((m) => m.id === selectedMemoId) || memos[0]} />
