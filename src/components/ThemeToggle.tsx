@@ -38,21 +38,14 @@ export default function ThemeToggle() {
                         : "none",
                 }}
             >
-                {/* Mini swatch row */}
-                <span className="flex gap-1 items-center">
-                    {THEMES.slice(0, 6).map((t) => (
-                        <span
-                            key={t.id}
-                            className="w-2.5 h-2.5 rounded-full transition-transform duration-150"
-                            style={{
-                                background: t.swatch,
-                                transform: t.id === theme.id ? "scale(1.3)" : "scale(1)",
-                                boxShadow:
-                                    t.id === theme.id ? `0 0 6px ${t.swatch}` : "none",
-                            }}
-                        />
-                    ))}
-                </span>
+                {/* Active swatch circle */}
+                <span
+                    className="w-3.5 h-3.5 rounded-full transition-transform duration-150"
+                    style={{
+                        background: theme.swatch,
+                        boxShadow: `0 0 8px ${theme.swatch}`,
+                    }}
+                />
                 <Palette
                     size={14}
                     style={{ color: "var(--accent)" }}

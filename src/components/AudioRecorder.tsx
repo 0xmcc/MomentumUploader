@@ -219,7 +219,7 @@ export default function AudioRecorder({
     return (
         <div className="flex flex-col h-full w-full bg-[#121212]">
             {/* Header / Status */}
-            <div className="flex justify-between items-center px-8 py-6 border-b border-white/5 bg-[#121212]/50 backdrop-blur-md z-10">
+            <div className="flex justify-between items-center pl-8 pr-40 py-6 border-b border-white/5 bg-[#121212]/50 backdrop-blur-md z-10">
                 <div className="flex flex-col">
                     <h2 className="text-xl font-semibold text-white/90">
                         {isRecording ? "Listening..." : (isUploading ? "Saving..." : "New Recording")}
