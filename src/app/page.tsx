@@ -6,7 +6,7 @@ import AudioRecorder from "@/components/AudioRecorder";
 import type { UploadCompletePayload } from "@/components/AudioRecorder";
 import ThemeToggle from "@/components/ThemeToggle";
 import {
-  Mic2, Search, Play, Pause, ExternalLink, Cpu, Loader2, FileDown, Plus
+  Mic2, Search, Play, Pause, ExternalLink, Cpu, Loader2, FileDown, Plus, Link2, Check
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -82,6 +82,34 @@ function exportMarkdown(memo: Memo) {
   URL.revokeObjectURL(url);
 }
 
+async function copyToClipboard(text: string): Promise<boolean> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  if (typeof document === "undefined") {
+    return false;
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.setAttribute("readonly", "");
+  textArea.style.position = "fixed";
+  textArea.style.opacity = "0";
+  document.body.appendChild(textArea);
+  textArea.select();
+
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textArea);
+  }
+
+  return copied;
+}
+
 function MemoListItem({ memo, isActive, onClick }: { memo: Memo, isActive: boolean, onClick: () => void }) {
   const isFailed = memo.transcript === "[Transcription failed]" || !memo.transcript;
   // Use a snippet of the transcript as the title, or a default
@@ -115,7 +143,10 @@ function MemoDetailView({ memo }: { memo: Memo }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
+  const [shareState, setShareState] = useState<"idle" | "loading" | "copied" | "error">("idle");
+  const [lastShareUrl, setLastShareUrl] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const shareResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { playbackTheme } = useTheme();
 
   const isFailed = memo.transcript === "[Transcription failed]" || !memo.transcript;
@@ -142,6 +173,59 @@ function MemoDetailView({ memo }: { memo: Memo }) {
 
   const progress = audioDuration ? (currentTime / audioDuration) * 100 : 0;
   const displayDuration = audioDuration ?? memo.durationSeconds ?? null;
+  const shareLabel = shareState === "copied"
+    ? "Copied"
+    : shareState === "loading"
+      ? "Sharing..."
+      : shareState === "error"
+        ? "Retry Share"
+        : "Share";
+
+  useEffect(() => {
+    setShareState("idle");
+    setLastShareUrl(null);
+    if (shareResetTimerRef.current) {
+      clearTimeout(shareResetTimerRef.current);
+      shareResetTimerRef.current = null;
+    }
+
+    return () => {
+      if (shareResetTimerRef.current) {
+        clearTimeout(shareResetTimerRef.current);
+      }
+    };
+  }, [memo.id]);
+
+  const handleShare = async () => {
+    setShareState("loading");
+    setLastShareUrl(null);
+
+    try {
+      const res = await fetch(`/api/memos/${memo.id}/share`, { method: "POST" });
+      const json = await res.json();
+
+      if (!res.ok || !json?.shareUrl) {
+        throw new Error(json?.error || "Unable to generate share link.");
+      }
+
+      const copied = await copyToClipboard(json.shareUrl);
+      if (!copied) {
+        throw new Error("Clipboard unavailable.");
+      }
+
+      setLastShareUrl(json.shareUrl);
+      setShareState("copied");
+      if (shareResetTimerRef.current) {
+        clearTimeout(shareResetTimerRef.current);
+      }
+      shareResetTimerRef.current = setTimeout(() => {
+        setShareState("idle");
+      }, 5000);
+    } catch (error) {
+      console.error("Failed to copy share link:", error);
+      setShareState("error");
+    }
+  };
 
   return (
     <motion.div
@@ -171,6 +255,35 @@ function MemoDetailView({ memo }: { memo: Memo }) {
             <span className="hidden sm:flex items-center gap-1.5 text-[10px] text-white/30 font-mono uppercase tracking-tight">
               <Cpu size={10} /> {memo.modelUsed}
             </span>
+          )}
+          <button
+            onClick={handleShare}
+            title="Copy share link"
+            disabled={shareState === "loading"}
+            className={`flex items-center gap-1.5 text-xs bg-white/5 border px-3 py-1.5 rounded-full transition-all duration-200 group ${shareState === "copied"
+              ? "text-emerald-300 border-emerald-500/35"
+              : "text-white/55 hover:text-accent border-white/10 hover:border-accent/30 hover:bg-accent/10"
+              } ${shareState === "loading" ? "opacity-80 cursor-wait" : ""}`}
+          >
+            {shareState === "loading" ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : shareState === "copied" ? (
+              <Check size={14} />
+            ) : (
+              <Link2 size={14} />
+            )}
+            <span className="hidden sm:inline font-mono tracking-wide">{shareLabel}</span>
+          </button>
+          {shareState === "copied" && lastShareUrl && (
+            <a
+              href={lastShareUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] text-emerald-300/90 hover:text-emerald-200 font-mono uppercase tracking-wide transition-colors"
+              title="Open share page in a new tab"
+            >
+              Open share page
+            </a>
           )}
           {!isFailed && memo.transcript && (
             <button
