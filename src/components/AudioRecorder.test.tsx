@@ -166,6 +166,112 @@ describe("AudioRecorder live transcript cadence", () => {
         expect(uploadCalls.length).toBe(0);
     });
 
+    it("keeps live payload size bounded during long recordings", async () => {
+        let maxLivePayloadBytes = 0;
+        let liveCallCount = 0;
+
+        (global.fetch as jest.Mock).mockImplementation(
+            async (url: string, init?: { body?: unknown }) => {
+                if (url === "/api/transcribe/live") {
+                    const formData = init?.body as FormData;
+                    const file = formData.get("file") as Blob | null;
+                    const size = file?.size ?? 0;
+                    maxLivePayloadBytes = Math.max(maxLivePayloadBytes, size);
+                    liveCallCount += 1;
+
+                    return {
+                        ok: true,
+                        json: async () => ({ text: `partial-${liveCallCount}` }),
+                    };
+                }
+
+                return {
+                    ok: true,
+                    json: async () => ({ text: "final transcript" }),
+                };
+            }
+        );
+
+        render(<AudioRecorder />);
+        fireEvent.click(screen.getByRole("button"));
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        for (let i = 0; i < 50; i += 1) {
+            await act(async () => {
+                jest.advanceTimersByTime(1500);
+            });
+            await act(async () => {
+                await Promise.resolve();
+            });
+        }
+
+        expect(liveCallCount).toBeGreaterThan(10);
+        expect(maxLivePayloadBytes).toBeLessThanOrEqual(180);
+
+        fireEvent.click(screen.getByRole("button"));
+        await act(async () => {
+            await Promise.resolve();
+        });
+    });
+
+    it("appends overlapping live transcript windows instead of overwriting earlier text", async () => {
+        const liveTexts = [
+            "interface but it's not recommended",
+            "it's not recommended because there are debugging messages",
+            "because there are debugging messages that come out here and then",
+        ];
+        let liveCallIndex = 0;
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+            if (url === "/api/transcribe/live") {
+                const text = liveTexts[Math.min(liveCallIndex, liveTexts.length - 1)];
+                liveCallIndex += 1;
+                return {
+                    ok: true,
+                    json: async () => ({ text }),
+                };
+            }
+
+            return {
+                ok: true,
+                json: async () => ({ text: "final transcript" }),
+            };
+        });
+
+        render(<AudioRecorder />);
+        fireEvent.click(screen.getByRole("button"));
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        for (let i = 0; i < 6; i += 1) {
+            await act(async () => {
+                jest.advanceTimersByTime(1500);
+            });
+            await act(async () => {
+                await Promise.resolve();
+            });
+        }
+
+        const normalizedText = (document.body.textContent ?? "")
+            .replace(/\s+/g, "")
+            .toLowerCase();
+        const expectedCombinedTranscript = "interface but it's not recommended because there are debugging messages that come out here and then"
+            .replace(/\s+/g, "")
+            .toLowerCase();
+
+        expect(normalizedText).toContain(expectedCombinedTranscript);
+
+        fireEvent.click(screen.getByRole("button"));
+        await act(async () => {
+            await Promise.resolve();
+        });
+    });
+
     it("shows an actionable user-facing error when microphone APIs are unavailable on non-secure origins", async () => {
         const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => { });
         const consoleWarnSpy = jest.spyOn(console, "warn").mockImplementation(() => { });

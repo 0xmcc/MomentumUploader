@@ -6,6 +6,34 @@ import { motion } from "framer-motion";
 
 const RECORDER_TIMESLICE_MS = 1000;
 const LIVE_INTERVAL_MS = 1500;
+const LIVE_MAX_CHUNKS = 30;
+
+function mergeLiveTranscript(previous: string, incoming: string): string {
+    const normalize = (text: string) => text.trim().replace(/\s+/g, " ");
+
+    const prev = normalize(previous);
+    const next = normalize(incoming);
+
+    if (!next) return prev;
+    if (!prev) return next;
+    if (next.startsWith(prev)) return next;
+    if (prev.includes(next)) return prev;
+
+    const prevWords = prev.split(" ");
+    const nextWords = next.split(" ");
+    const maxOverlap = Math.min(prevWords.length, nextWords.length);
+
+    for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+        const prevSuffix = prevWords.slice(-overlap).join(" ").toLowerCase();
+        const nextPrefix = nextWords.slice(0, overlap).join(" ").toLowerCase();
+        if (prevSuffix === nextPrefix) {
+            const appendedTail = nextWords.slice(overlap).join(" ");
+            return appendedTail ? `${prev} ${appendedTail}` : prev;
+        }
+    }
+
+    return `${prev} ${next}`;
+}
 
 export type UploadCompletePayload = {
     id?: string;
@@ -105,9 +133,13 @@ export default function AudioRecorder({
         const controller = new AbortController();
         abortRef.current = controller;
 
-        // Chunk 0 always contains the WebM container header, so
-        // concatenating [0..N] always produces a valid decodable file
-        const snapshot = new Blob([...audioChunksRef.current], { type: mimeTypeRef.current });
+        // Keep live payload bounded so per-tick transcription latency does not
+        // grow with recording length. Preserve chunk[0] for container header.
+        const chunks = audioChunksRef.current;
+        const snapshotChunks = chunks.length <= LIVE_MAX_CHUNKS
+            ? [...chunks]
+            : [chunks[0], ...chunks.slice(-(LIVE_MAX_CHUNKS - 1))];
+        const snapshot = new Blob(snapshotChunks, { type: mimeTypeRef.current });
 
         const fd = new FormData();
         fd.append("file", snapshot, `live_${Date.now()}.webm`);
@@ -115,7 +147,9 @@ export default function AudioRecorder({
         fetch("/api/transcribe/live", { method: "POST", body: fd, signal: controller.signal })
             .then((r) => r.ok ? r.json() : Promise.reject(r.status))
             .then(({ text }: { text: string }) => {
-                if (text) setLiveTranscript(text);
+                if (text) {
+                    setLiveTranscript((previous) => mergeLiveTranscript(previous, text));
+                }
             })
             .catch((err) => {
                 if (err?.name !== "AbortError") console.error("[live]", err);
