@@ -157,7 +157,16 @@ async function toPCM16(inputBuffer: Buffer, inputExt = "webm"): Promise<Buffer> 
 async function _doRecognize(audioBytes: Buffer, apiKey: string, mimeType: string): Promise<string> {
     const client = getAsrClient();
 
-    const inputExt = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
+    const normalizedMime = mimeType.toLowerCase();
+    const inputExt = normalizedMime.includes("ogg")
+        ? "ogg"
+        : normalizedMime.includes("m4a")
+            ? "m4a"
+            : normalizedMime.includes("mp4")
+                ? "mp4"
+                : normalizedMime.includes("mpeg") || normalizedMime.includes("mp3")
+                    ? "mp3"
+                    : "webm";
     const pcmBuffer = await toPCM16(audioBytes, inputExt);
 
     const metadata = new grpc.Metadata();

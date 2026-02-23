@@ -24,7 +24,7 @@ import {
 import AudioRecorder from "@/components/AudioRecorder";
 import VoiceoverStudio from "@/components/VoiceoverStudio";
 import type {
-  RecordingStopPayload,
+  AudioInputPayload,
   UploadCompletePayload,
 } from "@/components/AudioRecorder";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -445,14 +445,18 @@ export function PrimaryHeaderControls() {
 }
 
 type RecorderPanelProps = {
-  onRecordingStop: (payload: RecordingStopPayload) => void;
+  isUploading: boolean;
+  uploadProgressPercent: number;
+  onAudioInput: (payload: AudioInputPayload) => void;
   onRetryUpload: () => void;
   onUploadComplete: (data: UploadCompletePayload) => void;
   showUploadError: boolean;
 };
 
 export function RecorderPanel({
-  onRecordingStop,
+  isUploading,
+  uploadProgressPercent,
+  onAudioInput,
   onRetryUpload,
   onUploadComplete,
   showUploadError,
@@ -471,8 +475,10 @@ export function RecorderPanel({
         </div>
       )}
       <AudioRecorder
+        isUploadInProgress={isUploading}
+        uploadProgressPercent={uploadProgressPercent}
         onUploadComplete={onUploadComplete}
-        onRecordingStop={onRecordingStop}
+        onAudioInput={onAudioInput}
       />
       <div className="mt-8 text-center text-xs text-white/30 font-mono tracking-widest uppercase">
         <p>Powered by Supabase &amp; NVIDIA NIM</p>

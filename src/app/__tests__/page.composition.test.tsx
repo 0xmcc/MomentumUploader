@@ -48,8 +48,9 @@ describe("Home composition wiring", () => {
   it("renders recorder flow when no memo is selected", () => {
     const commonHookState = {
       filteredMemos: [],
-      handleRecordingStop: jest.fn(),
+      handleAudioInput: jest.fn(),
       handleUploadComplete: jest.fn(),
+      isUploading: false,
       loading: false,
       retryUpload: jest.fn(),
       searchQuery: "",
@@ -57,6 +58,7 @@ describe("Home composition wiring", () => {
       setSearchQuery: jest.fn(),
       setSelectedMemoId: jest.fn(),
       showUploadError: false,
+      uploadProgressPercent: 0,
     };
 
     mockedUseMemosWorkspace.mockReturnValue({
@@ -77,8 +79,9 @@ describe("Home composition wiring", () => {
         selectedMemoId: null,
       })
     );
-    expect(recorderPanelMock).toHaveBeenCalledWith(
+      expect(recorderPanelMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        isUploading: false,
         showUploadError: false,
       })
     );
@@ -94,8 +97,9 @@ describe("Home composition wiring", () => {
 
     mockedUseMemosWorkspace.mockReturnValue({
       filteredMemos: [selectedMemo],
-      handleRecordingStop: jest.fn(),
+      handleAudioInput: jest.fn(),
       handleUploadComplete: jest.fn(),
+      isUploading: false,
       loading: false,
       retryUpload: jest.fn(),
       searchQuery: "",
@@ -104,6 +108,7 @@ describe("Home composition wiring", () => {
       setSearchQuery: jest.fn(),
       setSelectedMemoId: jest.fn(),
       showUploadError: false,
+      uploadProgressPercent: 0,
     });
 
     render(<Home />);

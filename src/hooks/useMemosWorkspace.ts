@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
-  RecordingStopPayload,
+  AudioInputPayload,
   UploadCompletePayload,
 } from "@/components/AudioRecorder";
 import {
-  DEFAULT_PENDING_MIME_TYPE,
   MEMO_RECONCILE_DELAY_MS,
-  getFileExtensionFromMime,
   type Memo,
 } from "@/lib/memo-ui";
+import {
+  DEFAULT_PENDING_MIME_TYPE,
+  getFileExtensionFromMime,
+  uploadAudioForTranscription,
+} from "@/lib/audio-upload";
 
 type UseMemosWorkspaceArgs = {
   isLoaded: boolean;
@@ -29,6 +32,8 @@ export function useMemosWorkspace({
   const [pendingBlob, setPendingBlob] = useState<Blob | null>(null);
   const [pendingDuration, setPendingDuration] = useState(0);
   const [pendingMimeType, setPendingMimeType] = useState(DEFAULT_PENDING_MIME_TYPE);
+  const [activeUploadCount, setActiveUploadCount] = useState(0);
+  const [uploadProgressPercent, setUploadProgressPercent] = useState(0);
   const [uploadError, setUploadError] = useState(false);
 
   const reconcilingMemoIdsRef = useRef<Set<string>>(new Set());
@@ -119,25 +124,30 @@ export function useMemosWorkspace({
   const uploadBlob = useCallback(
     async (blob: Blob, durationSeconds: number, mimeType: string) => {
       setUploadError(false);
+      setUploadProgressPercent(0);
+      setActiveUploadCount((count) => count + 1);
       try {
         const fd = new FormData();
         const ext = getFileExtensionFromMime(mimeType);
         fd.append("file", blob, `memo_${Date.now()}.${ext}`);
-        const res = await fetch("/api/transcribe", { method: "POST", body: fd });
-        if (!res.ok) throw new Error("Upload failed");
-        const data = await res.json();
+        const data = (await uploadAudioForTranscription(fd, (percent) => {
+          setUploadProgressPercent((current) => Math.max(current, percent));
+        })) as UploadCompletePayload;
+        setUploadProgressPercent(100);
         handleUploadComplete({ ...data, durationSeconds });
         clearPendingUpload();
       } catch (err) {
         console.error("Upload error:", err);
         setUploadError(true);
+      } finally {
+        setActiveUploadCount((count) => Math.max(0, count - 1));
       }
     },
     [clearPendingUpload, handleUploadComplete]
   );
 
-  const handleRecordingStop = useCallback(
-    (payload: RecordingStopPayload) => {
+  const handleAudioInput = useCallback(
+    (payload: AudioInputPayload) => {
       setUploadError(false);
       setPendingBlob(payload.blob);
       setPendingDuration(payload.durationSeconds);
@@ -170,6 +180,7 @@ export function useMemosWorkspace({
   const selectedMemo = selectedMemoId
     ? memos.find((memo) => memo.id === selectedMemoId) ?? null
     : null;
+  const isUploading = activeUploadCount > 0;
   const showUploadError = uploadError && Boolean(pendingBlob);
 
   const retryUpload = useCallback(() => {
@@ -179,7 +190,7 @@ export function useMemosWorkspace({
 
   return {
     filteredMemos,
-    handleRecordingStop,
+    handleAudioInput,
     handleUploadComplete,
     loading,
     searchQuery,
@@ -187,7 +198,9 @@ export function useMemosWorkspace({
     selectedMemoId,
     setSearchQuery,
     setSelectedMemoId,
+    isUploading,
     showUploadError,
     retryUpload,
+    uploadProgressPercent,
   };
 }

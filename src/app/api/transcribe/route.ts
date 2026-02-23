@@ -3,6 +3,150 @@ import { auth } from "@clerk/nextjs/server";
 import { uploadAudio, supabase, supabaseAdmin } from "@/lib/supabase";
 import { transcribeAudio } from "@/lib/riva";
 
+const MAX_AUDIO_UPLOAD_BYTES = 75 * 1024 * 1024;
+const MAX_AUDIO_UPLOAD_MB = Math.round(MAX_AUDIO_UPLOAD_BYTES / (1024 * 1024));
+
+function readErrorMessage(error: unknown): string {
+    if (typeof error === "string") return error;
+    if (error && typeof error === "object") {
+        const maybeMessage = (error as { message?: unknown }).message;
+        if (typeof maybeMessage === "string") return maybeMessage;
+    }
+    return "";
+}
+
+function isPayloadTooLargeError(error: unknown): boolean {
+    const msg = readErrorMessage(error).toLowerCase();
+    return [
+        "body exceeded",
+        "payload too large",
+        "entity too large",
+        "request body larger than",
+    ].some((needle) => msg.includes(needle));
+}
+
+function normalizeUploadContentType(mimeType: string | undefined, fileName: string | undefined): string {
+    const normalized = (mimeType ?? "").toLowerCase();
+    const normalizedName = (fileName ?? "").toLowerCase();
+
+    if (
+        normalized.includes("m4a") ||
+        normalized.includes("mp4") ||
+        normalizedName.endsWith(".m4a") ||
+        normalizedName.endsWith(".mp4")
+    ) {
+        return "audio/mp4";
+    }
+    if (
+        normalized.includes("mpeg") ||
+        normalized.includes("mp3") ||
+        normalizedName.endsWith(".mp3")
+    ) {
+        return "audio/mpeg";
+    }
+    if (normalized.includes("ogg") || normalizedName.endsWith(".ogg")) {
+        return "audio/ogg";
+    }
+    if (normalized.includes("wav") || normalizedName.endsWith(".wav")) {
+        return "audio/wav";
+    }
+
+    if (normalized && normalized !== "application/octet-stream") {
+        return mimeType!;
+    }
+    return "audio/webm";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+    return value && typeof value === "object"
+        ? (value as Record<string, unknown>)
+        : null;
+}
+
+function pickString(obj: Record<string, unknown> | null, key: string): string | undefined {
+    const value = obj?.[key];
+    return typeof value === "string" ? value : undefined;
+}
+
+function pickNumber(obj: Record<string, unknown> | null, key: string): number | undefined {
+    const value = obj?.[key];
+    return typeof value === "number" ? value : undefined;
+}
+
+function pickNumberOrString(
+    obj: Record<string, unknown> | null,
+    key: string
+): number | string | undefined {
+    const value = obj?.[key];
+    return typeof value === "number" || typeof value === "string"
+        ? value
+        : undefined;
+}
+
+function isSupabaseStorageTooLargeError(error: unknown): boolean {
+    const errorRecord = asRecord(error);
+    const status = pickNumberOrString(errorRecord, "status");
+    const statusCode = pickNumberOrString(errorRecord, "statusCode");
+    const namespace = pickString(errorRecord, "namespace");
+    const message = readErrorMessage(error).toLowerCase();
+
+    return (
+        namespace === "storage" &&
+        (
+            status === 413 ||
+            status === "413" ||
+            statusCode === 413 ||
+            statusCode === "413" ||
+            message.includes("maximum allowed size") ||
+            message.includes("object exceeded")
+        )
+    );
+}
+
+type UploadNetworkCause = {
+    causeCode?: string;
+    causeMessage?: string;
+    socketBytesWritten?: number;
+    socketBytesRead?: number;
+};
+
+function extractUploadNetworkCause(error: unknown): UploadNetworkCause {
+    const uploadErrorRecord = asRecord(error);
+    const originalErrorRecord = asRecord(uploadErrorRecord?.originalError);
+    const causeRecord =
+        asRecord(originalErrorRecord?.cause) ??
+        asRecord(uploadErrorRecord?.cause);
+    const socketRecord = asRecord(causeRecord?.socket);
+
+    return {
+        causeCode: pickString(causeRecord, "code"),
+        causeMessage: pickString(causeRecord, "message"),
+        socketBytesWritten: pickNumber(socketRecord, "bytesWritten"),
+        socketBytesRead: pickNumber(socketRecord, "bytesRead"),
+    };
+}
+
+function isLikelySupabaseSocketSizeCapError(
+    error: unknown,
+    fileSizeBytes: number
+): boolean {
+    const uploadErrorRecord = asRecord(error);
+    const namespace = pickString(uploadErrorRecord, "namespace");
+    if (namespace !== "storage") return false;
+
+    const { causeCode, causeMessage, socketBytesWritten } =
+        extractUploadNetworkCause(error);
+    if (causeCode !== "UND_ERR_SOCKET") return false;
+
+    const closedByPeer = (causeMessage ?? "").toLowerCase().includes("other side closed");
+    const nearFullWrite =
+        typeof socketBytesWritten === "number" &&
+        fileSizeBytes > 0 &&
+        socketBytesWritten >= Math.floor(fileSizeBytes * 0.95);
+
+    return closedByPeer && nearFullWrite;
+}
+
 const LOG = (step: string, msg: string, data?: unknown) => {
     const prefix = `[transcribe/${step}]`;
     if (data !== undefined) {
@@ -11,6 +155,7 @@ const LOG = (step: string, msg: string, data?: unknown) => {
         console.log(prefix, msg);
     }
 };
+
 const ERR = (step: string, msg: string, err: unknown) => {
     console.error(`[transcribe/${step}] ❌ ${msg}`, err);
 };
@@ -33,7 +178,23 @@ export async function POST(req: NextRequest) {
     LOG("env", "NVIDIA_KEY prefix", process.env.NVIDIA_API_KEY?.slice(0, 12));
 
     try {
-        const formData = await req.formData();
+        let formData: FormData;
+        try {
+            formData = await req.formData();
+        } catch (formDataError) {
+            if (isPayloadTooLargeError(formDataError)) {
+                ERR("parse", "Audio payload exceeds configured request limit", formDataError);
+                return NextResponse.json(
+                    {
+                        error: "Audio file too large",
+                        detail: `Please keep uploads under ${MAX_AUDIO_UPLOAD_MB}MB.`,
+                    },
+                    { status: 413 }
+                );
+            }
+            throw formDataError;
+        }
+
         LOG("timing", "Parsed form data ms", Date.now() - startedAtMs);
         const file = formData.get("file") as File | null;
 
@@ -44,6 +205,16 @@ export async function POST(req: NextRequest) {
 
         LOG("parse", `File received: name=${file.name}, size=${file.size} bytes, type=${file.type}`);
 
+        if (file.size > MAX_AUDIO_UPLOAD_BYTES) {
+            return NextResponse.json(
+                {
+                    error: "Audio file too large",
+                    detail: `Please keep uploads under ${MAX_AUDIO_UPLOAD_MB}MB.`,
+                },
+                { status: 413 }
+            );
+        }
+
         // --- Step 1: Upload to Supabase Storage ---
         const fileName = `${Date.now()}_${file.name || "audio.webm"}`;
         LOG("storage", `Uploading as: audio/${fileName}`);
@@ -52,8 +223,9 @@ export async function POST(req: NextRequest) {
         LOG("storage", `Audio buffer size: ${audioBuffer.byteLength} bytes`);
 
         let fileUrl = "";
+        const uploadContentType = normalizeUploadContentType(file.type, file.name);
         try {
-            const uploadResult = await uploadAudio(audioBuffer, fileName, file.type);
+            const uploadResult = await uploadAudio(audioBuffer, fileName, uploadContentType);
             LOG("storage", "Upload result", uploadResult);
 
             const { data } = supabase.storage
@@ -63,6 +235,58 @@ export async function POST(req: NextRequest) {
             LOG("storage", "Public URL", fileUrl);
             LOG("timing", "Storage upload ms", Date.now() - startedAtMs);
         } catch (uploadError) {
+            const uploadErrorRecord = asRecord(uploadError);
+            const originalErrorRecord = asRecord(uploadErrorRecord?.originalError);
+            const nestedCauseRecord =
+                asRecord(originalErrorRecord?.cause) ??
+                asRecord(uploadErrorRecord?.cause);
+            const nestedDiagnosticsSource =
+                nestedCauseRecord ?? originalErrorRecord ?? uploadErrorRecord;
+            const {
+                causeCode,
+                causeMessage,
+                socketBytesRead,
+                socketBytesWritten,
+            } = extractUploadNetworkCause(uploadError);
+
+            console.error("[transcribe/storage] ❌ Upload diagnostics", {
+                fileName: file.name,
+                fileType: file.type,
+                fileSizeBytes: file.size,
+                audioBufferSizeBytes: audioBuffer.byteLength,
+                uploadObjectPath: `audio/${fileName}`,
+                uploadContentType,
+                errorName:
+                    pickString(uploadErrorRecord, "name") ??
+                    (uploadError instanceof Error ? uploadError.name : undefined),
+                errorMessage: readErrorMessage(uploadError),
+                storageNamespace: pickString(uploadErrorRecord, "namespace"),
+                storageStatus: pickNumberOrString(uploadErrorRecord, "status"),
+                storageStatusCode: pickNumberOrString(uploadErrorRecord, "statusCode"),
+                originalErrorName: pickString(originalErrorRecord, "name"),
+                originalErrorMessage: pickString(originalErrorRecord, "message"),
+                errorCode: causeCode ?? pickString(nestedDiagnosticsSource, "code"),
+                errorErrno: pickNumber(nestedDiagnosticsSource, "errno"),
+                errorSyscall: pickString(nestedDiagnosticsSource, "syscall"),
+                causeMessage: causeMessage ?? pickString(nestedCauseRecord, "message"),
+                socketBytesWritten,
+                socketBytesRead,
+            });
+
+            if (
+                isSupabaseStorageTooLargeError(uploadError) ||
+                isLikelySupabaseSocketSizeCapError(uploadError, file.size)
+            ) {
+                return NextResponse.json(
+                    {
+                        error: "Audio file too large for storage",
+                        detail:
+                            "This file exceeds your current Supabase upload cap (often bucket size limit or active spend cap). Upload a smaller file or disable spend cap / raise the bucket limit.",
+                    },
+                    { status: 413 }
+                );
+            }
+
             ERR("storage", "Supabase upload failed", uploadError);
             return NextResponse.json(
                 { error: "Failed to upload file to Supabase", detail: String(uploadError) },

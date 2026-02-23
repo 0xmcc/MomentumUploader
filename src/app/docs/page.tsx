@@ -122,10 +122,10 @@ const ENDPOINTS: Endpoint[] = [
         method: "POST",
         path: "/api/transcribe",
         summary: "Upload & transcribe audio",
-        description: "Accepts an audio file (WebM, OGG, MP4), uploads it to Supabase Storage, transcribes it via NVIDIA Parakeet-CTC (gRPC), and saves the result to the database.",
+        description: "Accepts an audio file (WebM, OGG, MP4, MP3, M4A), uploads it to Supabase Storage, transcribes it via NVIDIA Parakeet-CTC (gRPC), and saves the result to the database.",
         tag: "Transcription",
         params: [
-            { name: "file", type: "body", dataType: "File (multipart)", required: true, description: "The audio file to transcribe. Supported: audio/webm, audio/ogg, audio/mp4" },
+            { name: "file", type: "body", dataType: "File (multipart)", required: true, description: "The audio file to transcribe. Supported: audio/webm, audio/ogg, audio/mp4, audio/mpeg, audio/mp3, audio/x-m4a" },
         ],
         requestBody: {
             contentType: "multipart/form-data",
@@ -351,8 +351,51 @@ export default function DocsPage() {
                     </div>
                 )}
 
-                {/* Model info */}
+                {/* Planned subscription tiers */}
                 <div className="mt-16 p-6 rounded-2xl border border-white/5 bg-white/[0.02]">
+                    <div className="flex items-center gap-2 mb-4">
+                        <h3 className="text-sm font-semibold text-white/60">Planned Subscription Tiers</h3>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 font-mono">not yet built</span>
+                    </div>
+                    <p className="text-white/35 text-xs mb-5 leading-relaxed">
+                        Future pricing structure for reference. File size limits will be enforced in the app layer before the transcription request is sent.
+                    </p>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-xs font-mono text-white/50">
+                            <thead>
+                                <tr className="border-b border-white/5">
+                                    <th className="text-left text-white/25 uppercase tracking-widest pb-2 pr-6">Tier</th>
+                                    <th className="text-left text-white/25 uppercase tracking-widest pb-2 pr-6">Price</th>
+                                    <th className="text-left text-white/25 uppercase tracking-widest pb-2 pr-6">Max File Size</th>
+                                    <th className="text-left text-white/25 uppercase tracking-widest pb-2">Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/[0.03]">
+                                <tr>
+                                    <td className="py-2.5 pr-6 text-white/60">Free</td>
+                                    <td className="py-2.5 pr-6">$0 / mo</td>
+                                    <td className="py-2.5 pr-6 text-red-400/70">10 MB</td>
+                                    <td className="py-2.5 text-white/30">Hard cap, no overage</td>
+                                </tr>
+                                <tr>
+                                    <td className="py-2.5 pr-6 text-white/60">Starter</td>
+                                    <td className="py-2.5 pr-6">$9 / mo</td>
+                                    <td className="py-2.5 pr-6 text-yellow-400/70">25 MB</td>
+                                    <td className="py-2.5 text-white/30">~10–15 min of typical audio</td>
+                                </tr>
+                                <tr>
+                                    <td className="py-2.5 pr-6 text-white/60">Pro</td>
+                                    <td className="py-2.5 pr-6">$29 / mo</td>
+                                    <td className="py-2.5 pr-6 text-green-400/70">75 MB</td>
+                                    <td className="py-2.5 text-white/30">Current API ceiling (NVIDIA)</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {/* Model info */}
+                <div className="mt-6 p-6 rounded-2xl border border-white/5 bg-white/[0.02]">
                     <h3 className="text-sm font-semibold text-white/60 mb-3">Transcription Model</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs text-white/40 font-mono">
                         <div><span className="text-white/25 block mb-1">Model</span>nvidia/parakeet-ctc-0.6b-asr</div>

@@ -1,11 +1,11 @@
 import React from "react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import Home from "../page";
-import type { RecordingStopPayload } from "@/components/AudioRecorder";
+import type { AudioInputPayload } from "@/components/AudioRecorder";
 
 const mockOpenSignIn = jest.fn();
 
-let capturedOnRecordingStop: ((payload: RecordingStopPayload) => void) | undefined;
+let capturedOnAudioInput: ((payload: AudioInputPayload) => void) | undefined;
 
 jest.mock("next/link", () => {
     return {
@@ -51,16 +51,17 @@ jest.mock("@/components/ThemeProvider", () => ({
 jest.mock("@/components/AudioRecorder", () => ({
     __esModule: true,
     default: ({
-        onRecordingStop,
+        onAudioInput,
     }: {
-        onRecordingStop?: (payload: RecordingStopPayload) => void;
+        onAudioInput?: (payload: AudioInputPayload) => void;
     }) => {
-        capturedOnRecordingStop = onRecordingStop;
+        capturedOnAudioInput = onAudioInput;
         return <div data-testid="audio-recorder">AudioRecorder</div>;
     },
 }));
 
 describe("Home optimistic ID behavior", () => {
+    const originalXmlHttpRequest = global.XMLHttpRequest;
     const transcriptText = "alpha beta gamma delta epsilon zeta eta theta";
     const createdAt = "2026-02-22T10:00:00.000Z";
     const mockFetch = jest.fn();
@@ -69,7 +70,12 @@ describe("Home optimistic ID behavior", () => {
     beforeEach(() => {
         jest.useFakeTimers();
         mockOpenSignIn.mockReset();
-        capturedOnRecordingStop = undefined;
+        capturedOnAudioInput = undefined;
+        Object.defineProperty(global, "XMLHttpRequest", {
+            configurable: true,
+            writable: true,
+            value: undefined,
+        });
         memosSequence = [
             { memos: [] },
             {
@@ -128,17 +134,22 @@ describe("Home optimistic ID behavior", () => {
     afterEach(() => {
         jest.useRealTimers();
         jest.clearAllMocks();
+        Object.defineProperty(global, "XMLHttpRequest", {
+            configurable: true,
+            writable: true,
+            value: originalXmlHttpRequest,
+        });
     });
 
     it("keeps selected transcript visible after refresh fetch", async () => {
         render(<Home />);
 
         await waitFor(() => {
-            expect(capturedOnRecordingStop).toBeDefined();
+            expect(capturedOnAudioInput).toBeDefined();
         });
 
         act(() => {
-            capturedOnRecordingStop?.({
+            capturedOnAudioInput?.({
                 blob: new Blob(["fake audio"], { type: "audio/webm" }),
                 durationSeconds: 3,
                 mimeType: "audio/webm",
@@ -168,11 +179,11 @@ describe("Home optimistic ID behavior", () => {
         render(<Home />);
 
         await waitFor(() => {
-            expect(capturedOnRecordingStop).toBeDefined();
+            expect(capturedOnAudioInput).toBeDefined();
         });
 
         act(() => {
-            capturedOnRecordingStop?.({
+            capturedOnAudioInput?.({
                 blob: new Blob(["fake audio"], { type: "audio/webm" }),
                 durationSeconds: 3,
                 mimeType: "audio/webm",

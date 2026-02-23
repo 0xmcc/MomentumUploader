@@ -1,8 +1,15 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type ChangeEvent } from "react";
 import { Mic, Square, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
+import { useTheme } from "./ThemeProvider";
+import {
+    DEFAULT_PENDING_MIME_TYPE,
+    MANUAL_UPLOAD_ACCEPT,
+    getFileExtensionFromMime,
+    resolveUploadMimeType,
+} from "@/lib/audio-upload";
 
 const RECORDER_TIMESLICE_MS = 1000;
 const LIVE_INTERVAL_MS = 1500;
@@ -44,20 +51,22 @@ export type UploadCompletePayload = {
     durationSeconds?: number;
 };
 
-export type RecordingStopPayload = {
+export type AudioInputPayload = {
     blob: Blob;
     durationSeconds: number;
     mimeType: string;
 };
 
-import { useTheme } from "./ThemeProvider";
-
 export default function AudioRecorder({
+    isUploadInProgress = false,
+    uploadProgressPercent = 0,
     onUploadComplete,
-    onRecordingStop,
+    onAudioInput,
 }: {
+    isUploadInProgress?: boolean;
+    uploadProgressPercent?: number;
     onUploadComplete?: (data: UploadCompletePayload) => void;
-    onRecordingStop?: (payload: RecordingStopPayload) => void;
+    onAudioInput?: (payload: AudioInputPayload) => void;
 }) {
     const [isRecording, setIsRecording] = useState(false);
     const [recordingTime, setRecordingTime] = useState(0);
@@ -67,10 +76,11 @@ export default function AudioRecorder({
     const [animatedWords, setAnimatedWords] = useState<string[]>([]);
     const [newWordStartIndex, setNewWordStartIndex] = useState(0);
     const { playbackTheme } = useTheme();
+    const isUploadActive = isUploading || isUploadInProgress;
 
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
-    const mimeTypeRef = useRef("audio/webm");
+    const mimeTypeRef = useRef(DEFAULT_PENDING_MIME_TYPE);
     const timerRef = useRef<NodeJS.Timeout | null>(null);
     const liveTimerRef = useRef<NodeJS.Timeout | null>(null);
     const liveInFlightRef = useRef(false);        // ref-based guard avoids stale closure
@@ -78,6 +88,7 @@ export default function AudioRecorder({
     const abortRef = useRef<AbortController | null>(null);
     const recordingTimeRef = useRef(0);
     const previousTranscriptRef = useRef("");
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
 
     // Keep ref in sync with state for use inside closures
     useEffect(() => { recordingTimeRef.current = recordingTime; }, [recordingTime]);
@@ -194,7 +205,7 @@ export default function AudioRecorder({
                 "audio/ogg;codecs=opus",
             ].find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
 
-            mimeTypeRef.current = mimeType || "audio/webm";
+            mimeTypeRef.current = mimeType || DEFAULT_PENDING_MIME_TYPE;
 
             const mr = new MediaRecorder(stream, {
                 ...(mimeType ? { mimeType } : {}),
@@ -218,14 +229,14 @@ export default function AudioRecorder({
             mr.onstop = () => {
                 const blob = new Blob(audioChunksRef.current, { type: mimeTypeRef.current });
                 stream.getTracks().forEach((t) => t.stop());
-                if (onRecordingStop) {
-                    onRecordingStop({
+                if (onAudioInput) {
+                    onAudioInput({
                         blob,
                         durationSeconds: recordingTimeRef.current,
                         mimeType: mimeTypeRef.current,
                     });
                 } else {
-                    void handleUpload(blob);
+                    void handleUpload(blob, mimeTypeRef.current);
                 }
             };
 
@@ -271,12 +282,18 @@ export default function AudioRecorder({
         previousTranscriptRef.current = "";
     };
 
-    const handleUpload = async (blob: Blob) => {
+    const handleUpload = async (
+        blob: Blob,
+        mimeType: string = mimeTypeRef.current,
+        fileName?: string
+    ) => {
         if (!blob) return;
         setIsUploading(true);
         try {
             const fd = new FormData();
-            fd.append("file", blob, `memo_${Date.now()}.webm`);
+            const uploadFileName =
+                fileName ?? `memo_${Date.now()}.${getFileExtensionFromMime(mimeType)}`;
+            fd.append("file", blob, uploadFileName);
             const res = await fetch("/api/transcribe", { method: "POST", body: fd });
             if (!res.ok) throw new Error("Upload failed");
             const data = (await res.json()) as Omit<UploadCompletePayload, "durationSeconds">;
@@ -289,17 +306,62 @@ export default function AudioRecorder({
         }
     };
 
+    const handleManualFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+        if (!file) return;
+
+        const mimeType = resolveUploadMimeType(file);
+        if (!mimeType) {
+            setMicError("Only MP3 and M4A files are supported for manual uploads.");
+            return;
+        }
+
+        setMicError(null);
+        if (onAudioInput) {
+            onAudioInput({
+                blob: file,
+                durationSeconds: 0,
+                mimeType,
+            });
+            return;
+        }
+
+        void handleUpload(file, mimeType, file.name);
+    };
+
     return (
         <div className="flex flex-col h-full w-full bg-[#121212]">
             {/* Header / Status */}
             <div className="flex justify-between items-center pl-8 pr-40 py-6 border-b border-white/5 bg-[#121212]/50 backdrop-blur-md z-10">
                 <div className="flex flex-col">
                     <h2 className="text-xl font-semibold text-white/90">
-                        {isRecording ? "Listening..." : (isUploading ? "Saving..." : "New Recording")}
+                        {isRecording ? "Listening..." : (isUploadActive ? "Saving..." : "New Recording")}
                     </h2>
                     <p className="text-white/40 text-[10px] font-mono tracking-widest mt-1 uppercase">
-                        {isRecording ? formatTime(recordingTime) : (isUploading ? "Transcribing with NVIDIA..." : "Ready to record")}
+                        {isRecording
+                            ? formatTime(recordingTime)
+                            : isUploadActive
+                                ? uploadProgressPercent >= 100
+                                    ? "Upload complete. Transcribing with NVIDIA..."
+                                    : `Uploading file... ${uploadProgressPercent}%`
+                                : "Ready to record"}
                     </p>
+                    {isUploadActive && (
+                        <div
+                            role="progressbar"
+                            aria-label="Upload in progress"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={uploadProgressPercent}
+                            className="mt-2 h-1 w-48 overflow-hidden rounded-full bg-white/10"
+                        >
+                            <div
+                                className="h-full bg-accent/80 transition-[width] duration-300"
+                                style={{ width: `${uploadProgressPercent}%` }}
+                            />
+                        </div>
+                    )}
                 </div>
                 {isRecording && (
                     <div className="flex items-center gap-3">
@@ -315,10 +377,14 @@ export default function AudioRecorder({
                         </div>
                     </div>
                 )}
-                {isUploading && (
+                {isUploadActive && (
                     <div className="flex items-center gap-2">
                         <Loader2 size={14} className="animate-spin text-accent" />
-                        <span className="text-[10px] text-accent/80 font-mono uppercase tracking-tight">Processing</span>
+                        <span className="text-[10px] text-accent/80 font-mono uppercase tracking-tight">
+                            {uploadProgressPercent >= 100
+                                ? "Processing"
+                                : `${uploadProgressPercent}% uploaded`}
+                        </span>
                     </div>
                 )}
             </div>
@@ -326,7 +392,7 @@ export default function AudioRecorder({
             {/* Maximized Live Transcript Area */}
             <div className="flex-1 overflow-y-auto px-8 py-10 relative">
                 <div className="max-w-3xl mx-auto">
-                    {isRecording || isUploading ? (
+                    {isRecording || isUploadActive ? (
                         <div
                             ref={transcriptScrollRef}
                             className="text-lg leading-relaxed"
@@ -365,7 +431,13 @@ export default function AudioRecorder({
                                 </p>
                             ) : (
                                 <p className="text-white/20 text-lg italic italic">
-                                    {recordingTime < 1 ? "Start speaking..." : "Waiting for transcript..."}
+                                    {isUploadActive
+                                        ? uploadProgressPercent >= 100
+                                            ? "Upload complete. Transcribing..."
+                                            : `Uploading... ${uploadProgressPercent}%`
+                                        : recordingTime < 1
+                                            ? "Start speaking..."
+                                            : "Waiting for transcript..."}
                                 </p>
                             )}
                         </div>
@@ -393,8 +465,9 @@ export default function AudioRecorder({
                     <div className="relative flex items-center justify-center w-28 h-28">
                         <button
                             onClick={isRecording ? stopRecording : startRecording}
-                            disabled={isUploading}
-                            className={`group relative flex items-center justify-center w-full h-full rounded-full transition-all duration-500 ${(isRecording || isUploading) ? "scale-110" : "hover:scale-105 active:scale-95"} ${isUploading ? "opacity-50 cursor-not-allowed" : ""}`}
+                            aria-label={isRecording ? "Stop recording" : "Start recording"}
+                            disabled={isUploadActive}
+                            className={`group relative flex items-center justify-center w-full h-full rounded-full transition-all duration-500 ${(isRecording || isUploadActive) ? "scale-110" : "hover:scale-105 active:scale-95"} ${isUploadActive ? "opacity-50 cursor-not-allowed" : ""}`}
                         >
                             {/* Outer Glow/Ring */}
                             <div className={`absolute inset-0 rounded-full blur-2xl transition-all duration-700 ${isRecording
@@ -426,6 +499,22 @@ export default function AudioRecorder({
                             </div>
                         </button>
                     </div>
+                    <input
+                        ref={fileInputRef}
+                        data-testid="manual-audio-upload"
+                        type="file"
+                        accept={MANUAL_UPLOAD_ACCEPT}
+                        className="hidden"
+                        onChange={handleManualFileSelect}
+                    />
+                    <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isRecording || isUploadActive}
+                        className="rounded-lg border border-white/20 px-4 py-2 text-xs font-mono uppercase tracking-widest text-white/70 transition-colors hover:border-white/35 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                        Upload MP3/M4A
+                    </button>
                 </div>
             </div>
         </div>

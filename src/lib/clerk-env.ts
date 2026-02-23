@@ -17,7 +17,7 @@ function requireKey(value: string | undefined, keyName: keyof ClerkEnv): string 
   return trimmed;
 }
 
-export function validateClerkEnv(env: ClerkEnv = process.env): {
+export function validateClerkEnv(env: ClerkEnv = process.env as ClerkEnv): {
   publishableKey: string;
   secretKey: string;
 } {

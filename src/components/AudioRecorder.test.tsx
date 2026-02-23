@@ -80,7 +80,7 @@ describe("AudioRecorder live transcript cadence", () => {
     it("starts live transcription within ~2 seconds of recording", async () => {
         render(<AudioRecorder />);
 
-        fireEvent.click(screen.getByRole("button"));
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
 
         await act(async () => {
             await Promise.resolve();
@@ -103,7 +103,7 @@ describe("AudioRecorder live transcript cadence", () => {
         render(<AudioRecorder />);
 
         // Start recording
-        fireEvent.click(screen.getByRole("button"));
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
 
         await act(async () => {
             await Promise.resolve();
@@ -115,7 +115,7 @@ describe("AudioRecorder live transcript cadence", () => {
         });
 
         // Stop recording
-        const stopButton = screen.getByRole("button"); // The record button toggles
+        const stopButton = screen.getByRole("button", { name: /stop recording/i });
         fireEvent.click(stopButton);
 
         await act(async () => {
@@ -131,11 +131,11 @@ describe("AudioRecorder live transcript cadence", () => {
         expect(uploadCalls.length).toBe(1);
     });
 
-    it("calls onRecordingStop and does not auto-upload when callback is provided", async () => {
-        const onRecordingStop = jest.fn();
-        render(<AudioRecorder onRecordingStop={onRecordingStop} />);
+    it("calls onAudioInput and does not auto-upload when callback is provided", async () => {
+        const onAudioInput = jest.fn();
+        render(<AudioRecorder onAudioInput={onAudioInput} />);
 
-        fireEvent.click(screen.getByRole("button"));
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
 
         await act(async () => {
             await Promise.resolve();
@@ -144,14 +144,14 @@ describe("AudioRecorder live transcript cadence", () => {
             jest.advanceTimersByTime(2000);
         });
 
-        fireEvent.click(screen.getByRole("button"));
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
 
         await act(async () => {
             await Promise.resolve();
         });
 
-        expect(onRecordingStop).toHaveBeenCalledTimes(1);
-        expect(onRecordingStop).toHaveBeenCalledWith(
+        expect(onAudioInput).toHaveBeenCalledTimes(1);
+        expect(onAudioInput).toHaveBeenCalledWith(
             expect.objectContaining({
                 blob: expect.any(Blob),
                 durationSeconds: expect.any(Number),
@@ -164,6 +164,71 @@ describe("AudioRecorder live transcript cadence", () => {
             ([url]: [unknown]) => url === "/api/transcribe"
         );
         expect(uploadCalls.length).toBe(0);
+    });
+
+    it("calls onAudioInput for manual MP3 uploads via the same callback flow", async () => {
+        const onAudioInput = jest.fn();
+        render(<AudioRecorder onAudioInput={onAudioInput} />);
+
+        const uploadInput = screen.getByTestId("manual-audio-upload");
+        const mp3 = new File(["fake mp3"], "manual.mp3", { type: "audio/mpeg" });
+        fireEvent.change(uploadInput, { target: { files: [mp3] } });
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        expect(onAudioInput).toHaveBeenCalledWith(
+            expect.objectContaining({
+                blob: mp3,
+                durationSeconds: 0,
+                mimeType: "audio/mpeg",
+            })
+        );
+
+        const fetchMock = global.fetch as jest.Mock;
+        const uploadCalls = fetchMock.mock.calls.filter(
+            ([url]: [unknown]) => url === "/api/transcribe"
+        );
+        expect(uploadCalls.length).toBe(0);
+    });
+
+    it("shows upload activity UI when parent-managed upload is in progress", () => {
+        render(
+            <AudioRecorder
+                onAudioInput={jest.fn()}
+                isUploadInProgress
+                uploadProgressPercent={42}
+            />
+        );
+
+        expect(screen.getByText("Saving...")).toBeInTheDocument();
+        expect(screen.getByRole("progressbar", { name: "Upload in progress" })).toHaveAttribute("aria-valuenow", "42");
+        expect(screen.getByText("Uploading... 42%")).toBeInTheDocument();
+        expect(screen.getByText("42% uploaded")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /start recording/i })).toBeDisabled();
+        expect(screen.getByRole("button", { name: /upload mp3\/m4a/i })).toBeDisabled();
+    });
+
+    it("accepts m4a files even when browser MIME type is empty", async () => {
+        const onAudioInput = jest.fn();
+        render(<AudioRecorder onAudioInput={onAudioInput} />);
+
+        const uploadInput = screen.getByTestId("manual-audio-upload");
+        const m4a = new File(["fake m4a"], "manual.m4a", { type: "" });
+        fireEvent.change(uploadInput, { target: { files: [m4a] } });
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        expect(onAudioInput).toHaveBeenCalledWith(
+            expect.objectContaining({
+                blob: m4a,
+                durationSeconds: 0,
+                mimeType: "audio/mp4",
+            })
+        );
     });
 
     it("keeps live payload size bounded during long recordings", async () => {
@@ -193,7 +258,7 @@ describe("AudioRecorder live transcript cadence", () => {
         );
 
         render(<AudioRecorder />);
-        fireEvent.click(screen.getByRole("button"));
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
 
         await act(async () => {
             await Promise.resolve();
@@ -211,7 +276,7 @@ describe("AudioRecorder live transcript cadence", () => {
         expect(liveCallCount).toBeGreaterThan(10);
         expect(maxLivePayloadBytes).toBeLessThanOrEqual(180);
 
-        fireEvent.click(screen.getByRole("button"));
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
         await act(async () => {
             await Promise.resolve();
         });
@@ -242,7 +307,7 @@ describe("AudioRecorder live transcript cadence", () => {
         });
 
         render(<AudioRecorder />);
-        fireEvent.click(screen.getByRole("button"));
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
 
         await act(async () => {
             await Promise.resolve();
@@ -266,7 +331,7 @@ describe("AudioRecorder live transcript cadence", () => {
 
         expect(normalizedText).toContain(expectedCombinedTranscript);
 
-        fireEvent.click(screen.getByRole("button"));
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
         await act(async () => {
             await Promise.resolve();
         });
@@ -286,7 +351,7 @@ describe("AudioRecorder live transcript cadence", () => {
 
         render(<AudioRecorder />);
 
-        fireEvent.click(screen.getByRole("button"));
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
 
         await act(async () => {
             await Promise.resolve();

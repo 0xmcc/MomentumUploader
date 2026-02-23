@@ -76,15 +76,15 @@ export async function GET(req: Request, { params }: Params): Promise<Response> {
     }
 
     const share = await resolveMemoShare(shareToken, canonicalUrl);
-    if (share.status === "not_found") {
-        return respondError(404, format, "This share link is not available.");
-    }
+    if (share.status !== "ok") {
+        if (share.status === "not_found") {
+            return respondError(404, format, "This share link is not available.");
+        }
 
-    if (share.status === "revoked") {
-        return respondError(410, format, "This share link is no longer active.");
-    }
+        if (share.status === "revoked") {
+            return respondError(410, format, "This share link is no longer active.");
+        }
 
-    if (share.status === "expired") {
         return respondError(410, format, "This share link has expired.");
     }
 

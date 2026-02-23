@@ -10,7 +10,6 @@ export type Memo = {
 };
 
 export const FAILED_TRANSCRIPT = "[Transcription failed]";
-export const DEFAULT_PENDING_MIME_TYPE = "audio/webm";
 export const SHARE_STATE_RESET_MS = 5000;
 export const MEMO_RECONCILE_DELAY_MS = 1500;
 export const MEMO_TITLE_WORD_LIMIT = 6;
@@ -31,14 +30,6 @@ export function getMemoTitle(memo: Memo) {
   }
 
   return `${words.slice(0, MEMO_TITLE_WORD_LIMIT).join(" ")}...`;
-}
-
-export function getFileExtensionFromMime(mimeType: string) {
-  if (mimeType.includes("ogg")) return "ogg";
-  if (mimeType.includes("mp4")) return "mp4";
-  if (mimeType.includes("wav")) return "wav";
-  if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return "mp3";
-  return "webm";
 }
 
 export function formatDate(iso: string) {
