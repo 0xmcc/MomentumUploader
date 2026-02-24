@@ -14,9 +14,32 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL ??
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: "Sonic Memos | Cloud & Parakeet",
   description: "Capture, cloud-sync, and transcribe voice memos seamlessly with NVIDIA Parakeet.",
+  openGraph: {
+    title: "Sonic Memos | Cloud & Parakeet",
+    description: "Capture, cloud-sync, and transcribe voice memos seamlessly with NVIDIA Parakeet.",
+    images: [
+      {
+        url: "/assets/memos-link-preview.png",
+        width: 1024,
+        height: 576,
+        alt: "Sonic Memos recording interface",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Sonic Memos | Cloud & Parakeet",
+    description: "Capture, cloud-sync, and transcribe voice memos seamlessly with NVIDIA Parakeet.",
+    images: ["/assets/memos-link-preview.png"],
+  },
 };
 
 export default function RootLayout({
