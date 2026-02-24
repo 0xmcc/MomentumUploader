@@ -1,9 +1,22 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
+import type { NextFetchEvent, NextRequest } from "next/server";
 import { validateClerkEnv } from "@/lib/clerk-env";
 
-validateClerkEnv();
+let hasValidatedClerkEnv = false;
+const clerkAuthMiddleware = clerkMiddleware();
 
-export default clerkMiddleware();
+function ensureClerkEnvIsValid(): void {
+  if (hasValidatedClerkEnv) {
+    return;
+  }
+  validateClerkEnv();
+  hasValidatedClerkEnv = true;
+}
+
+export default function middleware(request: NextRequest, event: NextFetchEvent) {
+  ensureClerkEnvIsValid();
+  return clerkAuthMiddleware(request, event);
+}
 
 export const config = {
   matcher: [
