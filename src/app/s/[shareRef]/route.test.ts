@@ -2,6 +2,7 @@
 
 import { DELETE, GET, PATCH, POST, PUT } from "./route";
 import { supabaseAdmin } from "@/lib/supabase";
+import { LIVE_MEMO_TITLE } from "@/lib/live-memo";
 
 jest.mock("@/lib/supabase", () => ({
     supabaseAdmin: {
@@ -64,6 +65,27 @@ describe("share route /s/[shareRef]", () => {
         expect(res.headers.get("content-type")).toContain("text/html");
         expect(body).toContain("<h1>Weekly Sync</h1>");
         expect(body).toContain("/s/token123");
+    });
+
+    it("adds auto-refresh hints for live in-progress shares", async () => {
+        mockShareLookup({
+            data: {
+                ...activeMemo,
+                title: LIVE_MEMO_TITLE,
+                audio_url: null,
+            },
+            error: null,
+        });
+
+        const res = await GET(
+            makeReq("https://example.com/s/token123"),
+            { params: Promise.resolve({ shareRef: "token123" }) }
+        );
+
+        const body = await res.text();
+        expect(res.status).toBe(200);
+        expect(body).toContain('http-equiv="refresh" content="3"');
+        expect(body).toContain("Live recording in progress.");
     });
 
     it("serves markdown on deterministic .md path", async () => {

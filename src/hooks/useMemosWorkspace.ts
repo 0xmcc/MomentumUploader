@@ -32,6 +32,7 @@ export function useMemosWorkspace({
   const [pendingBlob, setPendingBlob] = useState<Blob | null>(null);
   const [pendingDuration, setPendingDuration] = useState(0);
   const [pendingMimeType, setPendingMimeType] = useState(DEFAULT_PENDING_MIME_TYPE);
+  const [pendingMemoId, setPendingMemoId] = useState<string | null>(null);
   const [activeUploadCount, setActiveUploadCount] = useState(0);
   const [uploadProgressPercent, setUploadProgressPercent] = useState(0);
   const [uploadError, setUploadError] = useState(false);
@@ -119,10 +120,16 @@ export function useMemosWorkspace({
     setPendingBlob(null);
     setPendingDuration(0);
     setPendingMimeType(DEFAULT_PENDING_MIME_TYPE);
+    setPendingMemoId(null);
   }, []);
 
   const uploadBlob = useCallback(
-    async (blob: Blob, durationSeconds: number, mimeType: string) => {
+    async (
+      blob: Blob,
+      durationSeconds: number,
+      mimeType: string,
+      memoId?: string | null
+    ) => {
       setUploadError(false);
       setUploadProgressPercent(0);
       setActiveUploadCount((count) => count + 1);
@@ -130,6 +137,9 @@ export function useMemosWorkspace({
         const fd = new FormData();
         const ext = getFileExtensionFromMime(mimeType);
         fd.append("file", blob, `memo_${Date.now()}.${ext}`);
+        if (memoId) {
+          fd.append("memoId", memoId);
+        }
         const data = (await uploadAudioForTranscription(fd, (percent) => {
           setUploadProgressPercent((current) => Math.max(current, percent));
         })) as UploadCompletePayload;
@@ -152,6 +162,7 @@ export function useMemosWorkspace({
       setPendingBlob(payload.blob);
       setPendingDuration(payload.durationSeconds);
       setPendingMimeType(payload.mimeType);
+      setPendingMemoId(payload.memoId ?? null);
       if (!isSignedIn) {
         void openSignIn();
       }
@@ -161,9 +172,17 @@ export function useMemosWorkspace({
 
   useEffect(() => {
     if (isSignedIn && isLoaded && pendingBlob) {
-      void uploadBlob(pendingBlob, pendingDuration, pendingMimeType);
+      void uploadBlob(pendingBlob, pendingDuration, pendingMimeType, pendingMemoId);
     }
-  }, [isSignedIn, isLoaded, pendingBlob, pendingDuration, pendingMimeType, uploadBlob]);
+  }, [
+    isSignedIn,
+    isLoaded,
+    pendingBlob,
+    pendingDuration,
+    pendingMimeType,
+    pendingMemoId,
+    uploadBlob,
+  ]);
 
   useEffect(() => {
     if (!selectedMemoId) return;
@@ -185,8 +204,8 @@ export function useMemosWorkspace({
 
   const retryUpload = useCallback(() => {
     if (!pendingBlob) return;
-    void uploadBlob(pendingBlob, pendingDuration, pendingMimeType);
-  }, [pendingBlob, pendingDuration, pendingMimeType, uploadBlob]);
+    void uploadBlob(pendingBlob, pendingDuration, pendingMimeType, pendingMemoId);
+  }, [pendingBlob, pendingDuration, pendingMimeType, pendingMemoId, uploadBlob]);
 
   return {
     filteredMemos,

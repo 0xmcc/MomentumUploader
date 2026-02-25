@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase";
 import { type SharedArtifactPayload } from "@/lib/share-contract";
+import { LIVE_MEMO_TITLE } from "@/lib/live-memo";
 
 type MemoShareState =
     | { status: "ok"; artifact: SharedArtifactPayload }
@@ -44,18 +45,22 @@ function buildMemoPayload(row: MemoShareRow, canonicalUrl: string, shareToken: s
     const createdAt = normalizeTimestamp(row.created_at) ?? new Date().toISOString();
     const sharedAt = normalizeTimestamp(row.shared_at);
     const expiresAt = resolveExpiration(row);
+    const mediaUrl = readString(row.audio_url);
+    const title = readString(row.title) ?? "Shared Voice Memo";
+    const isLiveRecording = !mediaUrl && title === LIVE_MEMO_TITLE;
 
     return {
         artifactType: "memo",
         artifactId: readString(row.id) ?? "",
         shareToken,
         canonicalUrl,
-        title: readString(row.title) ?? "Shared Voice Memo",
+        title,
         transcript: readString(row.transcript) ?? "",
-        mediaUrl: readString(row.audio_url),
+        mediaUrl,
         createdAt,
         sharedAt,
         expiresAt,
+        isLiveRecording,
     };
 }
 

@@ -97,6 +97,52 @@ describe("AudioRecorder live transcript cadence", () => {
         expect(liveCalls.length).toBeGreaterThan(0);
     });
 
+    it("creates a live memo share link when recording starts", async () => {
+        (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+            if (url === "/api/memos/live") {
+                return {
+                    ok: true,
+                    json: async () => ({ memoId: "memo-live-1" }),
+                };
+            }
+            if (url === "/api/memos/memo-live-1/share") {
+                return {
+                    ok: true,
+                    json: async () => ({ shareUrl: "https://example.com/s/live-token" }),
+                };
+            }
+            if (url === "/api/transcribe/live") {
+                return {
+                    ok: true,
+                    json: async () => ({ text: "partial transcript" }),
+                };
+            }
+            return {
+                ok: true,
+                json: async () => ({ text: "final transcript" }),
+            };
+        });
+
+        render(<AudioRecorder />);
+
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        await act(async () => {
+            jest.advanceTimersByTime(2200);
+        });
+
+        expect(global.fetch).toHaveBeenCalledWith("/api/memos/live", { method: "POST" });
+        expect(global.fetch).toHaveBeenCalledWith(
+            "/api/memos/memo-live-1/share",
+            { method: "POST" }
+        );
+        expect(screen.getByText(/open live page/i)).toBeInTheDocument();
+    });
+
     it("should auto-upload upon stopping", async () => {
         global.URL.createObjectURL = jest.fn(() => "blob:http://localhost/test");
 

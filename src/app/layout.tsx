@@ -34,11 +34,11 @@ function resolveMetadataBaseUrl(): string {
 
 export const metadata: Metadata = {
   metadataBase: new URL(resolveMetadataBaseUrl()),
-  title: "Sonic Memos | Cloud & Parakeet",
-  description: "Capture, cloud-sync, and transcribe voice memos seamlessly with NVIDIA Parakeet.",
+  title: "Sonic Memos - AI Compatible Voice Memos",
+  description: "Capture, cloud-sync, and transcribe voice memos, integrated with AI seamlessly.",
   openGraph: {
-    title: "Sonic Memos | Cloud & Parakeet",
-    description: "Capture, cloud-sync, and transcribe voice memos seamlessly with NVIDIA Parakeet.",
+    title: "Sonic Memos - AI Compatible Voice Memos",
+    description: "Capture, cloud-sync, and transcribe voice memos, integrated with AI seamlessly.",
     images: [
       {
         url: "/assets/memos-link-preview.png",
@@ -50,7 +50,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Sonic Memos | Cloud & Parakeet",
+    title: "Sonic Memos - AI Compatible Voice Memos",
     description: "Capture, cloud-sync, and transcribe voice memos seamlessly with NVIDIA Parakeet.",
     images: ["/assets/memos-link-preview.png"],
   },

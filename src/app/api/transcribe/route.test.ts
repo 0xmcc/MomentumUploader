@@ -49,6 +49,12 @@ jest.mock("@clerk/nextjs/server", () => ({
 describe("POST /api/transcribe", () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        (supabaseAdmin.from as jest.Mock).mockReset();
+        (supabaseAdmin.from as jest.Mock).mockImplementation(() => ({
+            insert: jest.fn(() => ({
+                select: jest.fn().mockResolvedValue({ data: [{ id: "1" }], error: null }),
+            })),
+        }));
         (auth as unknown as jest.Mock).mockResolvedValue({ userId: "user_123" });
         // Give transcript
         (transcribeAudio as jest.Mock).mockResolvedValue("hello world");
@@ -190,6 +196,62 @@ describe("POST /api/transcribe", () => {
             "audio/mp4"
         );
         expect(res.status).toBe(200);
+    });
+
+    it("updates an existing memo when memoId is provided", async () => {
+        const maybeSingle = jest.fn().mockResolvedValue({
+            data: { id: "memo-live-1" },
+            error: null,
+        });
+        const updateQuery = {
+            eq: jest.fn(),
+            select: jest.fn(() => ({ maybeSingle })),
+        };
+        updateQuery.eq.mockReturnValue(updateQuery);
+        const update = jest.fn(() => updateQuery);
+        const insert = jest.fn(() => ({
+            select: jest.fn().mockResolvedValue({ data: [{ id: "fallback-1" }], error: null }),
+        }));
+
+        (supabaseAdmin.from as jest.Mock).mockReturnValue({
+            update,
+            insert,
+        });
+
+        const formDataObj = {
+            get: (key: string) => {
+                if (key === "file") {
+                    return {
+                        name: "live-memo.webm",
+                        type: "audio/webm",
+                        size: 10,
+                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
+                    };
+                }
+                if (key === "memoId") {
+                    return "memo-live-1";
+                }
+                return null;
+            },
+        };
+
+        const req = {
+            formData: async () => formDataObj,
+        } as unknown as NextRequest;
+
+        const res = await POST(req);
+        const json = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(json.id).toBe("memo-live-1");
+        expect(update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                title: "live-memo.webm",
+                transcript: "hello world",
+                audio_url: "https://example.com/audio.webm",
+            })
+        );
+        expect(insert).not.toHaveBeenCalled();
     });
 
     it("normalizes octet-stream uploads to audio/mp4 when filename indicates mp4", async () => {

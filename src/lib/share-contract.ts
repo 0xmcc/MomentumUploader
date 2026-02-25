@@ -16,6 +16,7 @@ export type SharedArtifactPayload = {
     createdAt: string;
     sharedAt: string | null;
     expiresAt: string | null;
+    isLiveRecording?: boolean;
 };
 
 export type SharedArtifactJson = {
@@ -156,12 +157,20 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
     const encodedCanonical = encodeURI(payload.canonicalUrl);
     const encodedMarkdown = `${encodedCanonical}.md`;
     const encodedJson = `${encodedCanonical}.json`;
+    const isLiveRecording = payload.isLiveRecording === true;
+    const liveRefreshMeta = isLiveRecording
+        ? "<meta http-equiv=\"refresh\" content=\"3\" />"
+        : "";
+    const liveStatusNotice = isLiveRecording
+        ? "<p class=\"live-status\">Live recording in progress. This page refreshes every 3 seconds.</p>"
+        : "";
 
     return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  ${liveRefreshMeta}
   <title>${escapedTitle} | Shared ${escapedArtifactType}</title>
   <meta name="description" content="Shared ${escapedArtifactType} from MomentumUploader" />
   <link rel="canonical" href="${escapedCanonicalUrl}" />
@@ -196,6 +205,14 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
       margin: 0 0 1rem;
       color: #fdba74;
       font-size: .92rem;
+    }
+    p.live-status {
+      margin: 0 0 1rem;
+      color: #fde68a;
+      font-size: .82rem;
+      letter-spacing: .02em;
+      text-transform: uppercase;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     }
     .transcript {
       white-space: pre-wrap;
@@ -313,6 +330,7 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
     <article>
       <h1>${escapedTitle}</h1>
       <p class="meta">Shared ${escapedArtifactType} • canonical URL: <a href="${escapedCanonicalUrl}" style="color:#fdba74">${escapedCanonicalUrl}</a></p>
+      ${liveStatusNotice}
       ${payload.mediaUrl ? `<audio class="share-audio" controls preload="metadata" src="${escapedAudioUrl}"></audio>` : ""}
       <section aria-labelledby="transcript-heading">
         <h2 id="transcript-heading">Transcript</h2>

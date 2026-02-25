@@ -196,6 +196,11 @@ export async function POST(req: NextRequest) {
         }
 
         LOG("timing", "Parsed form data ms", Date.now() - startedAtMs);
+        const memoIdValue = formData.get("memoId");
+        const memoId =
+            typeof memoIdValue === "string" && memoIdValue.trim().length > 0
+                ? memoIdValue.trim()
+                : null;
         const file = formData.get("file") as File | null;
 
         if (!file) {
@@ -315,8 +320,40 @@ export async function POST(req: NextRequest) {
         }
 
         // --- Step 3: Save to Supabase DB ---
-        LOG("db", "Inserting into memos table...");
+        LOG("db", memoId ? "Updating existing memo row..." : "Inserting into memos table...");
         try {
+            if (memoId) {
+                const { data: updatedMemo, error: updateError } = await supabaseAdmin
+                    .from("memos")
+                    .update({
+                        title: file.name || "Voice Memo",
+                        transcript: transcriptionText,
+                        audio_url: fileUrl,
+                    })
+                    .eq("id", memoId)
+                    .eq("user_id", userId)
+                    .select("id")
+                    .maybeSingle();
+
+                if (!updateError && updatedMemo?.id) {
+                    LOG("db", "Updated existing memo row", { id: updatedMemo.id });
+                    LOG("timing", "Total request ms", Date.now() - startedAtMs);
+                    LOG("done", "Returning success response");
+                    return NextResponse.json({
+                        success: true,
+                        id: updatedMemo.id,
+                        text: transcriptionText,
+                        url: fileUrl,
+                        modelUsed: "nvidia/parakeet-rnnt-1.1b",
+                    });
+                }
+
+                LOG("db", "Live memo update failed, falling back to insert", {
+                    memoId,
+                    error: updateError?.message ?? "memo not found",
+                });
+            }
+
             const { data: dbData, error: dbError } = await supabaseAdmin.from("memos").insert({
                 title: file.name || "Voice Memo",
                 transcript: transcriptionText,

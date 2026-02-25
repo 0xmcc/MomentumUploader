@@ -320,4 +320,71 @@ describe("useMemosWorkspace", () => {
 
     expect(result.current.uploadProgressPercent).toBe(100);
   });
+
+  it("forwards live memoId during upload so finalization updates the same memo", async () => {
+    let uploadedMemoId: string | null = null;
+    const mockFetch = jest.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+            ? input.toString()
+            : input.url;
+
+        if (url === "/api/memos") {
+          return {
+            ok: true,
+            json: async () => ({ memos: [] }),
+          };
+        }
+
+        if (url === "/api/transcribe" && init?.method === "POST") {
+          const formData = init.body as FormData;
+          const memoId = formData.get("memoId");
+          uploadedMemoId = typeof memoId === "string" ? memoId : null;
+          return {
+            ok: true,
+            json: async () => ({
+              id: "memo-live-1",
+              success: true,
+              text: "live transcript finalized",
+              url: "http://x/live.webm",
+              modelUsed: "nvidia/parakeet-rnnt-1.1b",
+            }),
+          };
+        }
+
+        throw new Error(`Unexpected fetch call: ${url}`);
+      }
+    );
+    Object.defineProperty(global, "fetch", { writable: true, value: mockFetch });
+
+    const { result } = renderHook(() =>
+      useMemosWorkspace({
+        isLoaded: true,
+        isSignedIn: true,
+        openSignIn: jest.fn(),
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.handleAudioInput({
+        blob: new Blob(["fake audio"], { type: "audio/webm" }),
+        durationSeconds: 3,
+        mimeType: "audio/webm",
+        memoId: "memo-live-1",
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.isUploading).toBe(false);
+    });
+
+    expect(uploadedMemoId).toBe("memo-live-1");
+  });
 });

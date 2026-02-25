@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, type ChangeEvent } from "react";
-import { Mic, Square, Loader2 } from "lucide-react";
+import { Mic, Square, Loader2, Link2, Check } from "lucide-react";
 import { motion } from "framer-motion";
 import { useTheme } from "./ThemeProvider";
 import {
@@ -10,6 +10,7 @@ import {
     getFileExtensionFromMime,
     resolveUploadMimeType,
 } from "@/lib/audio-upload";
+import { copyToClipboard } from "@/lib/memo-ui";
 
 const RECORDER_TIMESLICE_MS = 1000;
 const LIVE_INTERVAL_MS = 1500;
@@ -55,7 +56,10 @@ export type AudioInputPayload = {
     blob: Blob;
     durationSeconds: number;
     mimeType: string;
+    memoId?: string;
 };
+
+type LiveShareState = "idle" | "loading" | "ready" | "copied" | "error";
 
 export default function AudioRecorder({
     isUploadInProgress = false,
@@ -75,6 +79,9 @@ export default function AudioRecorder({
     const [liveTranscript, setLiveTranscript] = useState("");
     const [animatedWords, setAnimatedWords] = useState<string[]>([]);
     const [newWordStartIndex, setNewWordStartIndex] = useState(0);
+    const [liveMemoId, setLiveMemoId] = useState<string | null>(null);
+    const [liveShareUrl, setLiveShareUrl] = useState<string | null>(null);
+    const [liveShareState, setLiveShareState] = useState<LiveShareState>("idle");
     const { playbackTheme } = useTheme();
     const isUploadActive = isUploading || isUploadInProgress;
 
@@ -89,9 +96,15 @@ export default function AudioRecorder({
     const recordingTimeRef = useRef(0);
     const previousTranscriptRef = useRef("");
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const liveMemoIdRef = useRef<string | null>(null);
+    const liveSyncInFlightRef = useRef(false);
+    const pendingLiveTranscriptRef = useRef<string | null>(null);
+    const syncedLiveTranscriptRef = useRef("");
+    const liveShareResetTimerRef = useRef<NodeJS.Timeout | null>(null);
 
     // Keep ref in sync with state for use inside closures
     useEffect(() => { recordingTimeRef.current = recordingTime; }, [recordingTime]);
+    useEffect(() => { liveMemoIdRef.current = liveMemoId; }, [liveMemoId]);
 
     // Auto-scroll to bottom whenever liveTranscript updates
     useEffect(() => {
@@ -124,8 +137,150 @@ export default function AudioRecorder({
     useEffect(() => () => {
         if (timerRef.current) clearInterval(timerRef.current);
         if (liveTimerRef.current) clearInterval(liveTimerRef.current);
+        if (liveShareResetTimerRef.current) clearTimeout(liveShareResetTimerRef.current);
         abortRef.current?.abort();
     }, []);
+
+    const clearLiveShareResetTimer = () => {
+        if (liveShareResetTimerRef.current) {
+            clearTimeout(liveShareResetTimerRef.current);
+            liveShareResetTimerRef.current = null;
+        }
+    };
+
+    const resetLiveShareSession = () => {
+        clearLiveShareResetTimer();
+        setLiveMemoId(null);
+        setLiveShareUrl(null);
+        setLiveShareState("idle");
+        liveMemoIdRef.current = null;
+        pendingLiveTranscriptRef.current = null;
+        syncedLiveTranscriptRef.current = "";
+        liveSyncInFlightRef.current = false;
+    };
+
+    const persistLiveTranscript = async () => {
+        if (liveSyncInFlightRef.current) return;
+        const memoId = liveMemoIdRef.current;
+        const transcript = pendingLiveTranscriptRef.current;
+        if (!memoId || transcript == null) return;
+
+        const normalizedTranscript = transcript.trim();
+        if (!normalizedTranscript) {
+            pendingLiveTranscriptRef.current = null;
+            return;
+        }
+        if (normalizedTranscript === syncedLiveTranscriptRef.current.trim()) {
+            pendingLiveTranscriptRef.current = null;
+            return;
+        }
+
+        liveSyncInFlightRef.current = true;
+        pendingLiveTranscriptRef.current = null;
+
+        try {
+            const res = await fetch(`/api/memos/${memoId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ transcript: normalizedTranscript }),
+            });
+            if (!res.ok) {
+                throw new Error(`Live transcript update failed: ${res.status}`);
+            }
+            syncedLiveTranscriptRef.current = normalizedTranscript;
+        } catch (err) {
+            console.error("[live-sync]", err);
+        } finally {
+            liveSyncInFlightRef.current = false;
+            const pendingTranscript = pendingLiveTranscriptRef.current as string | null;
+            const hasPendingUpdate =
+                typeof pendingTranscript === "string" &&
+                pendingTranscript.trim() !== syncedLiveTranscriptRef.current.trim();
+            if (hasPendingUpdate) {
+                void persistLiveTranscript();
+            }
+        }
+    };
+
+    useEffect(() => {
+        if (!liveMemoId || !liveTranscript.trim()) return;
+        pendingLiveTranscriptRef.current = liveTranscript;
+        void persistLiveTranscript();
+    }, [liveMemoId, liveTranscript]);
+
+    const requestLiveShareUrl = async (memoId: string): Promise<string> => {
+        const shareRes = await fetch(`/api/memos/${memoId}/share`, { method: "POST" });
+        const shareJson = await shareRes.json().catch(() => null);
+        const nextShareUrl = typeof shareJson?.shareUrl === "string" ? shareJson.shareUrl : null;
+        if (!shareRes.ok || !nextShareUrl) {
+            throw new Error("Unable to create live share link.");
+        }
+        return nextShareUrl;
+    };
+
+    const startLiveShareSession = async () => {
+        setLiveShareState("loading");
+        try {
+            const liveMemoRes = await fetch("/api/memos/live", { method: "POST" });
+            if (liveMemoRes.status === 401) {
+                resetLiveShareSession();
+                return;
+            }
+
+            const liveMemoJson = await liveMemoRes.json().catch(() => null);
+            const memoId = typeof liveMemoJson?.memoId === "string" ? liveMemoJson.memoId : null;
+            if (!liveMemoRes.ok || !memoId) {
+                throw new Error("Unable to initialize live memo.");
+            }
+
+            setLiveMemoId(memoId);
+            const nextShareUrl = await requestLiveShareUrl(memoId);
+            setLiveShareUrl(nextShareUrl);
+            setLiveShareState("ready");
+        } catch (err) {
+            console.error("[live-share]", err);
+            setLiveShareState("error");
+        }
+    };
+
+    const handleCopyLiveShare = async () => {
+        clearLiveShareResetTimer();
+
+        try {
+            let nextUrl = liveShareUrl;
+            if (!nextUrl) {
+                const memoId = liveMemoIdRef.current;
+                if (!memoId) return;
+                setLiveShareState("loading");
+                nextUrl = await requestLiveShareUrl(memoId);
+                setLiveShareUrl(nextUrl);
+            }
+
+            const copied = await copyToClipboard(nextUrl);
+            if (!copied) {
+                setLiveShareState("error");
+                return;
+            }
+
+            setLiveShareState("copied");
+            liveShareResetTimerRef.current = setTimeout(() => {
+                setLiveShareState("ready");
+                liveShareResetTimerRef.current = null;
+            }, 3000);
+        } catch (err) {
+            console.error("[live-share-copy]", err);
+            setLiveShareState("error");
+        }
+    };
+
+    const getLiveShareLabel = () => {
+        if (liveShareState === "loading") return "Preparing link...";
+        if (liveShareState === "copied") return "Copied";
+        if (liveShareState === "error") return "Retry live link";
+        return "Copy live link";
+    };
+
+    const shouldShowLiveShare = (isRecording || isUploadActive) && liveShareState !== "idle";
 
     const formatTime = (s: number) => {
         const m = Math.floor(s / 60);
@@ -234,9 +389,10 @@ export default function AudioRecorder({
                         blob,
                         durationSeconds: recordingTimeRef.current,
                         mimeType: mimeTypeRef.current,
+                        memoId: liveMemoIdRef.current ?? undefined,
                     });
                 } else {
-                    void handleUpload(blob, mimeTypeRef.current);
+                    void handleUpload(blob, mimeTypeRef.current, undefined, liveMemoIdRef.current);
                 }
             };
 
@@ -247,6 +403,7 @@ export default function AudioRecorder({
             setAnimatedWords([]);
             setNewWordStartIndex(0);
             previousTranscriptRef.current = "";
+            resetLiveShareSession();
 
             timerRef.current = setInterval(() => {
                 setRecordingTime((p) => p + 1);
@@ -254,6 +411,7 @@ export default function AudioRecorder({
 
             // Continue fast live updates while recording.
             liveTimerRef.current = setInterval(runLiveTick, LIVE_INTERVAL_MS);
+            void startLiveShareSession();
 
         } catch (err) {
             console.error("Mic error:", err);
@@ -270,6 +428,8 @@ export default function AudioRecorder({
         if (liveTimerRef.current) clearInterval(liveTimerRef.current);
         if (timerRef.current) clearInterval(timerRef.current);
         abortRef.current?.abort();
+        pendingLiveTranscriptRef.current = liveTranscript;
+        void persistLiveTranscript();
         mediaRecorderRef.current.stop();
         setIsRecording(false);
     };
@@ -280,12 +440,14 @@ export default function AudioRecorder({
         setAnimatedWords([]);
         setNewWordStartIndex(0);
         previousTranscriptRef.current = "";
+        resetLiveShareSession();
     };
 
     const handleUpload = async (
         blob: Blob,
         mimeType: string = mimeTypeRef.current,
-        fileName?: string
+        fileName?: string,
+        memoId?: string | null
     ) => {
         if (!blob) return;
         setIsUploading(true);
@@ -294,6 +456,9 @@ export default function AudioRecorder({
             const uploadFileName =
                 fileName ?? `memo_${Date.now()}.${getFileExtensionFromMime(mimeType)}`;
             fd.append("file", blob, uploadFileName);
+            if (memoId) {
+                fd.append("memoId", memoId);
+            }
             const res = await fetch("/api/transcribe", { method: "POST", body: fd });
             if (!res.ok) throw new Error("Upload failed");
             const data = (await res.json()) as Omit<UploadCompletePayload, "durationSeconds">;
@@ -357,12 +522,46 @@ export default function AudioRecorder({
                             className="mt-2 h-1 w-48 overflow-hidden rounded-full bg-white/10"
                         >
                             <div
-                                className="h-full bg-accent/80 transition-[width] duration-300"
-                                style={{ width: `${uploadProgressPercent}%` }}
-                            />
-                        </div>
-                    )}
-                </div>
+                            className="h-full bg-accent/80 transition-[width] duration-300"
+                            style={{ width: `${uploadProgressPercent}%` }}
+                        />
+                    </div>
+                )}
+                {shouldShowLiveShare && (
+                    <div className="mt-2 flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={handleCopyLiveShare}
+                            disabled={liveShareState === "loading"}
+                            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-mono uppercase tracking-wide transition-colors ${
+                                liveShareState === "copied"
+                                    ? "border-emerald-500/40 text-emerald-300"
+                                    : "border-white/15 text-white/60 hover:border-accent/40 hover:text-accent"
+                            } ${liveShareState === "loading" ? "cursor-wait opacity-75" : ""}`}
+                        >
+                            {liveShareState === "loading" ? (
+                                <Loader2 size={12} className="animate-spin" />
+                            ) : liveShareState === "copied" ? (
+                                <Check size={12} />
+                            ) : (
+                                <Link2 size={12} />
+                            )}
+                            {getLiveShareLabel()}
+                        </button>
+                        {liveShareUrl && (
+                            <a
+                                href={liveShareUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] font-mono uppercase tracking-tight text-emerald-300/85 hover:text-emerald-200"
+                                title="Open live share page"
+                            >
+                                Open live page
+                            </a>
+                        )}
+                    </div>
+                )}
+            </div>
                 {isRecording && (
                     <div className="flex items-center gap-3">
                         <div className="flex items-center gap-1 h-4">
