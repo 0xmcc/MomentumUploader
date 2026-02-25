@@ -7,6 +7,10 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "75mb",
     },
   },
+  outputFileTracingIncludes: {
+    "/api/transcribe": ["./node_modules/ffmpeg-static/ffmpeg"],
+    "/api/transcribe/live": ["./node_modules/ffmpeg-static/ffmpeg"],
+  },
 };
 
 export default nextConfig;

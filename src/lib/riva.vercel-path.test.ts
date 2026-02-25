@@ -4,7 +4,7 @@ const execFileMock = jest.fn();
 const loadSyncMock = jest.fn();
 const loadPackageDefinitionMock = jest.fn();
 
-jest.mock("ffmpeg-static", () => "/opt/ffmpeg-static/ffmpeg", { virtual: true });
+jest.mock("ffmpeg-static", () => "/ROOT/node_modules/ffmpeg-static/ffmpeg", { virtual: true });
 
 jest.mock("child_process", () => ({
     execFile: (...args: unknown[]) => execFileMock(...args),
@@ -30,7 +30,7 @@ jest.mock("@grpc/grpc-js", () => {
     };
 });
 
-describe("riva transcription runtime dependencies", () => {
+describe("riva ffmpeg path resolution on Vercel", () => {
     beforeEach(() => {
         jest.resetModules();
         execFileMock.mockReset();
@@ -72,14 +72,13 @@ describe("riva transcription runtime dependencies", () => {
         );
     });
 
-    it("uses a bundled ffmpeg binary path instead of relying on plain 'ffmpeg' in PATH", async () => {
+    it("maps /ROOT ffmpeg-static paths to the runtime working directory", async () => {
         const { transcribeAudio } = await import("./riva");
 
         await transcribeAudio(Buffer.from("fake-audio"), "test-api-key", "audio/webm");
 
         expect(execFileMock).toHaveBeenCalled();
         const [ffmpegCommand] = execFileMock.mock.calls[0] as [string, string[]];
-        expect(ffmpegCommand).not.toBe("ffmpeg");
         expect(ffmpegCommand).toBe(path.join(process.cwd(), "node_modules/ffmpeg-static/ffmpeg"));
     });
 });

@@ -20,6 +20,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import path from "path";
 import os from "os";
+import { existsSync } from "fs";
 import fs from "fs/promises";
 import dns from "node:dns";
 
@@ -36,7 +37,29 @@ const PROTO_ROOT = path.join(process.cwd(), "src/lib/proto");
 function resolveFfmpegPath(): string {
     const fromEnv = process.env.FFMPEG_PATH?.trim();
     if (fromEnv) return fromEnv;
-    if (typeof ffmpegPath === "string" && ffmpegPath.length > 0) return ffmpegPath;
+
+    const candidates: string[] = [];
+    if (typeof ffmpegPath === "string" && ffmpegPath.length > 0) {
+        // Next.js/Vercel bundling can surface a synthetic /ROOT prefix.
+        // Remap that prefix to the runtime cwd (for example /var/task).
+        const normalized = ffmpegPath.startsWith("/ROOT/")
+            ? path.join(process.cwd(), ffmpegPath.slice("/ROOT/".length))
+            : ffmpegPath;
+        candidates.push(normalized);
+    }
+
+    const bundledFallback = path.join(
+        process.cwd(),
+        "node_modules",
+        "ffmpeg-static",
+        process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"
+    );
+    candidates.push(bundledFallback);
+
+    for (const candidate of candidates) {
+        if (existsSync(candidate)) return candidate;
+    }
+
     return "ffmpeg";
 }
 
