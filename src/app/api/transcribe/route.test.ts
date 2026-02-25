@@ -47,6 +47,8 @@ jest.mock("@clerk/nextjs/server", () => ({
 }));
 
 describe("POST /api/transcribe", () => {
+    const originalNvidiaApiKey = process.env.NVIDIA_API_KEY;
+
     beforeEach(() => {
         jest.clearAllMocks();
         (supabaseAdmin.from as jest.Mock).mockReset();
@@ -55,9 +57,18 @@ describe("POST /api/transcribe", () => {
                 select: jest.fn().mockResolvedValue({ data: [{ id: "1" }], error: null }),
             })),
         }));
+        process.env.NVIDIA_API_KEY = "test-nvidia-key";
         (auth as unknown as jest.Mock).mockResolvedValue({ userId: "user_123" });
         // Give transcript
         (transcribeAudio as jest.Mock).mockResolvedValue("hello world");
+    });
+
+    afterAll(() => {
+        if (originalNvidiaApiKey === undefined) {
+            delete process.env.NVIDIA_API_KEY;
+            return;
+        }
+        process.env.NVIDIA_API_KEY = originalNvidiaApiKey;
     });
 
     it("should process audio, upload as buffer, and save to memos table", async () => {
@@ -346,6 +357,68 @@ describe("POST /api/transcribe", () => {
 
         expect(res.status).toBe(500);
         expect(json.error).toBe("Failed to save memo");
+    });
+
+    it("returns 500 when NVIDIA_API_KEY is missing", async () => {
+        delete process.env.NVIDIA_API_KEY;
+
+        const formDataObj = {
+            get: (key: string) => {
+                if (key === "file") {
+                    return {
+                        name: "test-memo.webm",
+                        type: "audio/webm",
+                        size: 10,
+                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
+                    };
+                }
+                return null;
+            },
+        };
+
+        const req = {
+            formData: async () => formDataObj,
+        } as unknown as NextRequest;
+
+        const res = await POST(req);
+        const json = await res.json();
+
+        expect(res.status).toBe(500);
+        expect(json.error).toBe("Transcription is not configured");
+        expect(uploadAudio).not.toHaveBeenCalled();
+    });
+
+    it("returns an upstream error and skips DB write when transcription fails in production runtime", async () => {
+        const insert = jest.fn(() => ({
+            select: jest.fn().mockResolvedValue({ data: [{ id: "should-not-insert" }], error: null }),
+        }));
+        (supabaseAdmin.from as jest.Mock).mockReturnValue({ insert });
+        (transcribeAudio as jest.Mock).mockRejectedValue(new Error("spawn ffmpeg ENOENT"));
+
+        const formDataObj = {
+            get: (key: string) => {
+                if (key === "file") {
+                    return {
+                        name: "prod-memo.webm",
+                        type: "audio/webm",
+                        size: 10,
+                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
+                    };
+                }
+                return null;
+            },
+        };
+
+        const req = {
+            formData: async () => formDataObj,
+        } as unknown as NextRequest;
+
+        const res = await POST(req);
+        const json = await res.json();
+
+        expect(res.status).toBe(502);
+        expect(json.error).toBe("Failed to transcribe audio with NVIDIA");
+        expect(insert).not.toHaveBeenCalled();
     });
 
     it("returns 413 when multipart payload exceeds body-size limits", async () => {

@@ -168,6 +168,18 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const nvidiaApiKey = process.env.NVIDIA_API_KEY?.trim();
+    if (!nvidiaApiKey) {
+        ERR("env", "NVIDIA_API_KEY is missing", null);
+        return NextResponse.json(
+            {
+                error: "Transcription is not configured",
+                detail: "NVIDIA_API_KEY is not set on the server.",
+            },
+            { status: 500 }
+        );
+    }
+
     // --- Env check ---
     LOG("env", "NEXT_PUBLIC_SUPABASE_URL set?", !!process.env.NEXT_PUBLIC_SUPABASE_URL);
     LOG("env", "NEXT_PUBLIC_SUPABASE_ANON_KEY set?", !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
@@ -304,10 +316,9 @@ export async function POST(req: NextRequest) {
         const transcribeStartMs = Date.now();
         let transcriptionText = "";
         try {
-
             transcriptionText = await transcribeAudio(
                 audioBuffer,
-                process.env.NVIDIA_API_KEY!,
+                nvidiaApiKey,
                 file.type || "audio/webm",
                 { priority: "final" }
             );
@@ -316,7 +327,15 @@ export async function POST(req: NextRequest) {
             LOG("timing", "Transcription ms", Date.now() - transcribeStartMs);
         } catch (transcriptionError) {
             ERR("nvidia", "Transcription failed", transcriptionError);
-            transcriptionText = "[Transcription failed]";
+            return NextResponse.json(
+                {
+                    error: "Failed to transcribe audio with NVIDIA",
+                    detail:
+                        readErrorMessage(transcriptionError) ||
+                        "Upstream transcription service failed.",
+                },
+                { status: 502 }
+            );
         }
 
         // --- Step 3: Save to Supabase DB ---
