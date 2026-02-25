@@ -15,6 +15,7 @@
  */
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
+import ffmpegPath from "ffmpeg-static";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import path from "path";
@@ -31,6 +32,13 @@ const execFileAsync = promisify(execFile);
 const GRPC_TARGET = "grpc.nvcf.nvidia.com:443";
 const FUNCTION_ID = "d8dd4e9b-fbf5-4fb0-9dba-8cf436c8d965";
 const PROTO_ROOT = path.join(process.cwd(), "src/lib/proto");
+
+function resolveFfmpegPath(): string {
+    const fromEnv = process.env.FFMPEG_PATH?.trim();
+    if (fromEnv) return fromEnv;
+    if (typeof ffmpegPath === "string" && ffmpegPath.length > 0) return ffmpegPath;
+    return "ffmpeg";
+}
 
 // ── Live call queue ────────────────────────────────────────────────────────────
 // Live ticks are best-effort and can queue behind each other. Final transcripts
@@ -132,10 +140,12 @@ async function toPCM16(inputBuffer: Buffer, inputExt = "webm"): Promise<Buffer> 
     const tmpIn = path.join(os.tmpdir(), `riva-in-${id}.${inputExt}`);
     const tmpOut = path.join(os.tmpdir(), `riva-out-${id}.raw`);
 
+    const ffmpegExecutable = resolveFfmpegPath();
+
     try {
         await fs.writeFile(tmpIn, inputBuffer);
 
-        await execFileAsync("ffmpeg", [
+        await execFileAsync(ffmpegExecutable, [
             "-y",
             "-i", tmpIn,
             "-ar", "16000",       // 16 kHz (Parakeet requirement)
