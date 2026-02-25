@@ -189,6 +189,11 @@ async function toPCM16(inputBuffer: Buffer, inputExt = "webm"): Promise<Buffer> 
 
 async function _doRecognize(audioBytes: Buffer, apiKey: string, mimeType: string): Promise<string> {
     const client = getAsrClient();
+    const normalizedApiKey = apiKey.trim();
+
+    if (!normalizedApiKey) {
+        throw new Error("NVIDIA API key is missing or empty after trimming");
+    }
 
     const normalizedMime = mimeType.toLowerCase();
     const inputExt = normalizedMime.includes("ogg")
@@ -203,7 +208,7 @@ async function _doRecognize(audioBytes: Buffer, apiKey: string, mimeType: string
     const pcmBuffer = await toPCM16(audioBytes, inputExt);
 
     const metadata = new grpc.Metadata();
-    metadata.set("authorization", `Bearer ${apiKey}`);
+    metadata.set("authorization", `Bearer ${normalizedApiKey}`);
     metadata.set("function-id", FUNCTION_ID);
 
     const request: RecognizeRequest = {
