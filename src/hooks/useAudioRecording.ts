@@ -25,6 +25,11 @@ type UseAudioRecordingResult = {
     setMicError: Dispatch<SetStateAction<string | null>>;
     audioChunksRef: MutableRefObject<Blob[]>;
     mimeTypeRef: MutableRefObject<string>;
+    // Header-only WebM blob captured before any audio data arrives (via requestData() in
+    // onstart). Used by useLiveTranscription to build overflow snapshots without re-including
+    // the first second of audio (which would create a gap and duplicate the opening phrase).
+    // Null until the first ondataavailable fires after the onstart requestData() call.
+    webmHeaderRef: MutableRefObject<Blob | null>;
     startRecording: () => Promise<boolean>;
     stopRecording: () => void;
     resetRecording: () => void;
@@ -42,6 +47,8 @@ export function useAudioRecording({
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const mimeTypeRef = useRef(DEFAULT_PENDING_MIME_TYPE);
+    const webmHeaderRef = useRef<Blob | null>(null);
+    const headerCapturedRef = useRef(false);
     const timerRef = useRef<NodeJS.Timeout | null>(null);
     const recordingTimeRef = useRef(0);
 
@@ -97,9 +104,27 @@ export function useAudioRecording({
 
             mediaRecorderRef.current = recorder;
             audioChunksRef.current = [];
+            webmHeaderRef.current = null;
+            headerCapturedRef.current = false;
+
+            // Capture a header-only WebM blob before any audio data arrives.
+            // requestData() in onstart fires ondataavailable with just the EBML/init
+            // segment (no audio clusters). This lets useLiveTranscription build overflow
+            // snapshots as [headerBlob, ...lastNChunks] instead of
+            // [chunks[0], ...lastNChunks] — eliminating the audio gap that caused
+            // the opening phrase to be re-transcribed and duplicated.
+            recorder.onstart = () => {
+                recorder.requestData();
+            };
 
             recorder.ondataavailable = (event) => {
                 if (event.data.size <= 0) return;
+                if (!headerCapturedRef.current) {
+                    // First blob from the requestData() call in onstart: headers only.
+                    webmHeaderRef.current = event.data;
+                    headerCapturedRef.current = true;
+                    return; // Don't include header blob in audio chunks
+                }
                 audioChunksRef.current.push(event.data);
                 if (audioChunksRef.current.length === 1) {
                     onFirstChunk?.();
@@ -107,7 +132,11 @@ export function useAudioRecording({
             };
 
             recorder.onstop = () => {
-                const blob = new Blob(audioChunksRef.current, { type: mimeTypeRef.current });
+                // Prepend the header blob so the final upload is a complete, decodable file.
+                const allChunks = webmHeaderRef.current
+                    ? [webmHeaderRef.current, ...audioChunksRef.current]
+                    : audioChunksRef.current;
+                const blob = new Blob(allChunks, { type: mimeTypeRef.current });
                 stream.getTracks().forEach((track) => track.stop());
                 onRecordingStopped({
                     blob,
@@ -154,6 +183,7 @@ export function useAudioRecording({
         setMicError,
         audioChunksRef,
         mimeTypeRef,
+        webmHeaderRef,
         startRecording,
         stopRecording,
         resetRecording,

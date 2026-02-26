@@ -53,6 +53,7 @@ export default function AudioRecorder({
     const liveTranscription = useLiveTranscription({
         audioChunksRef: recording.audioChunksRef,
         mimeTypeRef: recording.mimeTypeRef,
+        webmHeaderRef: recording.webmHeaderRef,
     });
 
     function handleRecordingStarted() {

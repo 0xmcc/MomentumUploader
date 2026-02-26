@@ -15,6 +15,7 @@ export type LiveShareState = "idle" | "loading" | "ready" | "copied" | "error";
 type UseLiveTranscriptionOptions = {
     audioChunksRef: MutableRefObject<Blob[]>;
     mimeTypeRef: MutableRefObject<string>;
+    webmHeaderRef: MutableRefObject<Blob | null>;
 };
 
 type UseLiveTranscriptionResult = {
@@ -36,6 +37,7 @@ type UseLiveTranscriptionResult = {
 export function useLiveTranscription({
     audioChunksRef,
     mimeTypeRef,
+    webmHeaderRef,
 }: UseLiveTranscriptionOptions): UseLiveTranscriptionResult {
     const [liveTranscript, setLiveTranscript] = useState("");
     const [animatedWords, setAnimatedWords] = useState<string[]>([]);
@@ -215,9 +217,25 @@ export function useLiveTranscription({
         abortRef.current = controller;
 
         const chunks = audioChunksRef.current;
-        const snapshotChunks = chunks.length <= LIVE_MAX_CHUNKS
-            ? [...chunks]
-            : [chunks[0], ...chunks.slice(-(LIVE_MAX_CHUNKS - 1))];
+        const header = webmHeaderRef.current;
+        // `header` is the WebM EBML/init blob captured at recording start (no audio data).
+        // `chunks` are the subsequent audio-only clusters from audioChunksRef.
+        //
+        // When `header` is available, ALWAYS prepend it so RIVA can decode the audio:
+        //   • Non-overflow: [header, ...all-audio-chunks]
+        //   • Overflow: [header, ...last-(LIVE_MAX_CHUNKS-1)-audio-chunks]  ← no gap, fixes the bug
+        //
+        // When `header` is null (browser skipped the onstart requestData() call),
+        // fall back to the old behavior where chunk[0] carries both headers and first
+        // second of audio — the guardrail in mergeLiveTranscript still protects against
+        // duplications in that edge case.
+        const snapshotChunks = header
+            ? chunks.length <= LIVE_MAX_CHUNKS
+                ? [header, ...chunks]
+                : [header, ...chunks.slice(-(LIVE_MAX_CHUNKS - 1))]
+            : chunks.length <= LIVE_MAX_CHUNKS
+                ? [...chunks]
+                : [chunks[0], ...chunks.slice(-(LIVE_MAX_CHUNKS - 1))];
         const snapshot = new Blob(snapshotChunks, { type: mimeTypeRef.current });
 
         const formData = new FormData();
