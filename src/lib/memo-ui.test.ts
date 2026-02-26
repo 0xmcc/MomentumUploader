@@ -1,6 +1,7 @@
 import {
   MEMO_ESTIMATED_COST_PER_MINUTE_USD,
   formatMemoEstimatedCost,
+  getMemoAudioDownloadName,
   getMemoEstimatedCostUsd,
 } from "./memo-ui";
 
@@ -27,5 +28,25 @@ describe("memo cost formatting", () => {
     expect(getMemoEstimatedCostUsd(-1)).toBeNull();
     expect(getMemoEstimatedCostUsd(Number.NaN)).toBeNull();
     expect(formatMemoEstimatedCost(undefined)).toBe("--");
+  });
+
+  it("builds an audio download filename from memo metadata", () => {
+    expect(
+      getMemoAudioDownloadName({
+        id: "memo-12345678-abcdef",
+        createdAt: "2026-02-26T11:00:00.000Z",
+        url: "https://cdn.example.com/audio/clip_123.m4a?token=abc",
+      })
+    ).toBe("memo-2026-02-26-memo-123.m4a");
+  });
+
+  it("falls back to webm extension for unknown or malformed audio URLs", () => {
+    expect(
+      getMemoAudioDownloadName({
+        id: "memo-1",
+        createdAt: "invalid-date",
+        url: "not-a-valid-url",
+      })
+    ).toBe("memo-unknown-date-memo-1.webm");
   });
 });

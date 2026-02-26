@@ -77,6 +77,41 @@ export function formatMemoEstimatedCost(durationSeconds?: number | null) {
   return estimatedCost == null ? "--" : formatUsd(estimatedCost);
 }
 
+const AUDIO_EXTENSIONS = new Set([
+  "aac",
+  "flac",
+  "m4a",
+  "mp3",
+  "mp4",
+  "ogg",
+  "wav",
+  "webm",
+]);
+
+function getAudioExtensionFromUrl(url: string) {
+  const fallback = "webm";
+
+  try {
+    const parsed = new URL(url);
+    const fileName = parsed.pathname.split("/").pop() ?? "";
+    const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+    return AUDIO_EXTENSIONS.has(ext) ? ext : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function getMemoAudioDownloadName(
+  memo: Pick<Memo, "id" | "createdAt" | "url">
+) {
+  const date = new Date(memo.createdAt);
+  const safeDate = Number.isNaN(date.getTime())
+    ? "unknown-date"
+    : date.toISOString().slice(0, 10);
+  const ext = memo.url ? getAudioExtensionFromUrl(memo.url) : "webm";
+  return `memo-${safeDate}-${memo.id.slice(0, 8)}.${ext}`;
+}
+
 export function exportMarkdown(memo: Memo) {
   const date = new Date(memo.createdAt).toISOString();
   const duration =

@@ -15,10 +15,12 @@
  */
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
+import ffmpegPath from "ffmpeg-static";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import path from "path";
 import os from "os";
+import { existsSync } from "fs";
 import fs from "fs/promises";
 import dns from "node:dns";
 
@@ -31,6 +33,35 @@ const execFileAsync = promisify(execFile);
 const GRPC_TARGET = "grpc.nvcf.nvidia.com:443";
 const FUNCTION_ID = "d8dd4e9b-fbf5-4fb0-9dba-8cf436c8d965";
 const PROTO_ROOT = path.join(process.cwd(), "src/lib/proto");
+
+function resolveFfmpegPath(): string {
+    const fromEnv = process.env.FFMPEG_PATH?.trim();
+    if (fromEnv) return fromEnv;
+
+    const candidates: string[] = [];
+    if (typeof ffmpegPath === "string" && ffmpegPath.length > 0) {
+        // Next.js/Vercel bundling can surface a synthetic /ROOT prefix.
+        // Remap that prefix to the runtime cwd (for example /var/task).
+        const normalized = ffmpegPath.startsWith("/ROOT/")
+            ? path.join(process.cwd(), ffmpegPath.slice("/ROOT/".length))
+            : ffmpegPath;
+        candidates.push(normalized);
+    }
+
+    const bundledFallback = path.join(
+        process.cwd(),
+        "node_modules",
+        "ffmpeg-static",
+        process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"
+    );
+    candidates.push(bundledFallback);
+
+    for (const candidate of candidates) {
+        if (existsSync(candidate)) return candidate;
+    }
+
+    return "ffmpeg";
+}
 
 // ── Live call queue ────────────────────────────────────────────────────────────
 // Live ticks are best-effort and can queue behind each other. Final transcripts
@@ -132,10 +163,12 @@ async function toPCM16(inputBuffer: Buffer, inputExt = "webm"): Promise<Buffer> 
     const tmpIn = path.join(os.tmpdir(), `riva-in-${id}.${inputExt}`);
     const tmpOut = path.join(os.tmpdir(), `riva-out-${id}.raw`);
 
+    const ffmpegExecutable = resolveFfmpegPath();
+
     try {
         await fs.writeFile(tmpIn, inputBuffer);
 
-        await execFileAsync("ffmpeg", [
+        await execFileAsync(ffmpegExecutable, [
             "-y",
             "-i", tmpIn,
             "-ar", "16000",       // 16 kHz (Parakeet requirement)
@@ -156,6 +189,11 @@ async function toPCM16(inputBuffer: Buffer, inputExt = "webm"): Promise<Buffer> 
 
 async function _doRecognize(audioBytes: Buffer, apiKey: string, mimeType: string): Promise<string> {
     const client = getAsrClient();
+    const normalizedApiKey = apiKey.trim();
+
+    if (!normalizedApiKey) {
+        throw new Error("NVIDIA API key is missing or empty after trimming");
+    }
 
     const normalizedMime = mimeType.toLowerCase();
     const inputExt = normalizedMime.includes("ogg")
@@ -170,7 +208,7 @@ async function _doRecognize(audioBytes: Buffer, apiKey: string, mimeType: string
     const pcmBuffer = await toPCM16(audioBytes, inputExt);
 
     const metadata = new grpc.Metadata();
-    metadata.set("authorization", `Bearer ${apiKey}`);
+    metadata.set("authorization", `Bearer ${normalizedApiKey}`);
     metadata.set("function-id", FUNCTION_ID);
 
     const request: RecognizeRequest = {

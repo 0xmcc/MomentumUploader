@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { resolveMemoUserId } from "@/lib/memo-api-auth";
 
 const CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -19,7 +19,7 @@ export async function OPTIONS() {
  *   offset   - pagination offset (default 0)
  */
 export async function GET(req: NextRequest) {
-    const { userId } = await auth();
+    const userId = await resolveMemoUserId(req);
     if (!userId) {
         return NextResponse.json(
             { memos: [], total: 0, limit: 50, offset: 0 },
@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
  *   audioUrl    string  - optional, link to existing audio file
  */
 export async function POST(req: NextRequest) {
-    const { userId } = await auth();
+    const userId = await resolveMemoUserId(req);
 
     let body: { transcript?: string; title?: string; audioUrl?: string };
     try {
