@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   Check,
   Cpu,
+  Download,
   ExternalLink,
   FileDown,
   Link2,
@@ -36,6 +37,7 @@ import {
   formatDate,
   formatMemoEstimatedCost,
   formatSecs,
+  getMemoAudioDownloadName,
   getMemoTitle,
   isMemoFailed,
   type Memo,
@@ -207,6 +209,22 @@ export function MemoDetailView({ memo }: { memo: Memo }) {
                 Export .md
               </span>
             </button>
+          )}
+          {memo.url && (
+            <a
+              href={memo.url}
+              download={getMemoAudioDownloadName(memo)}
+              title="Download memo audio"
+              className="flex items-center gap-1.5 text-xs text-white/50 hover:text-accent bg-white/5 hover:bg-accent/10 border border-white/10 hover:border-accent/30 px-3 py-1.5 rounded-full transition-all duration-200 group"
+            >
+              <Download
+                size={14}
+                className="transition-transform duration-200 group-hover:-translate-y-0.5"
+              />
+              <span className="hidden sm:inline font-mono tracking-wide">
+                Download audio
+              </span>
+            </a>
           )}
           <Link
             href="/docs"

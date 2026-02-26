@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { copyToClipboard } from "@/lib/memo-ui";
 
 // ---------- Types ----------
 type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
@@ -30,6 +31,27 @@ interface Endpoint {
 
 // ---------- API Definition ----------
 const ENDPOINTS: Endpoint[] = [
+    {
+        id: "create-api-token",
+        method: "POST",
+        path: "/api/auth/token",
+        summary: "Create a personal API token",
+        description: "Returns a bearer token tied to the currently signed-in user. Use it with Authorization: Bearer <token> for script access.",
+        tag: "Auth",
+        params: [
+            { name: "days", type: "body", dataType: "number", required: false, description: "Token lifetime in days (default 30, min 1, max 90)", example: "30" },
+        ],
+        requestBody: {
+            contentType: "application/json",
+            example: JSON.stringify({ days: 30 }, null, 2),
+        },
+        responseExample: JSON.stringify({
+            tokenType: "Bearer",
+            token: "vm1.<payload>.<signature>",
+            expiresAt: "2026-03-28T11:15:00.000Z",
+            days: 30,
+        }, null, 2),
+    },
     {
         id: "list-memos",
         method: "GET",
@@ -270,9 +292,75 @@ function EndpointCard({ ep }: { ep: Endpoint }) {
 // ---------- Page ----------
 const TAGS = ["All", ...Array.from(new Set(ENDPOINTS.map((e) => e.tag)))];
 
+const FETCH_MEMOS_EXAMPLE = `MEMOS_COOKIE='__session=<clerk-session-cookie>' \\
+npm run fetch:memos -- \\
+  --base-url https://voice-memos.vercel.app \\
+  --page-size 200 \\
+  --out tmp/memos-export.json \\
+  --md-dir tmp/memos-md`;
+
+const FETCH_MEMOS_BEARER_EXAMPLE = `MEMOS_BEARER_TOKEN='<token>' \\
+npm run fetch:memos -- --base-url https://voice-memos.vercel.app`;
+const AGENT_SKILL_URL = "/api/skills/memo-export";
+
 export default function DocsPage() {
     const [activeTag, setActiveTag] = useState("All");
     const [search, setSearch] = useState("");
+    const [skillCopyState, setSkillCopyState] = useState<"idle" | "copied" | "error">("idle");
+    const [tokenState, setTokenState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+    const [tokenCopyState, setTokenCopyState] = useState<"idle" | "copied" | "error">("idle");
+    const [apiToken, setApiToken] = useState<string | null>(null);
+    const [apiTokenExpiresAt, setApiTokenExpiresAt] = useState<string | null>(null);
+
+    const copySkillMarkdown = async () => {
+        try {
+            const res = await fetch(AGENT_SKILL_URL);
+            if (!res.ok) {
+                throw new Error(`Unable to fetch skill markdown: ${res.status}`);
+            }
+            const markdown = await res.text();
+            const copied = await copyToClipboard(markdown);
+            setSkillCopyState(copied ? "copied" : "error");
+        } catch {
+            setSkillCopyState("error");
+        }
+
+        setTimeout(() => setSkillCopyState("idle"), 2000);
+    };
+
+    const generateApiToken = async () => {
+        setTokenState("loading");
+        try {
+            const res = await fetch("/api/auth/token", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ days: 30 }),
+            });
+            const json = await res.json().catch(() => null);
+            const nextToken = typeof json?.token === "string" ? json.token : null;
+            const expiresAt = typeof json?.expiresAt === "string" ? json.expiresAt : null;
+
+            if (!res.ok || !nextToken || !expiresAt) {
+                throw new Error("Unable to generate API token.");
+            }
+
+            setApiToken(nextToken);
+            setApiTokenExpiresAt(expiresAt);
+            setTokenState("ready");
+            setTokenCopyState("idle");
+        } catch {
+            setTokenState("error");
+            setApiToken(null);
+            setApiTokenExpiresAt(null);
+        }
+    };
+
+    const copyApiToken = async () => {
+        if (!apiToken) return;
+        const copied = await copyToClipboard(apiToken);
+        setTokenCopyState(copied ? "copied" : "error");
+        setTimeout(() => setTokenCopyState("idle"), 2000);
+    };
 
     const filtered = ENDPOINTS.filter((ep) => {
         const matchTag = activeTag === "All" || ep.tag === activeTag;
@@ -299,13 +387,119 @@ export default function DocsPage() {
                     <div className="mt-8 flex flex-wrap gap-6 text-sm text-white/40">
                         <div><span className="text-white/25">Base URL</span><br /><code className="text-accent/80 font-mono">http://localhost:3000</code></div>
                         <div><span className="text-white/25">Format</span><br /><code className="text-white/60 font-mono">application/json</code></div>
-                        <div><span className="text-white/25">Authentication</span><br /><code className="text-white/60 font-mono">None (dev mode)</code></div>
+                        <div><span className="text-white/25">Authentication</span><br /><code className="text-white/60 font-mono">Clerk session cookie or Bearer token</code></div>
                         <div><span className="text-white/25">Transcription Engine</span><br /><code className="text-white/60 font-mono">NVIDIA Parakeet-CTC 0.6B</code></div>
                     </div>
                 </div>
             </div>
 
             <div className="max-w-5xl mx-auto px-6 py-12">
+                {/* Agent automation */}
+                <div className="mb-10 p-6 rounded-2xl border border-white/8 bg-white/[0.02]">
+                    <div className="flex items-center gap-2 mb-3">
+                        <h3 className="text-sm font-semibold text-white/70">Agent Automation (Fetch Memos + Transcripts)</h3>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/25 font-mono uppercase tracking-wide">new</span>
+                    </div>
+                    <p className="text-white/45 text-xs leading-relaxed mb-4">
+                        Use the export script to pull all memos and transcripts for the authenticated user. It paginates <code className="text-white/70">GET /api/memos</code>, writes one JSON export, and can also emit one markdown file per memo for downstream agents.
+                    </p>
+
+                    <div className="mb-4 p-4 rounded-xl border border-white/8 bg-black/20">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <button
+                                onClick={generateApiToken}
+                                disabled={tokenState === "loading"}
+                                className="inline-flex items-center rounded-full border border-white/20 px-3 py-1.5 font-mono text-[11px] text-white/75 hover:text-accent hover:border-accent/40 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                                {tokenState === "loading" ? "Generating token..." : "Generate bearer token (30d)"}
+                            </button>
+                            {apiToken && tokenState === "ready" && (
+                                <button
+                                    onClick={copyApiToken}
+                                    className={`inline-flex items-center rounded-full border px-3 py-1.5 font-mono text-[11px] transition-colors ${
+                                        tokenCopyState === "copied"
+                                            ? "text-emerald-300 border-emerald-500/40"
+                                            : tokenCopyState === "error"
+                                                ? "text-red-300 border-red-500/40"
+                                                : "text-white/65 border-white/15 hover:text-accent hover:border-accent/40"
+                                    }`}
+                                >
+                                    {tokenCopyState === "copied"
+                                        ? "Token copied"
+                                        : tokenCopyState === "error"
+                                            ? "Copy failed"
+                                            : "Copy token"}
+                                </button>
+                            )}
+                        </div>
+                        {tokenState === "error" && (
+                            <p className="mt-2 text-[11px] text-red-300">
+                                Could not generate token. Make sure you are signed in and token issuing is configured.
+                            </p>
+                        )}
+                        {apiToken && tokenState === "ready" && (
+                            <div className="mt-3 space-y-2">
+                                <p className="text-[11px] text-white/45">
+                                    Expires: <code className="text-white/70">{apiTokenExpiresAt}</code>
+                                </p>
+                                <pre className="bg-black/40 border border-white/5 rounded-xl p-3 text-[11px] text-emerald-300/80 font-mono overflow-x-auto">
+                                    {apiToken}
+                                </pre>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div>
+                            <div className="text-xs text-white/35 font-mono uppercase tracking-widest mb-2">Session Cookie Auth</div>
+                            <pre className="bg-black/40 border border-white/5 rounded-xl p-4 text-xs text-green-300/80 font-mono overflow-x-auto whitespace-pre-wrap">
+                                {FETCH_MEMOS_EXAMPLE}
+                            </pre>
+                        </div>
+                        <div>
+                            <div className="text-xs text-white/35 font-mono uppercase tracking-widest mb-2">Bearer Auth</div>
+                            <pre className="bg-black/40 border border-white/5 rounded-xl p-4 text-xs text-green-300/80 font-mono overflow-x-auto whitespace-pre-wrap">
+                                {FETCH_MEMOS_BEARER_EXAMPLE}
+                            </pre>
+                        </div>
+                    </div>
+
+                    <div className="mt-4 text-xs text-white/40 space-y-1">
+                        <p>
+                            Script path: <code className="text-white/70">scripts/fetch-memos.mjs</code> · npm command: <code className="text-white/70">npm run fetch:memos -- --help</code>
+                        </p>
+                        <p>
+                            For multi-agent workflows, use the reusable skill markdown endpoint.
+                        </p>
+                        <div className="pt-2 flex flex-wrap items-center gap-2">
+                            <a
+                                href={AGENT_SKILL_URL}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center rounded-full border border-white/15 px-3 py-1.5 font-mono text-[11px] text-white/65 hover:text-accent hover:border-accent/40 transition-colors"
+                            >
+                                Open skill markdown
+                            </a>
+                            <button
+                                onClick={copySkillMarkdown}
+                                className={`inline-flex items-center rounded-full border px-3 py-1.5 font-mono text-[11px] transition-colors ${
+                                    skillCopyState === "copied"
+                                        ? "text-emerald-300 border-emerald-500/40"
+                                        : skillCopyState === "error"
+                                            ? "text-red-300 border-red-500/40"
+                                            : "text-white/65 border-white/15 hover:text-accent hover:border-accent/40"
+                                }`}
+                            >
+                                {skillCopyState === "copied"
+                                    ? "Copied skill markdown"
+                                    : skillCopyState === "error"
+                                        ? "Copy failed"
+                                        : "Copy skill markdown"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 {/* Filter bar */}
                 <div className="flex flex-col sm:flex-row gap-4 mb-10">
                     <div className="flex gap-2">

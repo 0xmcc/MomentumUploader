@@ -383,6 +383,516 @@ describe("AudioRecorder live transcript cadence", () => {
         });
     });
 
+    it("replaces near-identical prefix revisions instead of duplicating the whole transcript", async () => {
+        const liveTexts = [
+            "This is a voice and I hope it actually does work.",
+            "This is a voice and I hope it actually does work, but you have to talk to the microphone.",
+            "This is a voice and I hope it actually does work, but you have to talk to the microphone because it's really good at noise cancellation.",
+        ];
+        let liveCallIndex = 0;
+        let latestPatchedTranscript = "";
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+            if (url === "/api/memos/live") {
+                return {
+                    ok: true,
+                    json: async () => ({ memoId: "memo-live-dup-test" }),
+                };
+            }
+            if (url === "/api/memos/memo-live-dup-test/share") {
+                return {
+                    ok: true,
+                    json: async () => ({ shareUrl: "https://example.com/s/live-dup-test" }),
+                };
+            }
+            if (url === "/api/transcribe/live") {
+                const text = liveTexts[Math.min(liveCallIndex, liveTexts.length - 1)];
+                liveCallIndex += 1;
+                return {
+                    ok: true,
+                    json: async () => ({ text }),
+                };
+            }
+            if (url === "/api/memos/memo-live-dup-test" && init?.method === "PATCH") {
+                const body = JSON.parse(String(init.body ?? "{}")) as { transcript?: string };
+                latestPatchedTranscript = body.transcript ?? "";
+                return {
+                    ok: true,
+                    json: async () => ({ ok: true }),
+                };
+            }
+
+            return {
+                ok: true,
+                json: async () => ({ text: "final transcript" }),
+            };
+        });
+
+        render(<AudioRecorder />);
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        for (let i = 0; i < 6; i += 1) {
+            await act(async () => {
+                jest.advanceTimersByTime(1500);
+            });
+            await act(async () => {
+                await Promise.resolve();
+            });
+        }
+
+        expect(latestPatchedTranscript).toBe(liveTexts[liveTexts.length - 1]);
+
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+        await act(async () => {
+            await Promise.resolve();
+        });
+    });
+
+    it("does not duplicate when interim ASR revises earlier words and resends a longer full hypothesis", async () => {
+        const liveTexts = [
+            "Testing testing 123 working is this working I think this is working if I just try talking really fast maybe just reading",
+            "Testing testing 123 working is this working I think this is working if I just started talking really fast maybe just reading a tweet we will say the whole thing",
+            "Testing testing 123 working is this working I think this is working if I just started talking really fast maybe just reading a tweet we will say the whole thing there is a pretty notable overlap",
+        ];
+        let liveCallIndex = 0;
+        let latestPatchedTranscript = "";
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+            if (url === "/api/memos/live") {
+                return {
+                    ok: true,
+                    json: async () => ({ memoId: "memo-live-early-revise-test" }),
+                };
+            }
+            if (url === "/api/memos/memo-live-early-revise-test/share") {
+                return {
+                    ok: true,
+                    json: async () => ({ shareUrl: "https://example.com/s/live-early-revise-test" }),
+                };
+            }
+            if (url === "/api/transcribe/live") {
+                const text = liveTexts[Math.min(liveCallIndex, liveTexts.length - 1)];
+                liveCallIndex += 1;
+                return {
+                    ok: true,
+                    json: async () => ({ text }),
+                };
+            }
+            if (url === "/api/memos/memo-live-early-revise-test" && init?.method === "PATCH") {
+                const body = JSON.parse(String(init.body ?? "{}")) as { transcript?: string };
+                latestPatchedTranscript = body.transcript ?? "";
+                return {
+                    ok: true,
+                    json: async () => ({ ok: true }),
+                };
+            }
+
+            return {
+                ok: true,
+                json: async () => ({ text: "final transcript" }),
+            };
+        });
+
+        render(<AudioRecorder />);
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        for (let i = 0; i < 6; i += 1) {
+            await act(async () => {
+                jest.advanceTimersByTime(1500);
+            });
+            await act(async () => {
+                await Promise.resolve();
+            });
+        }
+
+        const normalizedTranscript = latestPatchedTranscript
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+        const repeatedPrefix = "testing testing 123 working is this working i think this is working";
+        const occurrences = normalizedTranscript.split(repeatedPrefix).length - 1;
+
+        expect(occurrences).toBe(1);
+
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+        await act(async () => {
+            await Promise.resolve();
+        });
+    });
+
+    it("does not duplicate no-space punctuated resend transcripts", async () => {
+        const liveTexts = [
+            "Testing.testing.Isthisgonnaworknow?Idon'tevenknow.I'mjustgonnafuckingballoutandI'mgonnareadsomeshit.Okay.Whymostofyoudon'tsucceedwithAi.You'reafraidtoaskthequestion.You'reafraidtogivetheprompt.LastyearwhenIdidthisworkshop",
+            "No.I'mjustgonnafuckingballoutandI'mgonnareadsomeshit.Okay.Whymostofyoudon'tsucceedwithAi.You'reafraidtoaskthequestion.You'reafraidtogivetheprompt.LastyearwhenIdidthisworkshop,therewasanelementofskillsyouhadtoteachtogetpeoplebycoding.Specifically,Aiwasn'tverygoodatfixingbugsormakingchangestocomplexcodebases.",
+            "Whymostofyoudon'tsucceedwithAi.You'reafraidtoaskthequestion.You'reafraidtogivetheprompt.LastyearwhenIdidthisworkshop,therewasanelementofskillsyouhadtoteachtogetpeoplelivecodingspecifically.Aihasn'twasn'tverygoodatfixingbugsormakingchangestocomplexcodebases.That'sallbeenfixednow.youjustsimplydon'tneedtobe.",
+        ];
+        let liveCallIndex = 0;
+        let latestPatchedTranscript = "";
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+            if (url === "/api/memos/live") {
+                return {
+                    ok: true,
+                    json: async () => ({ memoId: "memo-live-no-space-dup-test" }),
+                };
+            }
+            if (url === "/api/memos/memo-live-no-space-dup-test/share") {
+                return {
+                    ok: true,
+                    json: async () => ({ shareUrl: "https://example.com/s/live-no-space-dup-test" }),
+                };
+            }
+            if (url === "/api/transcribe/live") {
+                const text = liveTexts[Math.min(liveCallIndex, liveTexts.length - 1)];
+                liveCallIndex += 1;
+                return {
+                    ok: true,
+                    json: async () => ({ text }),
+                };
+            }
+            if (url === "/api/memos/memo-live-no-space-dup-test" && init?.method === "PATCH") {
+                const body = JSON.parse(String(init.body ?? "{}")) as { transcript?: string };
+                latestPatchedTranscript = body.transcript ?? "";
+                return {
+                    ok: true,
+                    json: async () => ({ ok: true }),
+                };
+            }
+
+            return {
+                ok: true,
+                json: async () => ({ text: "final transcript" }),
+            };
+        });
+
+        render(<AudioRecorder />);
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        for (let i = 0; i < 6; i += 1) {
+            await act(async () => {
+                jest.advanceTimersByTime(1500);
+            });
+            await act(async () => {
+                await Promise.resolve();
+            });
+        }
+
+        const repeatedPrefix = "Whymostofyoudon'tsucceedwithAi.You'reafraidtoaskthequestion.You'reafraidtogivetheprompt.LastyearwhenIdidthisworkshop";
+        const occurrences = latestPatchedTranscript.split(repeatedPrefix).length - 1;
+
+        expect(occurrences).toBe(1);
+
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+        await act(async () => {
+            await Promise.resolve();
+        });
+    });
+
+    it("does not duplicate when long continuous speech gets shorter revised tail windows", async () => {
+        const liveTexts = [
+            "I am speaking continuously for a longer stretch so the transcript grows without stopping and we can see how updates behave when context is very long and short updates arrive near the tail of this stream",
+            "short update arrives near the tail of this stream while I keep talking through a brief pause",
+            "short update arrives near the tail of this stream while I keep talking through a brief pause and continue with one more thought",
+        ];
+        let liveCallIndex = 0;
+        let latestPatchedTranscript = "";
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+            if (url === "/api/memos/live") {
+                return {
+                    ok: true,
+                    json: async () => ({ memoId: "memo-live-short-tail-window-test" }),
+                };
+            }
+            if (url === "/api/memos/memo-live-short-tail-window-test/share") {
+                return {
+                    ok: true,
+                    json: async () => ({ shareUrl: "https://example.com/s/live-short-tail-window-test" }),
+                };
+            }
+            if (url === "/api/transcribe/live") {
+                const text = liveTexts[Math.min(liveCallIndex, liveTexts.length - 1)];
+                liveCallIndex += 1;
+                return {
+                    ok: true,
+                    json: async () => ({ text }),
+                };
+            }
+            if (url === "/api/memos/memo-live-short-tail-window-test" && init?.method === "PATCH") {
+                const body = JSON.parse(String(init.body ?? "{}")) as { transcript?: string };
+                latestPatchedTranscript = body.transcript ?? "";
+                return {
+                    ok: true,
+                    json: async () => ({ ok: true }),
+                };
+            }
+
+            return {
+                ok: true,
+                json: async () => ({ text: "final transcript" }),
+            };
+        });
+
+        render(<AudioRecorder />);
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        for (let i = 0; i < 6; i += 1) {
+            await act(async () => {
+                jest.advanceTimersByTime(1500);
+            });
+            await act(async () => {
+                await Promise.resolve();
+            });
+        }
+
+        const normalizedTranscript = latestPatchedTranscript.toLowerCase();
+        const repeatedTail = "near the tail of this stream";
+        const occurrences = normalizedTranscript.split(repeatedTail).length - 1;
+
+        expect(occurrences).toBe(1);
+
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+        await act(async () => {
+            await Promise.resolve();
+        });
+    });
+
+    it("reproduces user bug: corrected no-space resend does not replace earlier long hypothesis", async () => {
+        const liveTexts = [
+            "steadof,youknow,respectingtheissue.Idon'treallyknow.IwanttosayisthatevenifIkeeptalking,thelongerIgothemorethehigherlikelihoodthatitwilljustduplicatethetranscripts.",
+            "Insteadof,youknow,respectingtheissue.Idon'treallyknow.WhatImeantosayisthatwhenItalkextended.TheduplicationscomebackifItalkforashortamount.oftime.Idon'tthinkthere'smuchduplication.butifIjustkeeptalkingwithoutstopping,thentheduplicationshappen.",
+        ];
+        let liveCallIndex = 0;
+        let latestPatchedTranscript = "";
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+            if (url === "/api/memos/live") {
+                return {
+                    ok: true,
+                    json: async () => ({ memoId: "memo-live-user-sample-repro-1" }),
+                };
+            }
+            if (url === "/api/memos/memo-live-user-sample-repro-1/share") {
+                return {
+                    ok: true,
+                    json: async () => ({ shareUrl: "https://example.com/s/live-user-sample-repro-1" }),
+                };
+            }
+            if (url === "/api/transcribe/live") {
+                const text = liveTexts[Math.min(liveCallIndex, liveTexts.length - 1)];
+                liveCallIndex += 1;
+                return {
+                    ok: true,
+                    json: async () => ({ text }),
+                };
+            }
+            if (url === "/api/memos/memo-live-user-sample-repro-1" && init?.method === "PATCH") {
+                const body = JSON.parse(String(init.body ?? "{}")) as { transcript?: string };
+                latestPatchedTranscript = body.transcript ?? "";
+                return {
+                    ok: true,
+                    json: async () => ({ ok: true }),
+                };
+            }
+
+            return {
+                ok: true,
+                json: async () => ({ text: "final transcript" }),
+            };
+        });
+
+        render(<AudioRecorder />);
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        for (let i = 0; i < 6; i += 1) {
+            await act(async () => {
+                jest.advanceTimersByTime(1500);
+            });
+            await act(async () => {
+                await Promise.resolve();
+            });
+        }
+
+        expect(latestPatchedTranscript.startsWith("Insteadof,youknow,respectingtheissue.")).toBe(true);
+
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+        await act(async () => {
+            await Promise.resolve();
+        });
+    });
+
+    it("reproduces user bug: long continuous no-space stream duplicates shared clause", async () => {
+        const liveTexts = [
+            "steadof,youknow,respectingtheissue.Idon'treallyknow.IwanttosayisthatevenifIkeeptalking,thelongerIgothemorethehigherlikelihoodthatitwilljustduplicatethetranscripts.",
+            "Insteadof,youknow,respectingtheissue.Idon'treallyknow.WhatImeantosayisthatwhenItalkextended.TheduplicationscomebackifItalkforashortamount.oftime.Idon'tthinkthere'smuchduplication.butifIjustkeeptalkingwithoutstopping,thentheduplicationshappen.",
+            "Iwantyoutowriteyourfeeling.Iwantyoutowritefailingtest.Teststhattrytoreproducethebug.Iwantyoutowritefailingtests.Testthattrytoreproducethebug.Iwantyoutowritefailingtests.Teststhattrytoreproducethebug.",
+        ];
+        let liveCallIndex = 0;
+        let latestPatchedTranscript = "";
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+            if (url === "/api/memos/live") {
+                return {
+                    ok: true,
+                    json: async () => ({ memoId: "memo-live-user-sample-repro-2" }),
+                };
+            }
+            if (url === "/api/memos/memo-live-user-sample-repro-2/share") {
+                return {
+                    ok: true,
+                    json: async () => ({ shareUrl: "https://example.com/s/live-user-sample-repro-2" }),
+                };
+            }
+            if (url === "/api/transcribe/live") {
+                const text = liveTexts[Math.min(liveCallIndex, liveTexts.length - 1)];
+                liveCallIndex += 1;
+                return {
+                    ok: true,
+                    json: async () => ({ text }),
+                };
+            }
+            if (url === "/api/memos/memo-live-user-sample-repro-2" && init?.method === "PATCH") {
+                const body = JSON.parse(String(init.body ?? "{}")) as { transcript?: string };
+                latestPatchedTranscript = body.transcript ?? "";
+                return {
+                    ok: true,
+                    json: async () => ({ ok: true }),
+                };
+            }
+
+            return {
+                ok: true,
+                json: async () => ({ text: "final transcript" }),
+            };
+        });
+
+        render(<AudioRecorder />);
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        for (let i = 0; i < 6; i += 1) {
+            await act(async () => {
+                jest.advanceTimersByTime(1500);
+            });
+            await act(async () => {
+                await Promise.resolve();
+            });
+        }
+
+        const repeatedClause = "youknow,respectingtheissue.idon'treallyknow";
+        const occurrences = latestPatchedTranscript.toLowerCase().split(repeatedClause).length - 1;
+
+        expect(occurrences).toBe(1);
+
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+        await act(async () => {
+            await Promise.resolve();
+        });
+    });
+
+    it("reproduces user bug: cut-off food order windows create repeated no-space phrases", async () => {
+        const liveTexts = [
+            "ug.Hamburger",
+            "HamburgerPi",
+            "HamburgerHamburgerpizza",
+            ".Pineapplehouse",
+            ".F",
+            "Hamburgerpizza.Pineapplehouse",
+            ".Frenchfriedmilkshake.",
+            "Pineapplehouse.Frenchfriedmilk.AppleHouse.Frenchfriedmilkshake.",
+        ];
+        let liveCallIndex = 0;
+        let latestPatchedTranscript = "";
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+            if (url === "/api/memos/live") {
+                return {
+                    ok: true,
+                    json: async () => ({ memoId: "memo-live-food-cutoff-repro" }),
+                };
+            }
+            if (url === "/api/memos/memo-live-food-cutoff-repro/share") {
+                return {
+                    ok: true,
+                    json: async () => ({ shareUrl: "https://example.com/s/live-food-cutoff-repro" }),
+                };
+            }
+            if (url === "/api/transcribe/live") {
+                const text = liveTexts[Math.min(liveCallIndex, liveTexts.length - 1)];
+                liveCallIndex += 1;
+                return {
+                    ok: true,
+                    json: async () => ({ text }),
+                };
+            }
+            if (url === "/api/memos/memo-live-food-cutoff-repro" && init?.method === "PATCH") {
+                const body = JSON.parse(String(init.body ?? "{}")) as { transcript?: string };
+                latestPatchedTranscript = body.transcript ?? "";
+                return {
+                    ok: true,
+                    json: async () => ({ ok: true }),
+                };
+            }
+
+            return {
+                ok: true,
+                json: async () => ({ text: "final transcript" }),
+            };
+        });
+
+        render(<AudioRecorder />);
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        for (let i = 0; i < 10; i += 1) {
+            await act(async () => {
+                jest.advanceTimersByTime(1500);
+            });
+            await act(async () => {
+                await Promise.resolve();
+            });
+        }
+
+        const normalizedTranscript = latestPatchedTranscript.toLowerCase();
+        const pineappleOccurrences = normalizedTranscript.split("pineapplehouse").length - 1;
+        const friesOccurrences = normalizedTranscript.split("frenchfriedmilkshake").length - 1;
+
+        expect(pineappleOccurrences).toBe(1);
+        expect(friesOccurrences).toBe(1);
+
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+        await act(async () => {
+            await Promise.resolve();
+        });
+    });
+
     it("shows an actionable user-facing error when microphone APIs are unavailable on non-secure origins", async () => {
         const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => { });
         const consoleWarnSpy = jest.spyOn(console, "warn").mockImplementation(() => { });

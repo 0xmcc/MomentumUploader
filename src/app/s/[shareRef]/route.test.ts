@@ -65,6 +65,7 @@ describe("share route /s/[shareRef]", () => {
         expect(res.headers.get("content-type")).toContain("text/html");
         expect(body).toContain("<h1>Weekly Sync</h1>");
         expect(body).toContain("/s/token123");
+        expect(body).toContain("Export transcript");
     });
 
     it("adds auto-refresh hints for live in-progress shares", async () => {

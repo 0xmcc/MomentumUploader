@@ -49,6 +49,16 @@ function escapeHtml(input: string): string {
         .replaceAll("'", "&#039;");
 }
 
+function toSafeFileName(input: string): string {
+    const normalized = input
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+
+    return normalized || "shared-memo";
+}
+
 function tokenFromRef(shareRef: string): ParsedShareRef {
     if (shareRef.endsWith(".md")) {
         return { shareToken: shareRef.slice(0, -3), pathFormat: "md" };
@@ -157,6 +167,8 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
     const encodedCanonical = encodeURI(payload.canonicalUrl);
     const encodedMarkdown = `${encodedCanonical}.md`;
     const encodedJson = `${encodedCanonical}.json`;
+    const transcriptFileName = `${toSafeFileName(payload.title)}-transcript.txt`;
+    const escapedTranscriptFileName = escapeHtml(transcriptFileName);
     const isLiveRecording = payload.isLiveRecording === true;
     const liveRefreshMeta = isLiveRecording
         ? "<meta http-equiv=\"refresh\" content=\"3\" />"
@@ -201,6 +213,15 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
     }
     h1 { margin: 0 0 .35rem; font-size: clamp(1.5rem, 4vw, 2.15rem); }
     h2 { margin-top: 1.25rem; margin-bottom: .5rem; font-size: 1.1rem; }
+    .transcript-header {
+      margin-top: 1.25rem;
+      margin-bottom: .5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .75rem;
+    }
+    .transcript-header h2 { margin: 0; }
     p.meta {
       margin: 0 0 1rem;
       color: #fdba74;
@@ -222,6 +243,24 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
       padding: 1rem;
       min-height: 40vh;
       overflow-y: auto;
+    }
+    .export-transcript-btn {
+      border: 1px solid rgba(251, 191, 126, 0.35);
+      background: rgba(234, 88, 12, 0.18);
+      color: #ffedd5;
+      border-radius: 999px;
+      padding: .35rem .72rem;
+      font-size: .78rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .export-transcript-btn:hover {
+      background: rgba(234, 88, 12, 0.34);
+      border-color: rgba(251, 191, 126, 0.55);
+    }
+    .export-transcript-btn:focus-visible {
+      outline: 2px solid rgba(251, 191, 126, 0.7);
+      outline-offset: 2px;
     }
     .share-audio {
       width: 100%;
@@ -333,8 +372,11 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
       ${liveStatusNotice}
       ${payload.mediaUrl ? `<audio class="share-audio" controls preload="metadata" src="${escapedAudioUrl}"></audio>` : ""}
       <section aria-labelledby="transcript-heading">
-        <h2 id="transcript-heading">Transcript</h2>
-        <div class="transcript">${escapedTranscript}</div>
+        <div class="transcript-header">
+          <h2 id="transcript-heading">Transcript</h2>
+          <button type="button" id="export-transcript-btn" class="export-transcript-btn" data-filename="${escapedTranscriptFileName}">Export transcript</button>
+        </div>
+        <div class="transcript" id="transcript-content">${escapedTranscript}</div>
       </section>
       
     </article>
@@ -343,6 +385,27 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
     <small>MomentumUploader</small>
     <a href="/" rel="noopener">Use App</a>
   </header>
+  <script>
+    (() => {
+      const exportButton = document.getElementById("export-transcript-btn");
+      const transcriptContent = document.getElementById("transcript-content");
+      if (!exportButton || !transcriptContent) return;
+
+      exportButton.addEventListener("click", () => {
+        const transcript = transcriptContent.textContent || "";
+        const fileName = exportButton.getAttribute("data-filename") || "shared-transcript.txt";
+        const blob = new Blob([transcript], { type: "text/plain;charset=utf-8" });
+        const downloadUrl = URL.createObjectURL(blob);
+        const downloadLink = document.createElement("a");
+        downloadLink.href = downloadUrl;
+        downloadLink.download = fileName;
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        downloadLink.remove();
+        URL.revokeObjectURL(downloadUrl);
+      });
+    })();
+  </script>
 </body>
 </html>`;
 }

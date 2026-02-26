@@ -1,4 +1,5 @@
 import {
+    buildSharedArtifactHtml,
     buildSharedArtifactJson,
     buildSharedArtifactMarkdown,
     parseShareRef,
@@ -47,5 +48,12 @@ describe("share-contract", () => {
         expect(json.artifact.shareToken).toBe("abc123token");
         expect(json.artifact.canonicalUrl).toBe("https://example.com/s/abc123token");
         expect(json.artifact.transcript).toBe("Today we finished the uploader and fixed retries.");
+    });
+
+    it("renders transcript export controls in the shared html page", () => {
+        const html = buildSharedArtifactHtml(basePayload);
+
+        expect(html).toContain('id="export-transcript-btn"');
+        expect(html).toContain('id="transcript-content"');
     });
 });
