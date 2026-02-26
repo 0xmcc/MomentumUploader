@@ -142,6 +142,30 @@ export function mergeLiveTranscript(previous: string, incoming: string): string 
         return prev;
     }
 
+    // GUARDRAIL — defense-in-depth for the gapped-window resend pattern.
+    // Root cause: when recording exceeds LIVE_MAX_CHUNKS the snapshot sent to RIVA is
+    // [chunk 0 (headers + first ~1 s of audio)] + [last 29 chunks], creating a gap in the
+    // middle. RIVA transcribes "opening words ... recent tail", producing an `incoming` that
+    // re-opens with the same phrase `prev` started with but is shorter overall.
+    // The fix (in useAudioRecording / useLiveTranscription) separates the WebM header blob
+    // from audio chunks so the overflow snapshot has no gap. This guardrail is kept as
+    // defense-in-depth for edge cases and future regressions of the same class.
+    //
+    // Detection: prev has significantly more tokens AND next shares an opening prefix with prev.
+    // Action:
+    //   • If the tail of next (after the shared prefix) is already in prev → return prev (nothing new).
+    //   • If the tail is genuinely new → append only the new tail, drop the duplicated opening.
+    const isSignificantlyLonger = prevTokens.length >= nextTokens.length + 4;
+    const hasSharedOpening =
+        commonPrefixCount >= 2 && commonPrefixCount / nextTokens.length >= 0.2;
+    if (isSignificantlyLonger && hasSharedOpening) {
+        const newTailTokens = nextTokens.slice(commonPrefixCount);
+        const newTail = newTailTokens.join(" ");
+        if (!newTail) return prev;
+        if (prev.toLowerCase().includes(newTail.toLowerCase())) return prev;
+        return appendUnknownBoundary(prev, newTail);
+    }
+
     const prevLower = prev.toLowerCase();
     const nextLower = next.toLowerCase();
     const prevTailLower = prevLower.slice(-LIVE_CHAR_OVERLAP_WINDOW);

@@ -893,6 +893,64 @@ describe("AudioRecorder live transcript cadence", () => {
         });
     });
 
+    it("does not duplicate opening phrase when gapped-window overflow resends beginning + new tail (>30 chunk scenario)", async () => {
+        // Simulates a 35+ second recording where audioChunksRef exceeds LIVE_MAX_CHUNKS.
+        // RIVA receives [header] + [last 29 chunks] — a gapped snapshot that starts from
+        // the beginning of speech. The mock returns "opening + new tail not yet in prev",
+        // which the guardrail in mergeLiveTranscript must prevent from being appended wholesale.
+        const memoId = "memo-live-overflow-gap-test";
+
+        const liveTexts = [
+            "Hello everyone. Today we will cover three main topics.",
+            "Hello everyone. Today we will cover three main topics. First we discuss architecture.",
+            "Hello everyone. Today we will cover three main topics. First we discuss architecture. Then implementation details.",
+            "Hello everyone. Today we will cover three main topics. First we discuss architecture. Then implementation details. Finally testing strategy.",
+            // Overflow ticks: gapped snapshot → RIVA returns opening + genuinely new tail
+            "Hello everyone. Wrap up and questions.",
+            "Hello everyone. Wrap up and questions. Thank you for attending.",
+        ];
+        let liveCallIndex = 0;
+        let latestPatchedTranscript = "";
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+            if (url === "/api/memos/live") {
+                return { ok: true, json: async () => ({ memoId }) };
+            }
+            if (url === `/api/memos/${memoId}/share`) {
+                return { ok: true, json: async () => ({ shareUrl: "https://example.com/s/overflow-gap-test" }) };
+            }
+            if (url === "/api/transcribe/live") {
+                const text = liveTexts[Math.min(liveCallIndex, liveTexts.length - 1)];
+                liveCallIndex += 1;
+                return { ok: true, json: async () => ({ text }) };
+            }
+            if (url === `/api/memos/${memoId}` && (init as RequestInit | undefined)?.method === "PATCH") {
+                const body = JSON.parse(String((init as RequestInit).body ?? "{}")) as { transcript?: string };
+                latestPatchedTranscript = body.transcript ?? "";
+                return { ok: true, json: async () => ({ ok: true }) };
+            }
+            return { ok: true, json: async () => ({ text: "final transcript" }) };
+        });
+
+        render(<AudioRecorder />);
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => { await Promise.resolve(); });
+
+        for (let i = 0; i < 12; i += 1) {
+            await act(async () => { jest.advanceTimersByTime(1500); });
+            await act(async () => { await Promise.resolve(); });
+        }
+
+        const openingCount = latestPatchedTranscript.split("Hello everyone.").length - 1;
+        expect(openingCount).toBe(1);
+        expect(latestPatchedTranscript.toLowerCase()).toContain("wrap up and questions");
+        expect(latestPatchedTranscript.toLowerCase()).toContain("thank you for attending");
+
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+        await act(async () => { await Promise.resolve(); });
+    });
+
     it("shows an actionable user-facing error when microphone APIs are unavailable on non-secure origins", async () => {
         const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => { });
         const consoleWarnSpy = jest.spyOn(console, "warn").mockImplementation(() => { });
