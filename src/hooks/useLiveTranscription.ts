@@ -48,6 +48,7 @@ export function useLiveTranscription({
 
     const liveTimerRef = useRef<NodeJS.Timeout | null>(null);
     const liveInFlightRef = useRef(false);
+    const isFirstReturnTickRef = useRef(false);
     const transcriptScrollRef = useRef<HTMLDivElement | null>(null);
     const abortRef = useRef<AbortController | null>(null);
     const previousTranscriptRef = useRef("");
@@ -57,6 +58,8 @@ export function useLiveTranscription({
     const syncedLiveTranscriptRef = useRef("");
     const liveShareResetTimerRef = useRef<NodeJS.Timeout | null>(null);
     const liveTranscriptRef = useRef("");
+    const isRecordingRef = useRef(false);
+    const visibilityHandlerRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
         liveMemoIdRef.current = liveMemoId;
@@ -95,6 +98,10 @@ export function useLiveTranscription({
         if (liveTimerRef.current) clearInterval(liveTimerRef.current);
         if (liveShareResetTimerRef.current) clearTimeout(liveShareResetTimerRef.current);
         abortRef.current?.abort();
+        if (visibilityHandlerRef.current) {
+            document.removeEventListener("visibilitychange", visibilityHandlerRef.current);
+            visibilityHandlerRef.current = null;
+        }
     }, []);
 
     const clearLiveShareResetTimer = () => {
@@ -108,6 +115,11 @@ export function useLiveTranscription({
         clearLiveShareResetTimer();
         if (liveTimerRef.current) clearInterval(liveTimerRef.current);
         abortRef.current?.abort();
+        if (visibilityHandlerRef.current) {
+            document.removeEventListener("visibilitychange", visibilityHandlerRef.current);
+            visibilityHandlerRef.current = null;
+        }
+        isRecordingRef.current = false;
         setLiveTranscript("");
         setAnimatedWords([]);
         setNewWordStartIndex(0);
@@ -117,6 +129,7 @@ export function useLiveTranscription({
         setLiveShareState("idle");
         liveMemoIdRef.current = null;
         liveInFlightRef.current = false;
+        isFirstReturnTickRef.current = false;
         pendingLiveTranscriptRef.current = null;
         syncedLiveTranscriptRef.current = "";
         liveSyncInFlightRef.current = false;
@@ -212,6 +225,12 @@ export function useLiveTranscription({
 
         liveInFlightRef.current = true;
 
+        // On the first tick after returning from a hidden tab, send ALL accumulated chunks
+        // so RIVA can transcribe the full recording rather than just the last 30 seconds.
+        // Reset the flag immediately so subsequent interval ticks use the normal cap.
+        const isReturnTick = isFirstReturnTickRef.current;
+        isFirstReturnTickRef.current = false;
+
         abortRef.current?.abort();
         const controller = new AbortController();
         abortRef.current = controller;
@@ -222,18 +241,18 @@ export function useLiveTranscription({
         // `chunks` are the subsequent audio-only clusters from audioChunksRef.
         //
         // When `header` is available, ALWAYS prepend it so RIVA can decode the audio:
-        //   • Non-overflow: [header, ...all-audio-chunks]
-        //   • Overflow: [header, ...last-(LIVE_MAX_CHUNKS-1)-audio-chunks]  ← no gap, fixes the bug
+        //   • Return tick or non-overflow: [header, ...all-audio-chunks]
+        //   • Normal ongoing overflow: [header, ...last-(LIVE_MAX_CHUNKS-1)-audio-chunks]
         //
         // When `header` is null (browser skipped the onstart requestData() call),
         // fall back to the old behavior where chunk[0] carries both headers and first
         // second of audio — the guardrail in mergeLiveTranscript still protects against
         // duplications in that edge case.
         const snapshotChunks = header
-            ? chunks.length <= LIVE_MAX_CHUNKS
+            ? isReturnTick || chunks.length <= LIVE_MAX_CHUNKS
                 ? [header, ...chunks]
                 : [header, ...chunks.slice(-(LIVE_MAX_CHUNKS - 1))]
-            : chunks.length <= LIVE_MAX_CHUNKS
+            : isReturnTick || chunks.length <= LIVE_MAX_CHUNKS
                 ? [...chunks]
                 : [chunks[0], ...chunks.slice(-(LIVE_MAX_CHUNKS - 1))];
         const snapshot = new Blob(snapshotChunks, { type: mimeTypeRef.current });
@@ -270,6 +289,32 @@ export function useLiveTranscription({
         syncedLiveTranscriptRef.current = "";
         liveSyncInFlightRef.current = false;
         liveInFlightRef.current = false;
+        isFirstReturnTickRef.current = false;
+
+        // Clean up any leftover handler from a previous session before registering a new one
+        if (visibilityHandlerRef.current) {
+            document.removeEventListener("visibilitychange", visibilityHandlerRef.current);
+        }
+
+        const handleVisibilityChange = () => {
+            if (!isRecordingRef.current) return;
+            if (document.hidden) {
+                if (liveTimerRef.current) clearInterval(liveTimerRef.current);
+                liveTimerRef.current = null;
+            } else {
+                if (liveTimerRef.current) clearInterval(liveTimerRef.current);
+                // Mark the next tick as a return tick so runLiveTick sends all accumulated
+                // chunks instead of the normal overflow cap (covers long hidden periods).
+                isFirstReturnTickRef.current = true;
+                // Fire an immediate tick on return only if nothing is already in-flight
+                if (!liveInFlightRef.current) runLiveTick();
+                liveTimerRef.current = setInterval(runLiveTick, LIVE_INTERVAL_MS);
+            }
+        };
+
+        visibilityHandlerRef.current = handleVisibilityChange;
+        document.addEventListener("visibilitychange", visibilityHandlerRef.current);
+        isRecordingRef.current = true;
 
         if (liveTimerRef.current) clearInterval(liveTimerRef.current);
         liveTimerRef.current = setInterval(runLiveTick, LIVE_INTERVAL_MS);
@@ -279,6 +324,11 @@ export function useLiveTranscription({
     const endRecordingSession = () => {
         if (liveTimerRef.current) clearInterval(liveTimerRef.current);
         abortRef.current?.abort();
+        if (visibilityHandlerRef.current) {
+            document.removeEventListener("visibilitychange", visibilityHandlerRef.current);
+            visibilityHandlerRef.current = null;
+        }
+        isRecordingRef.current = false;
         pendingLiveTranscriptRef.current = liveTranscriptRef.current;
         void persistLiveTranscript();
     };

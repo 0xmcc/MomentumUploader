@@ -26,11 +26,10 @@ export default function LiveTranscriptView({
     transcriptScrollRef,
 }: LiveTranscriptViewProps) {
     return (
-        <div className="flex-1 overflow-y-auto px-8 py-10 relative">
-            <div className="max-w-3xl mx-auto">
+        <div ref={transcriptScrollRef} className="flex-1 overflow-y-auto flex flex-col">
+            <div className={`flex-1 max-w-3xl mx-auto w-full px-8 py-10 flex flex-col ${(isRecording || isUploadActive) ? "justify-end" : "justify-center items-center"}`}>
                 {isRecording || isUploadActive ? (
                     <div
-                        ref={transcriptScrollRef}
                         className="text-lg leading-relaxed"
                     >
                         {liveTranscript ? (
@@ -78,7 +77,7 @@ export default function LiveTranscriptView({
                         )}
                     </div>
                 ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-white/10 select-none">
+                    <div className="flex flex-col items-center text-white/10 select-none">
                         {micError && (
                             <p
                                 role="alert"
