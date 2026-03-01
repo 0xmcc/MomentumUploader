@@ -241,8 +241,10 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 12px;
       padding: 1rem;
-      min-height: 40vh;
+      height: 24rem;
       overflow-y: auto;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .export-transcript-btn {
       border: 1px solid rgba(251, 191, 126, 0.35);

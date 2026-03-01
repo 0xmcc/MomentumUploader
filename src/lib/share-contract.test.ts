@@ -56,4 +56,16 @@ describe("share-contract", () => {
         expect(html).toContain('id="export-transcript-btn"');
         expect(html).toContain('id="transcript-content"');
     });
+
+    it("keeps the transcript container fixed-height and scrollable on overflow", () => {
+        const html = buildSharedArtifactHtml({
+            ...basePayload,
+            transcript: "Sentence one is here. Sentence two keeps the idea moving. Sentence three starts another thought. Sentence four closes it cleanly.",
+        });
+
+        expect(html).toContain("height: 24rem;");
+        expect(html).toContain("overflow-y: auto;");
+        expect(html).toContain("overflow-wrap: anywhere;");
+        expect(html).toContain("<div class=\"transcript\" id=\"transcript-content\">Sentence one is here. Sentence two keeps the idea moving. Sentence three starts another thought. Sentence four closes it cleanly.</div>");
+    });
 });
