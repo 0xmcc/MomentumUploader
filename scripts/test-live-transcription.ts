@@ -77,7 +77,7 @@ async function generateTTSAudio(text: string): Promise<Buffer> {
 
 async function callLiveTranscribe(audioBuffer: Buffer, chunkIndex: number): Promise<string> {
     const formData = new FormData();
-    const blob = new Blob([audioBuffer], { type: "audio/mpeg" });
+    const blob = new Blob([Uint8Array.from(audioBuffer)], { type: "audio/mpeg" });
     formData.append("file", blob, `live_test_chunk_${chunkIndex}.mp3`);
 
     const response = await fetch(`${BASE_URL}/api/transcribe/live`, {
