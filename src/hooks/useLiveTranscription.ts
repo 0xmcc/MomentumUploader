@@ -299,17 +299,16 @@ export function useLiveTranscription({
         const handleVisibilityChange = () => {
             if (!isRecordingRef.current) return;
             if (document.hidden) {
-                if (liveTimerRef.current) clearInterval(liveTimerRef.current);
-                liveTimerRef.current = null;
-            } else {
-                if (liveTimerRef.current) clearInterval(liveTimerRef.current);
-                // Mark the next tick as a return tick so runLiveTick sends all accumulated
-                // chunks instead of the normal overflow cap (covers long hidden periods).
-                isFirstReturnTickRef.current = true;
-                // Fire an immediate tick on return only if nothing is already in-flight
-                if (!liveInFlightRef.current) runLiveTick();
-                liveTimerRef.current = setInterval(runLiveTick, LIVE_INTERVAL_MS);
+                return;
             }
+
+            if (liveTimerRef.current) clearInterval(liveTimerRef.current);
+            // Hidden tabs now keep polling, but browsers may still throttle timers.
+            // Keep the return tick as a catch-up path so a visible return can resend
+            // the full accumulated window without relying on a manual tab switch.
+            isFirstReturnTickRef.current = true;
+            if (!liveInFlightRef.current) runLiveTick();
+            liveTimerRef.current = setInterval(runLiveTick, LIVE_INTERVAL_MS);
         };
 
         visibilityHandlerRef.current = handleVisibilityChange;
