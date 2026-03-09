@@ -364,6 +364,70 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
       font-weight: 600;
     }
     .promo a:hover { background: #c2410c; }
+    .transcript-search-row {
+      display: flex;
+      align-items: center;
+      gap: .45rem;
+      margin: .6rem 0 .45rem;
+      flex-wrap: wrap;
+    }
+    .transcript-search-input {
+      flex: 1;
+      min-width: 0;
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(251, 191, 126, 0.28);
+      border-radius: 999px;
+      padding: .32rem .8rem;
+      color: #ffedd5;
+      font-size: .87rem;
+      outline: none;
+      font-family: inherit;
+    }
+    .transcript-search-input::placeholder { color: rgba(255, 237, 213, 0.38); }
+    .transcript-search-input:focus {
+      border-color: rgba(251, 191, 126, 0.6);
+      background: rgba(0, 0, 0, 0.35);
+    }
+    .search-match-count {
+      font-size: .78rem;
+      color: #fdba74;
+      white-space: nowrap;
+      min-width: 4ch;
+      text-align: right;
+    }
+    .search-nav-btn {
+      border: 1px solid rgba(251, 191, 126, 0.3);
+      background: rgba(234, 88, 12, 0.14);
+      color: #ffedd5;
+      border-radius: 999px;
+      width: 1.7rem;
+      height: 1.7rem;
+      font-size: .82rem;
+      cursor: pointer;
+      line-height: 1;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .search-nav-btn:hover { background: rgba(234, 88, 12, 0.3); }
+    .search-nav-btn:disabled { opacity: .35; cursor: default; }
+    .search-nav-btn:focus-visible {
+      outline: 2px solid rgba(251, 191, 126, 0.7);
+      outline-offset: 2px;
+    }
+    mark.search-hit {
+      background: rgba(253, 186, 116, 0.38);
+      color: #fff7ed;
+      border-radius: 2px;
+      padding: 0 1px;
+    }
+    mark.search-hit-active {
+      background: rgba(234, 88, 12, 0.72);
+      color: #fff;
+      border-radius: 2px;
+      padding: 0 1px;
+    }
   </style>
 </head>
 <body>
@@ -377,6 +441,12 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
         <div class="transcript-header">
           <h2 id="transcript-heading">Transcript</h2>
           <button type="button" id="export-transcript-btn" class="export-transcript-btn" data-filename="${escapedTranscriptFileName}">Export transcript</button>
+        </div>
+        <div class="transcript-search-row">
+          <input type="text" id="transcript-search" class="transcript-search-input" placeholder="Search transcript…" aria-label="Search transcript" autocomplete="off" />
+          <span id="search-match-count" class="search-match-count" aria-live="polite" aria-atomic="true"></span>
+          <button id="search-prev" class="search-nav-btn" aria-label="Previous match" disabled>↑</button>
+          <button id="search-next" class="search-nav-btn" aria-label="Next match" disabled>↓</button>
         </div>
         <div class="transcript" id="transcript-content">${escapedTranscript}</div>
       </section>
@@ -405,6 +475,117 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
         downloadLink.click();
         downloadLink.remove();
         URL.revokeObjectURL(downloadUrl);
+      });
+    })();
+
+    (() => {
+      const searchInput = document.getElementById("transcript-search");
+      const matchCountEl = document.getElementById("search-match-count");
+      const prevBtn = document.getElementById("search-prev");
+      const nextBtn = document.getElementById("search-next");
+      const transcriptEl = document.getElementById("transcript-content");
+      if (!searchInput || !matchCountEl || !prevBtn || !nextBtn || !transcriptEl) return;
+
+      const originalText = transcriptEl.textContent || "";
+      const SEARCH_KEY = "transcript-search-query";
+      let currentIndex = -1;
+
+      function escHtml(s) {
+        return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+
+      function escRegExp(s) {
+        return s.replace(/[-\\/\\\\^$*+?.()|[\\]{}]/g, "\\\\$&");
+      }
+
+      function applySearch(query) {
+        if (!query) {
+          transcriptEl.innerHTML = escHtml(originalText);
+          matchCountEl.textContent = "";
+          prevBtn.disabled = true;
+          nextBtn.disabled = true;
+          currentIndex = -1;
+          return;
+        }
+
+        let regex;
+        try { regex = new RegExp(escRegExp(query), "gi"); } catch { return; }
+
+        let html = "";
+        let last = 0;
+        let count = 0;
+        let m;
+        while ((m = regex.exec(originalText)) !== null) {
+          html += escHtml(originalText.slice(last, m.index));
+          html += '<mark class="search-hit">' + escHtml(m[0]) + "</mark>";
+          last = regex.lastIndex;
+          count++;
+          if (regex.lastIndex === m.index) { regex.lastIndex++; }
+        }
+        html += escHtml(originalText.slice(last));
+        transcriptEl.innerHTML = html;
+
+        const hasMatches = count > 0;
+        matchCountEl.textContent = hasMatches ? "1 / " + count : "0 matches";
+        prevBtn.disabled = !hasMatches;
+        nextBtn.disabled = !hasMatches;
+        currentIndex = hasMatches ? 0 : -1;
+        updateActive();
+      }
+
+      function updateActive() {
+        const marks = transcriptEl.querySelectorAll("mark.search-hit");
+        marks.forEach(function(mark, i) {
+          if (i === currentIndex) {
+            mark.classList.add("search-hit-active");
+            mark.scrollIntoView({ block: "nearest" });
+          } else {
+            mark.classList.remove("search-hit-active");
+          }
+        });
+        if (marks.length > 0 && currentIndex >= 0) {
+          matchCountEl.textContent = (currentIndex + 1) + " / " + marks.length;
+        }
+      }
+
+      const saved = sessionStorage.getItem(SEARCH_KEY);
+      if (saved) {
+        searchInput.value = saved;
+        applySearch(saved);
+      }
+
+      searchInput.addEventListener("input", function() {
+        const q = searchInput.value.trim();
+        if (q) { sessionStorage.setItem(SEARCH_KEY, q); }
+        else { sessionStorage.removeItem(SEARCH_KEY); }
+        currentIndex = 0;
+        applySearch(q);
+      });
+
+      nextBtn.addEventListener("click", function() {
+        const marks = transcriptEl.querySelectorAll("mark.search-hit");
+        if (!marks.length) return;
+        currentIndex = (currentIndex + 1) % marks.length;
+        updateActive();
+      });
+
+      prevBtn.addEventListener("click", function() {
+        const marks = transcriptEl.querySelectorAll("mark.search-hit");
+        if (!marks.length) return;
+        currentIndex = (currentIndex - 1 + marks.length) % marks.length;
+        updateActive();
+      });
+
+      searchInput.addEventListener("keydown", function(e) {
+        const marks = transcriptEl.querySelectorAll("mark.search-hit");
+        if (e.key !== "Enter" || !marks.length) return;
+        if (e.shiftKey) {
+          currentIndex = (currentIndex - 1 + marks.length) % marks.length;
+        } else {
+          currentIndex = (currentIndex + 1) % marks.length;
+        }
+        updateActive();
+        e.preventDefault();
       });
     })();
   </script>

@@ -57,6 +57,49 @@ describe("share-contract", () => {
         expect(html).toContain('id="transcript-content"');
     });
 
+    describe("transcript keyword search", () => {
+        it("renders search input as type=text not type=search to prevent browser clear-button from wiping the query", () => {
+            const html = buildSharedArtifactHtml(basePayload);
+
+            expect(html).toContain('type="text"');
+            expect(html).not.toContain('type="search"');
+        });
+
+        it("renders all search UI controls", () => {
+            const html = buildSharedArtifactHtml(basePayload);
+
+            expect(html).toContain('id="transcript-search"');
+            expect(html).toContain('id="search-match-count"');
+            expect(html).toContain('id="search-prev"');
+            expect(html).toContain('id="search-next"');
+        });
+
+        it("persists search query to sessionStorage so meta-refresh on live pages does not wipe it", () => {
+            const html = buildSharedArtifactHtml({ ...basePayload, isLiveRecording: true });
+
+            // Page must auto-refresh for live recordings
+            expect(html).toContain('http-equiv="refresh"');
+
+            // Search state must survive that refresh via sessionStorage
+            expect(html).toContain("sessionStorage.getItem");
+            expect(html).toContain("sessionStorage.setItem");
+            expect(html).toContain("sessionStorage.removeItem");
+        });
+
+        it("restores saved query on page load by reading sessionStorage before attaching listeners", () => {
+            const html = buildSharedArtifactHtml(basePayload);
+            const script = html.slice(html.indexOf("<script>"));
+
+            const getIdx = script.indexOf("sessionStorage.getItem");
+            const inputListenerIdx = script.indexOf('addEventListener("input"');
+
+            // getItem must appear before the input listener so the value is
+            // restored on initial page load, not only after user interaction
+            expect(getIdx).toBeGreaterThan(-1);
+            expect(getIdx).toBeLessThan(inputListenerIdx);
+        });
+    });
+
     it("keeps the transcript container fixed-height and scrollable on overflow", () => {
         const html = buildSharedArtifactHtml({
             ...basePayload,
