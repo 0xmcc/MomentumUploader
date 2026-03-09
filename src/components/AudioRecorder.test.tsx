@@ -259,6 +259,40 @@ describe("AudioRecorder live transcript cadence", () => {
         expect(screen.getByRole("button", { name: /upload mp3\/m4a/i })).toBeDisabled();
     });
 
+    it("shows live transcription diagnostics and updates tab visibility", async () => {
+        render(<AudioRecorder />);
+
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => { await Promise.resolve(); });
+        await act(async () => { jest.advanceTimersByTime(1500); });
+        await act(async () => { await Promise.resolve(); });
+
+        expect(screen.getByText(/live transcription diagnostics/i)).toBeInTheDocument();
+        expect(screen.getByText("Visible")).toBeInTheDocument();
+        expect(screen.getByText(/chunk window/i)).toBeInTheDocument();
+
+        await act(async () => { simulateVisibilityChange("hidden"); });
+
+        expect(screen.getByText("Hidden")).toBeInTheDocument();
+    });
+
+    it("shows tail-window diagnostics after the live buffer exceeds the max window", async () => {
+        render(<AudioRecorder />);
+
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => { await Promise.resolve(); });
+
+        for (let i = 0; i < 35; i += 1) {
+            await act(async () => { jest.advanceTimersByTime(1500); });
+            await act(async () => { await Promise.resolve(); });
+        }
+
+        expect(screen.getByText(/tail window/i)).toBeInTheDocument();
+        expect(screen.getByText(/chunk window/i)).toBeInTheDocument();
+    });
+
     it("accepts m4a files even when browser MIME type is empty", async () => {
         const onAudioInput = jest.fn();
         render(<AudioRecorder onAudioInput={onAudioInput} />);
