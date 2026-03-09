@@ -11,6 +11,32 @@ const LIVE_INTERVAL_MS = 1500;
 const LIVE_MAX_CHUNKS = 30;
 
 export type LiveShareState = "idle" | "loading" | "ready" | "copied" | "error";
+export type LiveTranscriptionWindowMode =
+    | "idle"
+    | "full_buffer"
+    | "tail_window"
+    | "return_catch_up"
+    | "hybrid_first_and_tail";
+
+export type LiveTranscriptionDebugState = {
+    tabVisibility: "visible" | "hidden";
+    windowMode: LiveTranscriptionWindowMode;
+    bufferedChunkCount: number;
+    snapshotAudioChunkCount: number;
+    snapshotBlobCount: number;
+    snapshotByteSize: number;
+    snapshotWindowStartIndex: number;
+    snapshotWindowChunkCount: number;
+    firstChunkRetained: boolean;
+    headerIncluded: boolean;
+    overflowed: boolean;
+    inFlight: boolean;
+    lastTickAt: number | null;
+    lastResponseAt: number | null;
+    lastServerText: string;
+    lastTranscriptLength: number;
+    lastTranscriptWordCount: number;
+};
 
 type UseLiveTranscriptionOptions = {
     audioChunksRef: MutableRefObject<Blob[]>;
@@ -22,6 +48,7 @@ type UseLiveTranscriptionResult = {
     liveTranscript: string;
     animatedWords: string[];
     newWordStartIndex: number;
+    liveDebug: LiveTranscriptionDebugState;
     transcriptScrollRef: MutableRefObject<HTMLDivElement | null>;
     liveMemoId: string | null;
     liveShareUrl: string | null;
@@ -34,6 +61,35 @@ type UseLiveTranscriptionResult = {
     getLiveShareLabel: () => string;
 };
 
+function getDocumentVisibilityState(): "visible" | "hidden" {
+    if (typeof document === "undefined") return "visible";
+    return document.hidden ? "hidden" : "visible";
+}
+
+function createInitialLiveDebugState(
+    tabVisibility: "visible" | "hidden" = getDocumentVisibilityState()
+): LiveTranscriptionDebugState {
+    return {
+        tabVisibility,
+        windowMode: "idle",
+        bufferedChunkCount: 0,
+        snapshotAudioChunkCount: 0,
+        snapshotBlobCount: 0,
+        snapshotByteSize: 0,
+        snapshotWindowStartIndex: 0,
+        snapshotWindowChunkCount: 0,
+        firstChunkRetained: false,
+        headerIncluded: false,
+        overflowed: false,
+        inFlight: false,
+        lastTickAt: null,
+        lastResponseAt: null,
+        lastServerText: "",
+        lastTranscriptLength: 0,
+        lastTranscriptWordCount: 0,
+    };
+}
+
 export function useLiveTranscription({
     audioChunksRef,
     mimeTypeRef,
@@ -42,6 +98,7 @@ export function useLiveTranscription({
     const [liveTranscript, setLiveTranscript] = useState("");
     const [animatedWords, setAnimatedWords] = useState<string[]>([]);
     const [newWordStartIndex, setNewWordStartIndex] = useState(0);
+    const [liveDebug, setLiveDebug] = useState<LiveTranscriptionDebugState>(createInitialLiveDebugState);
     const [liveMemoId, setLiveMemoId] = useState<string | null>(null);
     const [liveShareUrl, setLiveShareUrl] = useState<string | null>(null);
     const [liveShareState, setLiveShareState] = useState<LiveShareState>("idle");
@@ -111,6 +168,10 @@ export function useLiveTranscription({
         }
     };
 
+    const updateLiveDebug = (patch: Partial<LiveTranscriptionDebugState>) => {
+        setLiveDebug((previous) => ({ ...previous, ...patch }));
+    };
+
     const resetLiveSession = () => {
         clearLiveShareResetTimer();
         if (liveTimerRef.current) clearInterval(liveTimerRef.current);
@@ -133,6 +194,7 @@ export function useLiveTranscription({
         pendingLiveTranscriptRef.current = null;
         syncedLiveTranscriptRef.current = "";
         liveSyncInFlightRef.current = false;
+        setLiveDebug(createInitialLiveDebugState());
     };
 
     const persistLiveTranscript = async () => {
@@ -237,6 +299,12 @@ export function useLiveTranscription({
 
         const chunks = audioChunksRef.current;
         const header = webmHeaderRef.current;
+        const bufferedChunkCount = chunks.length;
+        const overflowed = bufferedChunkCount > LIVE_MAX_CHUNKS;
+        let windowMode: LiveTranscriptionWindowMode = "full_buffer";
+        let snapshotWindowStartIndex = 0;
+        let snapshotWindowChunkCount = bufferedChunkCount;
+        let firstChunkRetained = false;
         // `header` is the WebM EBML/init blob captured at recording start (no audio data).
         // `chunks` are the subsequent audio-only clusters from audioChunksRef.
         //
@@ -256,6 +324,36 @@ export function useLiveTranscription({
                 ? [...chunks]
                 : [chunks[0], ...chunks.slice(-(LIVE_MAX_CHUNKS - 1))];
         const snapshot = new Blob(snapshotChunks, { type: mimeTypeRef.current });
+        const snapshotAudioChunkCount = header ? snapshotChunks.length - 1 : snapshotChunks.length;
+
+        if (isReturnTick) {
+            windowMode = "return_catch_up";
+        } else if (overflowed) {
+            snapshotWindowStartIndex = Math.max(0, bufferedChunkCount - (LIVE_MAX_CHUNKS - 1));
+            snapshotWindowChunkCount = Math.min(bufferedChunkCount, LIVE_MAX_CHUNKS - 1);
+            if (header) {
+                windowMode = "tail_window";
+            } else {
+                windowMode = "hybrid_first_and_tail";
+                firstChunkRetained = true;
+            }
+        }
+
+        updateLiveDebug({
+            tabVisibility: getDocumentVisibilityState(),
+            windowMode,
+            bufferedChunkCount,
+            snapshotAudioChunkCount,
+            snapshotBlobCount: snapshotChunks.length,
+            snapshotByteSize: snapshot.size,
+            snapshotWindowStartIndex,
+            snapshotWindowChunkCount,
+            firstChunkRetained,
+            headerIncluded: Boolean(header),
+            overflowed,
+            inFlight: true,
+            lastTickAt: Date.now(),
+        });
 
         const formData = new FormData();
         formData.append("file", snapshot, `live_${Date.now()}.webm`);
@@ -264,14 +362,35 @@ export function useLiveTranscription({
             .then((response) => (response.ok ? response.json() : Promise.reject(response.status)))
             .then(({ text }: { text: string }) => {
                 if (text) {
-                    setLiveTranscript((previous) => mergeLiveTranscript(previous, text));
+                    setLiveTranscript((previous) => {
+                        const merged = mergeLiveTranscript(previous, text);
+                        updateLiveDebug({
+                            lastResponseAt: Date.now(),
+                            lastServerText: text,
+                            lastTranscriptLength: merged.length,
+                            lastTranscriptWordCount: merged.split(/\s+/).filter(Boolean).length,
+                            inFlight: false,
+                        });
+                        return merged;
+                    });
+                } else {
+                    updateLiveDebug({
+                        lastResponseAt: Date.now(),
+                        lastServerText: "",
+                        inFlight: false,
+                    });
                 }
             })
             .catch((error) => {
                 if (error?.name !== "AbortError") console.error("[live]", error);
+                updateLiveDebug({
+                    lastResponseAt: Date.now(),
+                    inFlight: false,
+                });
             })
             .finally(() => {
                 liveInFlightRef.current = false;
+                updateLiveDebug({ inFlight: false });
             });
     };
 
@@ -290,6 +409,7 @@ export function useLiveTranscription({
         liveSyncInFlightRef.current = false;
         liveInFlightRef.current = false;
         isFirstReturnTickRef.current = false;
+        setLiveDebug(createInitialLiveDebugState());
 
         // Clean up any leftover handler from a previous session before registering a new one
         if (visibilityHandlerRef.current) {
@@ -298,18 +418,18 @@ export function useLiveTranscription({
 
         const handleVisibilityChange = () => {
             if (!isRecordingRef.current) return;
+            updateLiveDebug({ tabVisibility: getDocumentVisibilityState() });
             if (document.hidden) {
-                if (liveTimerRef.current) clearInterval(liveTimerRef.current);
-                liveTimerRef.current = null;
-            } else {
-                if (liveTimerRef.current) clearInterval(liveTimerRef.current);
-                // Mark the next tick as a return tick so runLiveTick sends all accumulated
-                // chunks instead of the normal overflow cap (covers long hidden periods).
-                isFirstReturnTickRef.current = true;
-                // Fire an immediate tick on return only if nothing is already in-flight
-                if (!liveInFlightRef.current) runLiveTick();
-                liveTimerRef.current = setInterval(runLiveTick, LIVE_INTERVAL_MS);
+                return;
             }
+
+            if (liveTimerRef.current) clearInterval(liveTimerRef.current);
+            // Hidden tabs now keep polling, but browsers may still throttle timers.
+            // Keep the return tick as a catch-up path so a visible return can resend
+            // the full accumulated window without relying on a manual tab switch.
+            isFirstReturnTickRef.current = true;
+            if (!liveInFlightRef.current) runLiveTick();
+            liveTimerRef.current = setInterval(runLiveTick, LIVE_INTERVAL_MS);
         };
 
         visibilityHandlerRef.current = handleVisibilityChange;
@@ -374,6 +494,7 @@ export function useLiveTranscription({
         liveTranscript,
         animatedWords,
         newWordStartIndex,
+        liveDebug,
         transcriptScrollRef,
         liveMemoId,
         liveShareUrl,

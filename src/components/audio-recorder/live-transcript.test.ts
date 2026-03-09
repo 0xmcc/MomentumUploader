@@ -109,4 +109,46 @@ describe("mergeLiveTranscript — gapped-window resend (>30 chunk overflow)", ()
     // New content must be preserved
     expect(merged.toLowerCase()).toContain("completely new words just spoken now");
   });
+
+  it("does not append a long hidden-window resend that reintroduces a repeated middle clause with minor wording drift", () => {
+    const prev =
+      "Are you recording now? Testing. Testing. Come on, you gotta be working. " +
+      "I need you like God needs the devil on a Sunday soon this do' settle. " +
+      "Okay, I'm wondering if this is gonna still work? We're gonna keep trying and talking. " +
+      "And hopefully this keeps recording.";
+    const next =
+      "Wow. Whoa, whoa, whoa. Come on, you gotta be working. " +
+      "I need you like God needs the devil on a Sunday Soon this settle. " +
+      "Okay, I'm wondering if this is gonna still work. Is this gonna still work? " +
+      "We're gonna keep trying and talking. And hopefully this keeps recording. " +
+      "Wowzers, the app is working.";
+
+    const merged = mergeLiveTranscript(prev, next);
+    const repeatedClause = "come on, you gotta be working";
+    const repeatedClauseOccurrences = merged.toLowerCase().split(repeatedClause).length - 1;
+
+    expect(repeatedClauseOccurrences).toBe(1);
+    expect(merged.toLowerCase()).toContain("wowzers, the app is working");
+  });
+
+  it("does not accept a longer hidden-window hypothesis that already contains a duplicated clause internally", () => {
+    const prev =
+      "Are you recording now? Testing. Testing. Come on, you gotta be working. " +
+      "I need you like God needs the devil on a Sunday soon this do' settle. " +
+      "Okay, I'm wondering if this is gonna still work? We're gonna keep trying and talking.";
+    const next =
+      "Are you recording now? Testing. Testing. Come on, you gotta be working. " +
+      "I need you like God needs the devil on a Sunday soon this do' settle. " +
+      "Okay, I'm wondering if this is gonna still work? We're gonna keep trying and talking. " +
+      "Come on, you gotta be working. I need you like God needs the devil on a Sunday soon this do' settle. " +
+      "Okay, I'm wondering if this is gonna still work? We're gonna keep trying and talking. " +
+      "And hopefully this keeps recording.";
+
+    const merged = mergeLiveTranscript(prev, next);
+    const repeatedClause = "come on, you gotta be working";
+    const repeatedClauseOccurrences = merged.toLowerCase().split(repeatedClause).length - 1;
+
+    expect(repeatedClauseOccurrences).toBe(1);
+    expect(merged.toLowerCase()).toContain("and hopefully this keeps recording");
+  });
 });

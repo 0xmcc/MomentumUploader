@@ -259,6 +259,40 @@ describe("AudioRecorder live transcript cadence", () => {
         expect(screen.getByRole("button", { name: /upload mp3\/m4a/i })).toBeDisabled();
     });
 
+    it("shows live transcription diagnostics and updates tab visibility", async () => {
+        render(<AudioRecorder />);
+
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => { await Promise.resolve(); });
+        await act(async () => { jest.advanceTimersByTime(1500); });
+        await act(async () => { await Promise.resolve(); });
+
+        expect(screen.getByText(/live transcription diagnostics/i)).toBeInTheDocument();
+        expect(screen.getByText("Visible")).toBeInTheDocument();
+        expect(screen.getByText(/chunk window/i)).toBeInTheDocument();
+
+        await act(async () => { simulateVisibilityChange("hidden"); });
+
+        expect(screen.getByText("Hidden")).toBeInTheDocument();
+    });
+
+    it("shows tail-window diagnostics after the live buffer exceeds the max window", async () => {
+        render(<AudioRecorder />);
+
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => { await Promise.resolve(); });
+
+        for (let i = 0; i < 35; i += 1) {
+            await act(async () => { jest.advanceTimersByTime(1500); });
+            await act(async () => { await Promise.resolve(); });
+        }
+
+        expect(screen.getByText(/tail window/i)).toBeInTheDocument();
+        expect(screen.getByText(/chunk window/i)).toBeInTheDocument();
+    });
+
     it("accepts m4a files even when browser MIME type is empty", async () => {
         const onAudioInput = jest.fn();
         render(<AudioRecorder onAudioInput={onAudioInput} />);
@@ -992,27 +1026,24 @@ describe("AudioRecorder live transcript cadence", () => {
         document.dispatchEvent(new Event("visibilitychange"));
     }
 
-    it("pauses live polling when tab becomes hidden", async () => {
+    it("continues live polling while the recording tab is hidden", async () => {
         render(<AudioRecorder />);
         fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
         await act(async () => { await Promise.resolve(); });
 
-        // Let 3 ticks fire
         for (let i = 0; i < 3; i += 1) {
             await act(async () => { jest.advanceTimersByTime(1500); });
             await act(async () => { await Promise.resolve(); });
         }
 
         const fetchMock = global.fetch as jest.Mock;
-        const countAfterRecording = fetchMock.mock.calls.filter(
+        const countBeforeHide = fetchMock.mock.calls.filter(
             ([url]: [unknown]) => url === "/api/transcribe/live"
         ).length;
 
-        // Simulate switching to another tab
         await act(async () => { simulateVisibilityChange("hidden"); });
 
-        // Advance 5 more timer periods while "hidden"
-        for (let i = 0; i < 5; i += 1) {
+        for (let i = 0; i < 4; i += 1) {
             await act(async () => { jest.advanceTimersByTime(1500); });
             await act(async () => { await Promise.resolve(); });
         }
@@ -1021,19 +1052,17 @@ describe("AudioRecorder live transcript cadence", () => {
             ([url]: [unknown]) => url === "/api/transcribe/live"
         ).length;
 
-        // No new ticks should have fired while the tab was hidden
-        expect(countAfterHidden).toBe(countAfterRecording);
+        expect(countAfterHidden).toBeGreaterThan(countBeforeHide);
 
         fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
         await act(async () => { await Promise.resolve(); });
     });
 
-    it("resumes live polling when tab becomes visible again", async () => {
+    it("keeps live polling monotonic across hidden and visible transitions", async () => {
         render(<AudioRecorder />);
         fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
         await act(async () => { await Promise.resolve(); });
 
-        // Baseline ticks
         for (let i = 0; i < 2; i += 1) {
             await act(async () => { jest.advanceTimersByTime(1500); });
             await act(async () => { await Promise.resolve(); });
@@ -1046,7 +1075,6 @@ describe("AudioRecorder live transcript cadence", () => {
 
         await act(async () => { simulateVisibilityChange("hidden"); });
 
-        // 3 timer periods while hidden — should fire 0 ticks with the fix
         for (let i = 0; i < 3; i += 1) {
             await act(async () => { jest.advanceTimersByTime(1500); });
             await act(async () => { await Promise.resolve(); });
@@ -1056,12 +1084,10 @@ describe("AudioRecorder live transcript cadence", () => {
             ([url]: [unknown]) => url === "/api/transcribe/live"
         ).length;
 
-        // Return to tab
         await act(async () => { simulateVisibilityChange("visible"); });
-        await act(async () => { await Promise.resolve(); }); // flush immediate tick on show
+        await act(async () => { await Promise.resolve(); });
 
-        // 3 more timer periods after becoming visible
-        for (let i = 0; i < 3; i += 1) {
+        for (let i = 0; i < 2; i += 1) {
             await act(async () => { jest.advanceTimersByTime(1500); });
             await act(async () => { await Promise.resolve(); });
         }
@@ -1070,10 +1096,185 @@ describe("AudioRecorder live transcript cadence", () => {
             ([url]: [unknown]) => url === "/api/transcribe/live"
         ).length;
 
-        // No new ticks fired while the tab was hidden
-        expect(countAfterHidden).toBe(countBeforeHide);
-        // Polling resumed after returning to tab
+        expect(countAfterHidden).toBeGreaterThan(countBeforeHide);
         expect(countAfterVisible).toBeGreaterThan(countAfterHidden);
+
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+        await act(async () => { await Promise.resolve(); });
+    });
+
+    it("publishes deduplicated transcript progress while hidden without waiting for tab return", async () => {
+        const memoId = "memo-hidden-progress-test";
+        const liveTexts = [
+            "Opening statement.",
+            "Opening statement. Visible details.",
+            "Opening statement. Visible details. Hidden sentence one.",
+        ];
+        let liveCallIndex = 0;
+        let latestPatchedTranscript = "";
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+            if (url === "/api/memos/live") {
+                return { ok: true, json: async () => ({ memoId }) };
+            }
+            if (url === `/api/memos/${memoId}/share`) {
+                return { ok: true, json: async () => ({ shareUrl: "https://example.com/s/hidden-progress" }) };
+            }
+            if (url === "/api/transcribe/live") {
+                const text = liveTexts[Math.min(liveCallIndex, liveTexts.length - 1)];
+                liveCallIndex += 1;
+                return { ok: true, json: async () => ({ text }) };
+            }
+            if (url === `/api/memos/${memoId}` && (init as RequestInit | undefined)?.method === "PATCH") {
+                const body = JSON.parse(String((init as RequestInit).body ?? "{}")) as { transcript?: string };
+                latestPatchedTranscript = body.transcript ?? "";
+                return { ok: true, json: async () => ({ ok: true }) };
+            }
+            return { ok: true, json: async () => ({ text: "final" }) };
+        });
+
+        render(<AudioRecorder />);
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+        await act(async () => { await Promise.resolve(); });
+
+        for (let i = 0; i < 2; i += 1) {
+            await act(async () => { jest.advanceTimersByTime(1500); });
+            await act(async () => { await Promise.resolve(); });
+        }
+
+        await act(async () => { simulateVisibilityChange("hidden"); });
+
+        for (let i = 0; i < 2; i += 1) {
+            await act(async () => { jest.advanceTimersByTime(1500); });
+            await act(async () => { await Promise.resolve(); });
+        }
+
+        await act(async () => { await Promise.resolve(); });
+        await act(async () => { await Promise.resolve(); });
+
+        const openingCount = latestPatchedTranscript.split("Opening statement.").length - 1;
+        expect(openingCount).toBe(1);
+        expect(latestPatchedTranscript).toContain("Visible details.");
+        expect(latestPatchedTranscript).toContain("Hidden sentence one.");
+
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+        await act(async () => { await Promise.resolve(); });
+    });
+
+    it("does not persist a duplicated middle clause after a long hidden reading stretch", async () => {
+        const memoId = "memo-hidden-long-duplicate-test";
+        const liveTexts = [
+            "Are you recording now? Testing. Testing. Come on, you gotta be working. I need you like God needs the devil on a Sunday soon this do' settle. Okay, I'm wondering if this is gonna still work?",
+            "Are you recording now? Testing. Testing. Come on, you gotta be working. I need you like God needs the devil on a Sunday soon this do' settle. Okay, I'm wondering if this is gonna still work? We're gonna keep trying and talking. And hopefully this keeps recording.",
+            "Wow. Whoa, whoa, whoa. Come on, you gotta be working. I need you like God needs the devil on a Sunday Soon this settle. Okay, I'm wondering if this is gonna still work. Is this gonna still work? We're gonna keep trying and talking. And hopefully this keeps recording. Wowzers, the app is working.",
+            "It updates like it's supposed to. It updates like it's supposed to. It updates. It updates like it updates like it's supposed to.",
+        ];
+        let liveCallIndex = 0;
+        let latestPatchedTranscript = "";
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+            if (url === "/api/memos/live") {
+                return { ok: true, json: async () => ({ memoId }) };
+            }
+            if (url === `/api/memos/${memoId}/share`) {
+                return { ok: true, json: async () => ({ shareUrl: "https://example.com/s/hidden-long-duplicate" }) };
+            }
+            if (url === "/api/transcribe/live") {
+                const text = liveTexts[Math.min(liveCallIndex, liveTexts.length - 1)];
+                liveCallIndex += 1;
+                return { ok: true, json: async () => ({ text }) };
+            }
+            if (url === `/api/memos/${memoId}` && (init as RequestInit | undefined)?.method === "PATCH") {
+                const body = JSON.parse(String((init as RequestInit).body ?? "{}")) as { transcript?: string };
+                latestPatchedTranscript = body.transcript ?? "";
+                return { ok: true, json: async () => ({ ok: true }) };
+            }
+            return { ok: true, json: async () => ({ text: "final" }) };
+        });
+
+        render(<AudioRecorder />);
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+        await act(async () => { await Promise.resolve(); });
+
+        for (let i = 0; i < 2; i += 1) {
+            await act(async () => { jest.advanceTimersByTime(1500); });
+            await act(async () => { await Promise.resolve(); });
+        }
+
+        await act(async () => { simulateVisibilityChange("hidden"); });
+
+        for (let i = 0; i < 3; i += 1) {
+            await act(async () => { jest.advanceTimersByTime(1500); });
+            await act(async () => { await Promise.resolve(); });
+        }
+
+        await act(async () => { await Promise.resolve(); });
+        await act(async () => { await Promise.resolve(); });
+
+        const repeatedClause = "come on, you gotta be working";
+        const repeatedClauseOccurrences = latestPatchedTranscript.toLowerCase().split(repeatedClause).length - 1;
+
+        expect(repeatedClauseOccurrences).toBe(1);
+        expect(latestPatchedTranscript.toLowerCase()).toContain("wowzers, the app is working");
+
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+        await act(async () => { await Promise.resolve(); });
+    });
+
+    it("does not persist a longer hidden-window transcript that already contains an internal duplicate block", async () => {
+        const memoId = "memo-hidden-internal-duplicate-test";
+        const liveTexts = [
+            "Are you recording now? Testing. Testing. Come on, you gotta be working. I need you like God needs the devil on a Sunday soon this do' settle.",
+            "Are you recording now? Testing. Testing. Come on, you gotta be working. I need you like God needs the devil on a Sunday soon this do' settle. Okay, I'm wondering if this is gonna still work? We're gonna keep trying and talking.",
+            "Are you recording now? Testing. Testing. Come on, you gotta be working. I need you like God needs the devil on a Sunday soon this do' settle. Okay, I'm wondering if this is gonna still work? We're gonna keep trying and talking. Come on, you gotta be working. I need you like God needs the devil on a Sunday soon this do' settle. Okay, I'm wondering if this is gonna still work? We're gonna keep trying and talking. And hopefully this keeps recording.",
+        ];
+        let liveCallIndex = 0;
+        let latestPatchedTranscript = "";
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+            if (url === "/api/memos/live") {
+                return { ok: true, json: async () => ({ memoId }) };
+            }
+            if (url === `/api/memos/${memoId}/share`) {
+                return { ok: true, json: async () => ({ shareUrl: "https://example.com/s/hidden-internal-duplicate" }) };
+            }
+            if (url === "/api/transcribe/live") {
+                const text = liveTexts[Math.min(liveCallIndex, liveTexts.length - 1)];
+                liveCallIndex += 1;
+                return { ok: true, json: async () => ({ text }) };
+            }
+            if (url === `/api/memos/${memoId}` && (init as RequestInit | undefined)?.method === "PATCH") {
+                const body = JSON.parse(String((init as RequestInit).body ?? "{}")) as { transcript?: string };
+                latestPatchedTranscript = body.transcript ?? "";
+                return { ok: true, json: async () => ({ ok: true }) };
+            }
+            return { ok: true, json: async () => ({ text: "final" }) };
+        });
+
+        render(<AudioRecorder />);
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+        await act(async () => { await Promise.resolve(); });
+
+        for (let i = 0; i < 2; i += 1) {
+            await act(async () => { jest.advanceTimersByTime(1500); });
+            await act(async () => { await Promise.resolve(); });
+        }
+
+        await act(async () => { simulateVisibilityChange("hidden"); });
+
+        for (let i = 0; i < 2; i += 1) {
+            await act(async () => { jest.advanceTimersByTime(1500); });
+            await act(async () => { await Promise.resolve(); });
+        }
+        await act(async () => { await Promise.resolve(); });
+        await act(async () => { await Promise.resolve(); });
+        await act(async () => { await Promise.resolve(); });
+
+        const repeatedClause = "come on, you gotta be working";
+        const repeatedClauseOccurrences = latestPatchedTranscript.toLowerCase().split(repeatedClause).length - 1;
+
+        expect(repeatedClauseOccurrences).toBe(1);
+        expect(latestPatchedTranscript.toLowerCase()).toContain("and hopefully this keeps recording");
 
         fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
         await act(async () => { await Promise.resolve(); });
