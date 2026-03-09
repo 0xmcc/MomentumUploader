@@ -1,7 +1,7 @@
 import { POST } from "./route";
 import { supabaseAdmin, uploadAudio } from "@/lib/supabase";
 import { transcribeAudio } from "@/lib/riva";
-import { auth } from "@clerk/nextjs/server";
+import { resolveMemoUserId } from "@/lib/memo-api-auth";
 import { NextRequest } from "next/server";
 
 jest.mock("next/server", () => {
@@ -42,8 +42,8 @@ jest.mock("@/lib/riva", () => ({
     transcribeAudio: jest.fn(),
 }));
 
-jest.mock("@clerk/nextjs/server", () => ({
-    auth: jest.fn(),
+jest.mock("@/lib/memo-api-auth", () => ({
+    resolveMemoUserId: jest.fn(),
 }));
 
 describe("POST /api/transcribe", () => {
@@ -58,7 +58,7 @@ describe("POST /api/transcribe", () => {
             })),
         }));
         process.env.NVIDIA_API_KEY = "test-nvidia-key";
-        (auth as unknown as jest.Mock).mockResolvedValue({ userId: "user_123" });
+        (resolveMemoUserId as jest.Mock).mockResolvedValue("user_123");
         // Give transcript
         (transcribeAudio as jest.Mock).mockResolvedValue("hello world");
     });
@@ -304,7 +304,7 @@ describe("POST /api/transcribe", () => {
     });
 
     it("returns 401 when user is unauthenticated", async () => {
-        (auth as unknown as jest.Mock).mockResolvedValue({ userId: null });
+        (resolveMemoUserId as jest.Mock).mockResolvedValue(null);
 
         const req = {} as NextRequest;
         const res = await POST(req);
@@ -312,6 +312,43 @@ describe("POST /api/transcribe", () => {
 
         expect(res.status).toBe(401);
         expect(json.error).toBe("Unauthorized");
+    });
+
+    it("persists uploads for bearer-authenticated callers", async () => {
+        (resolveMemoUserId as jest.Mock).mockResolvedValue("user_bearer_456");
+
+        const formDataObj = {
+            get: (key: string) => {
+                if (key === "file") {
+                    return {
+                        name: "bearer-memo.webm",
+                        type: "audio/webm",
+                        size: 10,
+                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
+                    };
+                }
+                return null;
+            }
+        };
+
+        const req = {
+            formData: async () => formDataObj,
+            headers: {
+                get: (name: string) =>
+                    name.toLowerCase() == "authorization" ? "Bearer vm1.fake.fake" : null,
+            },
+        } as unknown as NextRequest;
+
+        const res = await POST(req);
+        const json = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(json.success).toBe(true);
+
+        const insertMockFn = (supabaseAdmin.from as jest.Mock).mock.results[0].value.insert;
+        const insertPayload = insertMockFn.mock.calls[0][0];
+        expect(insertPayload.user_id).toBe("user_bearer_456");
+        expect(resolveMemoUserId).toHaveBeenCalledWith(req);
     });
 
     it("returns 500 when memo DB insert fails", async () => {

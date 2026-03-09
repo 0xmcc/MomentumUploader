@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { resolveMemoUserId } from "@/lib/memo-api-auth";
 import {
     ERR,
     LOG,
@@ -9,25 +9,44 @@ import {
     uploadAudioToStorage,
 } from "./workflow";
 
+const CORS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+function withCors(response: NextResponse) {
+    if (typeof response.headers?.set === "function") {
+        Object.entries(CORS).forEach(([key, value]) => {
+            response.headers.set(key, value);
+        });
+    }
+    return response;
+}
+
+export async function OPTIONS() {
+    return withCors(new NextResponse(null, { status: 204 }));
+}
+
 export async function POST(req: NextRequest) {
     const startedAtMs = Date.now();
     LOG("init", "Request received");
 
-    const { userId } = await auth();
+    const userId = await resolveMemoUserId(req);
     if (!userId) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        return withCors(NextResponse.json({ error: "Unauthorized" }, { status: 401 }));
     }
 
     const nvidiaApiKey = process.env.NVIDIA_API_KEY?.trim();
     if (!nvidiaApiKey) {
         ERR("env", "NVIDIA_API_KEY is missing", null);
-        return NextResponse.json(
+        return withCors(NextResponse.json(
             {
                 error: "Transcription is not configured",
                 detail: "NVIDIA_API_KEY is not set on the server.",
             },
             { status: 500 }
-        );
+        ));
     }
 
     LOG("env", "NEXT_PUBLIC_SUPABASE_URL set?", !!process.env.NEXT_PUBLIC_SUPABASE_URL);
@@ -39,22 +58,22 @@ export async function POST(req: NextRequest) {
 
     try {
         const parsed = await parseUploadRequest(req, startedAtMs);
-        if (!parsed.ok) return parsed.response;
+        if (!parsed.ok) return withCors(parsed.response);
 
         const uploaded = await uploadAudioToStorage(parsed.data, startedAtMs);
-        if (!uploaded.ok) return uploaded.response;
+        if (!uploaded.ok) return withCors(uploaded.response);
 
         const transcription = await transcribeUploadedAudio(uploaded.data, nvidiaApiKey);
-        if (!transcription.ok) return transcription.response;
+        if (!transcription.ok) return withCors(transcription.response);
 
-        return persistMemo(
+        return withCors(await persistMemo(
             uploaded.data,
             transcription.data,
             userId,
             startedAtMs
-        );
+        ));
     } catch (error) {
         ERR("catch", "Unhandled error in POST handler", error);
-        return NextResponse.json({ error: "Failed to transcribe audio" }, { status: 500 });
+        return withCors(NextResponse.json({ error: "Failed to transcribe audio" }, { status: 500 }));
     }
 }
