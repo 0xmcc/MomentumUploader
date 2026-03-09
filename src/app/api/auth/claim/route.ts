@@ -14,7 +14,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_code" }, { status: 400 });
   }
 
-  const claim = claimDesktopToken(code);
+  const claim = await claimDesktopToken(code);
   if (!claim) {
     return NextResponse.json({ error: "invalid_code" }, { status: 404 });
   }

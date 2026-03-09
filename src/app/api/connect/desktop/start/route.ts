@@ -38,7 +38,7 @@ export async function POST(req: Request) {
       userId,
       ttlSeconds: days * SECONDS_PER_DAY,
     });
-    const { code, codeExpiresAt } = createDesktopTokenClaim(token, expiresAt);
+    const { code, codeExpiresAt } = await createDesktopTokenClaim(token, expiresAt);
 
     return NextResponse.json({
       code,
