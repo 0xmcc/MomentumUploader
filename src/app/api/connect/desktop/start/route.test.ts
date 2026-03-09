@@ -2,10 +2,14 @@
 
 import { auth } from "@clerk/nextjs/server";
 import { POST } from "./route";
-import { __resetDesktopTokenClaimsForTests } from "@/lib/desktop-token-claims";
+import { createDesktopTokenClaim } from "@/lib/desktop-token-claims";
 
 jest.mock("@clerk/nextjs/server", () => ({
   auth: jest.fn(),
+}));
+
+jest.mock("@/lib/desktop-token-claims", () => ({
+  createDesktopTokenClaim: jest.fn(),
 }));
 
 describe("POST /api/connect/desktop/start", () => {
@@ -13,7 +17,6 @@ describe("POST /api/connect/desktop/start", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    __resetDesktopTokenClaimsForTests();
     process.env.MEMOS_API_TOKEN_SECRET = "test-secret";
   });
 
@@ -38,6 +41,10 @@ describe("POST /api/connect/desktop/start", () => {
 
   it("creates a one-time desktop claim for signed-in users", async () => {
     (auth as unknown as jest.Mock).mockResolvedValue({ userId: "user_123" });
+    (createDesktopTokenClaim as jest.Mock).mockResolvedValue({
+      code: "ABCD2345",
+      codeExpiresAt: "2026-04-01T00:10:00.000Z",
+    });
 
     const response = await POST({
       json: async () => ({ days: 30 }),
@@ -56,5 +63,9 @@ describe("POST /api/connect/desktop/start", () => {
     expect(payload.codeExpiresAt).toEqual(expect.any(String));
     expect(payload.tokenExpiresAt).toEqual(expect.any(String));
     expect(payload.days).toBe(30);
+    expect(createDesktopTokenClaim).toHaveBeenCalledWith(
+      expect.stringMatching(/^vm1\./),
+      expect.any(String)
+    );
   });
 });

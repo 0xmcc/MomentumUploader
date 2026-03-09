@@ -1,14 +1,16 @@
 import { randomInt } from "node:crypto";
+import { supabaseAdmin } from "./supabase";
 
-type ClaimValue = {
-  token: string;
-  tokenExpiresAt: string;
-  claimExpiresAtMs: number;
-};
-
-const claims = new Map<string, ClaimValue>();
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const DEFAULT_CLAIM_TTL_SECONDS = 10 * 60;
+const MAX_INSERT_ATTEMPTS = 5;
+
+type SupabaseErrorLike = {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+};
 
 function generateCode(length = 8): string {
   let value = "";
@@ -18,49 +20,59 @@ function generateCode(length = 8): string {
   return value;
 }
 
-export function createDesktopTokenClaim(
+function describeSupabaseError(error: SupabaseErrorLike): string {
+  return (
+    error.message?.trim() ||
+    error.details?.trim() ||
+    error.hint?.trim() ||
+    error.code?.trim() ||
+    "unknown Supabase error"
+  );
+}
+
+export async function createDesktopTokenClaim(
   token: string,
   tokenExpiresAt: string,
   ttlSeconds = DEFAULT_CLAIM_TTL_SECONDS
-): { code: string; codeExpiresAt: string } {
-  let code = generateCode();
-  while (claims.has(code)) {
-    code = generateCode();
+): Promise<{ code: string; codeExpiresAt: string }> {
+  const claimExpiresAtMs = Date.now() + ttlSeconds * 1000;
+  const codeExpiresAt = new Date(claimExpiresAtMs).toISOString();
+
+  for (let attempt = 0; attempt < MAX_INSERT_ATTEMPTS; attempt++) {
+    const code = generateCode();
+    const { error } = await supabaseAdmin
+      .from("desktop_token_claims")
+      .insert({ code, token, token_expires_at: tokenExpiresAt, claim_expires_at: codeExpiresAt });
+
+    if (!error) return { code, codeExpiresAt };
+
+    // 23505 = unique_violation — code collision, retry with a new code
+    if ((error as SupabaseErrorLike).code !== "23505") {
+      throw new Error(
+        `Failed to store desktop token claim: ${describeSupabaseError(error as SupabaseErrorLike)}`
+      );
+    }
   }
 
-  const claimExpiresAtMs = Date.now() + ttlSeconds * 1000;
-  claims.set(code, {
-    token,
-    tokenExpiresAt,
-    claimExpiresAtMs,
-  });
-
-  return {
-    code,
-    codeExpiresAt: new Date(claimExpiresAtMs).toISOString(),
-  };
+  throw new Error("Failed to generate a unique claim code after max attempts");
 }
 
-export function claimDesktopToken(
+export async function claimDesktopToken(
   codeInput: string
-): { token: string; expiresAt: string } | null {
+): Promise<{ token: string; expiresAt: string } | null> {
   const code = codeInput.trim().toUpperCase();
   if (!code) return null;
 
-  const claim = claims.get(code);
-  if (!claim) return null;
+  // Atomic: DELETE ... WHERE code = ? AND claim_expires_at > now() RETURNING ...
+  // Only one concurrent caller can delete the row; any second caller gets no rows back.
+  const { data, error } = await supabaseAdmin.rpc("claim_desktop_token", { p_code: code });
 
-  claims.delete(code);
-  if (claim.claimExpiresAtMs <= Date.now()) {
-    return null;
-  }
+  if (error || !data || (data as unknown[]).length === 0) return null;
 
-  return {
-    token: claim.token,
-    expiresAt: claim.tokenExpiresAt,
-  };
+  const row = (data as { token: string; token_expires_at: string }[])[0];
+  return { token: row.token, expiresAt: row.token_expires_at };
 }
 
-export function __resetDesktopTokenClaimsForTests() {
-  claims.clear();
+export async function __resetDesktopTokenClaimsForTests(): Promise<void> {
+  await supabaseAdmin.from("desktop_token_claims").delete().neq("code", "");
 }
