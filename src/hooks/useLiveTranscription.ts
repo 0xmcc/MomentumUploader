@@ -5,17 +5,14 @@ import {
     type MutableRefObject,
 } from "react";
 import { copyToClipboard } from "@/lib/memo-ui";
+import type { LiveLockedSegment } from "@/lib/live-segments";
 
 const LIVE_INTERVAL_MS = 1500;
 const SEGMENT_CHUNK_COUNT = 15;
 const LIVE_TAIL_CHUNK_COUNT = SEGMENT_CHUNK_COUNT * 2 - 1;
 const CATCHUP_BURST_MAX = 3;
 
-type LockedSegment = {
-    startIndex: number;
-    endIndex: number;
-    text: string;
-};
+type LockedSegment = LiveLockedSegment;
 
 type CanonicalTranscriptState = {
     lockedSegments: LockedSegment[];
@@ -153,6 +150,7 @@ export function useLiveTranscription({
     const liveMemoIdRef = useRef<string | null>(null);
     const liveSyncInFlightRef = useRef(false);
     const pendingLiveTranscriptRef = useRef<string | null>(null);
+    const persistedSegmentCountRef = useRef(0);
     // Set when recording ends; blocks retry syncs to prevent a late PATCH from
     // overwriting the final transcript written by the upload pipeline.
     const sessionEndedRef = useRef(false);
@@ -255,8 +253,30 @@ export function useLiveTranscription({
         pendingLiveTranscriptRef.current = null;
         syncedLiveTranscriptRef.current = "";
         liveSyncInFlightRef.current = false;
+        persistedSegmentCountRef.current = 0;
         sessionEndedRef.current = false;
         setLiveDebug(createInitialLiveDebugState());
+    };
+
+    const persistLiveSegments = async (
+        memoId: string,
+        segments: LockedSegment[],
+    ) => {
+        if (segments.length === 0) return;
+
+        try {
+            const response = await fetch(`/api/memos/${memoId}/segments/live`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ segments }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`Live segment update failed: ${response.status}`);
+            }
+        } catch (error) {
+            console.error("[live-segments]", error);
+        }
     };
 
     const persistLiveTranscript = async () => {
@@ -414,6 +434,18 @@ export function useLiveTranscription({
                         lastServerText: finalizedText,
                         inFlight: false,
                     });
+
+                    const memoId = liveMemoIdRef.current;
+                    if (
+                        memoId &&
+                        nextLockedSegments.length > persistedSegmentCountRef.current
+                    ) {
+                        const newSegments = nextLockedSegments.slice(
+                            persistedSegmentCountRef.current,
+                        );
+                        void persistLiveSegments(memoId, newSegments);
+                        persistedSegmentCountRef.current = nextLockedSegments.length;
+                    }
                 } else {
                     const nextTailText = (text ?? "").trim();
                     updateCanonicalTranscript(lockedSegmentsRef.current, nextTailText);
@@ -467,6 +499,7 @@ export function useLiveTranscription({
         pendingLiveTranscriptRef.current = null;
         syncedLiveTranscriptRef.current = "";
         liveSyncInFlightRef.current = false;
+        persistedSegmentCountRef.current = 0;
         sessionEndedRef.current = false;
         liveInFlightRef.current = false;
         catchupBurstCountRef.current = 0;

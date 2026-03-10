@@ -5,6 +5,9 @@ import { FAILED_TRANSCRIPT } from "@/lib/memo-ui";
 import type { TranscriptSegment } from "@/lib/transcript";
 import { isMissingColumnError } from "@/lib/supabase-compat";
 import { generateMemoTitle } from "@/lib/memo-title";
+import { compactFinalChunks } from "@/lib/memo-chunks";
+import { generateFinalArtifacts, supersedeMemoArtifacts } from "@/lib/memo-artifacts";
+import { runPendingMemoJobs } from "@/lib/memo-jobs";
 
 const MAX_AUDIO_UPLOAD_BYTES = 75 * 1024 * 1024;
 const MAX_AUDIO_UPLOAD_MB = Math.round(MAX_AUDIO_UPLOAD_BYTES / (1024 * 1024));
@@ -561,6 +564,8 @@ export async function updateMemoFinal(
 
         // Insert timestamped segments. Non-fatal: if this fails the transcript
         // is already saved and the share page falls back to plain-text.
+        let finalSegmentsPersisted = segments.length === 0;
+
         if (segments.length > 0) {
             try {
                 // Delete any previous segments first (idempotent on retry).
@@ -591,6 +596,8 @@ export async function updateMemoFinal(
                 if (segErr) {
                     throw segErr;
                 }
+
+                finalSegmentsPersisted = true;
             } catch (segmentError) {
                 ERR("db", "Segment persistence failed — anchor timestamps unavailable for this memo", {
                     memoId,
@@ -598,6 +605,20 @@ export async function updateMemoFinal(
                     error: readErrorMessage(segmentError) || String(segmentError),
                 });
                 // Do NOT rethrow — the transcript write already succeeded.
+            }
+        }
+
+        if (finalSegmentsPersisted) {
+            try {
+                await runPendingMemoJobs(memoId, supabaseAdmin);
+                await compactFinalChunks(memoId, userId, supabaseAdmin);
+                await generateFinalArtifacts(memoId, userId, supabaseAdmin);
+                await supersedeMemoArtifacts(memoId, "live", undefined, supabaseAdmin);
+            } catch (artifactError) {
+                ERR("db", "Final chunk/artifact upgrade failed", {
+                    memoId,
+                    error: readErrorMessage(artifactError) || String(artifactError),
+                });
             }
         }
 

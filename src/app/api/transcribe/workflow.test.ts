@@ -6,6 +6,14 @@ import {
     updateMemoFinal,
 } from "./workflow";
 import { supabaseAdmin } from "@/lib/supabase";
+import {
+    compactFinalChunks,
+} from "@/lib/memo-chunks";
+import {
+    generateFinalArtifacts,
+    supersedeMemoArtifacts,
+} from "@/lib/memo-artifacts";
+import { runPendingMemoJobs } from "@/lib/memo-jobs";
 
 jest.mock("@/lib/supabase", () => ({
     supabaseAdmin: {
@@ -19,6 +27,19 @@ jest.mock("@/lib/supabase", () => ({
         },
     },
     uploadAudio: jest.fn(),
+}));
+
+jest.mock("@/lib/memo-chunks", () => ({
+    compactFinalChunks: jest.fn(),
+}));
+
+jest.mock("@/lib/memo-artifacts", () => ({
+    generateFinalArtifacts: jest.fn(),
+    supersedeMemoArtifacts: jest.fn(),
+}));
+
+jest.mock("@/lib/memo-jobs", () => ({
+    runPendingMemoJobs: jest.fn(),
 }));
 
 function makeLegacyUpdateChain(resolvedValue: unknown) {
@@ -43,6 +64,7 @@ function makeLegacyUpdateChain(resolvedValue: unknown) {
 describe("transcribe workflow legacy transcript_status fallback", () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        (runPendingMemoJobs as jest.Mock).mockResolvedValue(undefined);
     });
 
     it("retries provisional live-memo update without transcript_status instead of inserting a duplicate memo", async () => {
@@ -299,5 +321,66 @@ describe("transcribe workflow legacy transcript_status fallback", () => {
             transcript_status: "complete",
         });
         expect(deleteSegments).toHaveBeenCalled();
+    });
+
+    it("runs final chunk compaction, final artifact generation, and supersedes live artifacts after final segments are written", async () => {
+        (compactFinalChunks as jest.Mock).mockResolvedValue({
+            chunkCount: 1,
+            latestChunkIndex: 0,
+        });
+        (generateFinalArtifacts as jest.Mock).mockResolvedValue(undefined);
+        (supersedeMemoArtifacts as jest.Mock).mockResolvedValue(undefined);
+
+        const finalizeMemoUpdate = jest.fn(() =>
+            makeLegacyUpdateChain({
+                data: null,
+                error: null,
+            })
+        );
+        const deleteSegments = jest.fn(() => ({
+            eq: jest.fn(() => ({
+                eq: jest.fn().mockResolvedValue({ data: null, error: null }),
+            })),
+        }));
+        const insertSegments = jest.fn().mockResolvedValue({ data: null, error: null });
+
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "memo_transcript_segments") {
+                return {
+                    delete: deleteSegments,
+                    insert: insertSegments,
+                };
+            }
+
+            return {
+                update: finalizeMemoUpdate,
+            };
+        });
+
+        const response = await updateMemoFinal(
+            "memo-1",
+            "final transcript",
+            [
+                {
+                    id: "0",
+                    startMs: 0,
+                    endMs: 1000,
+                    text: "final transcript",
+                },
+            ],
+            "https://example.com/audio.webm",
+            "user-1",
+            Date.now()
+        );
+
+        expect(response.status).toBe(200);
+        expect(compactFinalChunks).toHaveBeenCalledWith("memo-1", "user-1", supabaseAdmin);
+        expect(generateFinalArtifacts).toHaveBeenCalledWith("memo-1", "user-1", supabaseAdmin);
+        expect(supersedeMemoArtifacts).toHaveBeenCalledWith(
+            "memo-1",
+            "live",
+            undefined,
+            supabaseAdmin
+        );
     });
 });
