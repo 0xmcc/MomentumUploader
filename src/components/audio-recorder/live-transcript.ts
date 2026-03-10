@@ -82,7 +82,6 @@ export function mergeLiveTranscript(previous: string, incoming: string): string 
 
     if (!next) return prev;
     if (!prev) return next;
-    if (next.startsWith(prev)) return next;
     if (prev.includes(next)) return prev;
 
     const prevCompact = compact(prev);
@@ -92,8 +91,64 @@ export function mergeLiveTranscript(previous: string, incoming: string): string 
         return `${prev} ${next}`;
     }
 
-    if (nextCompact.includes(prevCompact)) return next;
     if (prevCompact.includes(nextCompact)) return prev;
+
+    const prevTokens = tokenize(prev);
+    const nextTokens = tokenize(next);
+    const commonPrefixCount = countCommonPrefix(prevTokens, nextTokens);
+    const extraTokens = nextTokens.slice(commonPrefixCount);
+
+    if (next.startsWith(prev)) {
+        const appendedTokens = tokenize(next.slice(prev.length));
+        const maxRepeatedLength = Math.min(prevTokens.length, appendedTokens.length);
+
+        for (let repeatedLength = maxRepeatedLength; repeatedLength >= 6; repeatedLength -= 1) {
+            const repeatedHead = appendedTokens.slice(0, repeatedLength);
+
+            for (let start = 0; start + repeatedLength <= prevTokens.length; start += 1) {
+                const prevWindow = prevTokens.slice(start, start + repeatedLength);
+                const isRepeatedWindow = repeatedHead.every(
+                    (token, index) => token === prevWindow[index]
+                );
+
+                if (!isRepeatedWindow) continue;
+
+                const novelTail = appendedTokens.slice(repeatedLength).join(" ");
+                if (!novelTail) return prev;
+                if (prev.toLowerCase().includes(novelTail.toLowerCase())) return prev;
+                return appendUnknownBoundary(prev, novelTail);
+            }
+        }
+    }
+
+    if (
+        nextTokens.length > prevTokens.length &&
+        commonPrefixCount >= 6 &&
+        extraTokens.length >= 6
+    ) {
+        const maxRepeatedLength = Math.min(prevTokens.length, extraTokens.length);
+
+        for (let repeatedLength = maxRepeatedLength; repeatedLength >= 6; repeatedLength -= 1) {
+            const repeatedHead = extraTokens.slice(0, repeatedLength);
+
+            for (let start = 0; start + repeatedLength <= prevTokens.length; start += 1) {
+                const prevWindow = prevTokens.slice(start, start + repeatedLength);
+                const isRepeatedWindow = repeatedHead.every(
+                    (token, index) => token === prevWindow[index]
+                );
+
+                if (!isRepeatedWindow) continue;
+
+                const novelTail = extraTokens.slice(repeatedLength).join(" ");
+                if (!novelTail) return prev;
+                if (prev.toLowerCase().includes(novelTail.toLowerCase())) return prev;
+                return appendUnknownBoundary(prev, novelTail);
+            }
+        }
+    }
+
+    if (nextCompact.includes(prevCompact)) return next;
+    if (next.startsWith(prev)) return next;
 
     const leadingAligned = countLeadingAlignedMatch(prevCompact, nextCompact);
     const hasLeadingResendAnchor =
@@ -110,10 +165,6 @@ export function mergeLiveTranscript(previous: string, incoming: string): string 
             prevCompact.length >= Math.floor(nextCompact.length * 1.1);
         if (prevIsClearlyLonger) return prev;
     }
-
-    const prevTokens = tokenize(prev);
-    const nextTokens = tokenize(next);
-    const commonPrefixCount = countCommonPrefix(prevTokens, nextTokens);
 
     const isLongSharedPrefix =
         commonPrefixCount >= 6 &&

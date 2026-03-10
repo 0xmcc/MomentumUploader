@@ -26,12 +26,19 @@ class MockMediaRecorder {
     }
 
     ondataavailable: ((event: BlobEvent) => void) | null = null;
+    onstart: (() => void) | null = null;
     onstop: (() => void) | null = null;
     private intervalId: NodeJS.Timeout | null = null;
 
     constructor() { }
 
+    requestData() {
+        const blob = new Blob(["headr"], { type: "audio/webm" });
+        this.ondataavailable?.({ data: blob } as BlobEvent);
+    }
+
     start(timeslice?: number) {
+        this.onstart?.();
         const interval = timeslice ?? 1000;
         this.intervalId = setInterval(() => {
             const blob = new Blob(["audio"], { type: "audio/webm" });
@@ -277,7 +284,7 @@ describe("AudioRecorder live transcript cadence", () => {
         expect(screen.getByText("Hidden")).toBeInTheDocument();
     });
 
-    it("shows tail-window diagnostics after the live buffer exceeds the max window", async () => {
+    it("shows tail-update diagnostics after the live buffer exceeds the segment window", async () => {
         render(<AudioRecorder />);
 
         fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
@@ -289,7 +296,7 @@ describe("AudioRecorder live transcript cadence", () => {
             await act(async () => { await Promise.resolve(); });
         }
 
-        expect(screen.getByText(/tail window/i)).toBeInTheDocument();
+        expect(screen.getByText(/tail update/i)).toBeInTheDocument();
         expect(screen.getByText(/chunk window/i)).toBeInTheDocument();
     });
 
@@ -357,7 +364,7 @@ describe("AudioRecorder live transcript cadence", () => {
         }
 
         expect(liveCallCount).toBeGreaterThan(10);
-        expect(maxLivePayloadBytes).toBeLessThanOrEqual(180);
+        expect(maxLivePayloadBytes).toBeLessThanOrEqual(150);
 
         fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
         await act(async () => {
@@ -365,21 +372,43 @@ describe("AudioRecorder live transcript cadence", () => {
         });
     });
 
-    it("appends overlapping live transcript windows instead of overwriting earlier text", async () => {
+    it("replaces the current tail hypothesis instead of stitching overlapping windows together", async () => {
+        const memoId = "memo-tail-replace-overlap";
         const liveTexts = [
             "interface but it's not recommended",
             "it's not recommended because there are debugging messages",
             "because there are debugging messages that come out here and then",
         ];
         let liveCallIndex = 0;
+        let latestPatchedTranscript = "";
 
-        (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+            if (url === "/api/memos/live") {
+                return {
+                    ok: true,
+                    json: async () => ({ memoId }),
+                };
+            }
+            if (url === `/api/memos/${memoId}/share`) {
+                return {
+                    ok: true,
+                    json: async () => ({ shareUrl: "https://example.com/s/tail-replace-overlap" }),
+                };
+            }
             if (url === "/api/transcribe/live") {
                 const text = liveTexts[Math.min(liveCallIndex, liveTexts.length - 1)];
                 liveCallIndex += 1;
                 return {
                     ok: true,
                     json: async () => ({ text }),
+                };
+            }
+            if (url === `/api/memos/${memoId}` && init?.method === "PATCH") {
+                const body = JSON.parse(String(init.body ?? "{}")) as { transcript?: string };
+                latestPatchedTranscript = body.transcript ?? "";
+                return {
+                    ok: true,
+                    json: async () => ({ ok: true }),
                 };
             }
 
@@ -405,14 +434,8 @@ describe("AudioRecorder live transcript cadence", () => {
             });
         }
 
-        const normalizedText = (document.body.textContent ?? "")
-            .replace(/\s+/g, "")
-            .toLowerCase();
-        const expectedCombinedTranscript = "interface but it's not recommended because there are debugging messages that come out here and then"
-            .replace(/\s+/g, "")
-            .toLowerCase();
-
-        expect(normalizedText).toContain(expectedCombinedTranscript);
+        expect(latestPatchedTranscript).toBe(liveTexts[liveTexts.length - 1]);
+        expect(latestPatchedTranscript.toLowerCase()).not.toContain("interface but it's not recommended");
 
         fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
         await act(async () => {
@@ -779,7 +802,7 @@ describe("AudioRecorder live transcript cadence", () => {
         });
     });
 
-    it("reproduces user bug: long continuous no-space stream duplicates shared clause", async () => {
+    it("persists the latest no-space tail hypothesis without merging earlier windows into it", async () => {
         const liveTexts = [
             "steadof,youknow,respectingtheissue.Idon'treallyknow.IwanttosayisthatevenifIkeeptalking,thelongerIgothemorethehigherlikelihoodthatitwilljustduplicatethetranscripts.",
             "Insteadof,youknow,respectingtheissue.Idon'treallyknow.WhatImeantosayisthatwhenItalkextended.TheduplicationscomebackifItalkforashortamount.oftime.Idon'tthinkthere'smuchduplication.butifIjustkeeptalkingwithoutstopping,thentheduplicationshappen.",
@@ -840,10 +863,8 @@ describe("AudioRecorder live transcript cadence", () => {
             });
         }
 
-        const repeatedClause = "youknow,respectingtheissue.idon'treallyknow";
-        const occurrences = latestPatchedTranscript.toLowerCase().split(repeatedClause).length - 1;
-
-        expect(occurrences).toBe(1);
+        expect(latestPatchedTranscript).toBe(liveTexts[liveTexts.length - 1]);
+        expect(latestPatchedTranscript.toLowerCase()).not.toContain("youknow,respectingtheissue.idon'treallyknow");
 
         fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
         await act(async () => {
@@ -1026,6 +1047,12 @@ describe("AudioRecorder live transcript cadence", () => {
         document.dispatchEvent(new Event("visibilitychange"));
     }
 
+    async function flushMicrotasks(count = 1) {
+        for (let i = 0; i < count; i += 1) {
+            await Promise.resolve();
+        }
+    }
+
     it("continues live polling while the recording tab is hidden", async () => {
         render(<AudioRecorder />);
         fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
@@ -1161,35 +1188,16 @@ describe("AudioRecorder live transcript cadence", () => {
         await act(async () => { await Promise.resolve(); });
     });
 
-    it("does not persist a duplicated middle clause after a long hidden reading stretch", async () => {
-        const memoId = "memo-hidden-long-duplicate-test";
-        const liveTexts = [
-            "Are you recording now? Testing. Testing. Come on, you gotta be working. I need you like God needs the devil on a Sunday soon this do' settle. Okay, I'm wondering if this is gonna still work?",
-            "Are you recording now? Testing. Testing. Come on, you gotta be working. I need you like God needs the devil on a Sunday soon this do' settle. Okay, I'm wondering if this is gonna still work? We're gonna keep trying and talking. And hopefully this keeps recording.",
-            "Wow. Whoa, whoa, whoa. Come on, you gotta be working. I need you like God needs the devil on a Sunday Soon this settle. Okay, I'm wondering if this is gonna still work. Is this gonna still work? We're gonna keep trying and talking. And hopefully this keeps recording. Wowzers, the app is working.",
-            "It updates like it's supposed to. It updates like it's supposed to. It updates. It updates like it updates like it's supposed to.",
-        ];
-        let liveCallIndex = 0;
-        let latestPatchedTranscript = "";
+    it("keeps catch-up requests bounded even when hidden backlog exceeds the immediate burst budget", async () => {
+        const returnBlobSizes: number[] = [];
 
         (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
-            if (url === "/api/memos/live") {
-                return { ok: true, json: async () => ({ memoId }) };
-            }
-            if (url === `/api/memos/${memoId}/share`) {
-                return { ok: true, json: async () => ({ shareUrl: "https://example.com/s/hidden-long-duplicate" }) };
-            }
             if (url === "/api/transcribe/live") {
-                const text = liveTexts[Math.min(liveCallIndex, liveTexts.length - 1)];
-                liveCallIndex += 1;
-                return { ok: true, json: async () => ({ text }) };
+                const file = (init?.body as FormData | undefined)?.get("file") as File | null;
+                returnBlobSizes.push(file?.size ?? 0);
+                return { ok: true, json: async () => ({ text: `transcribed-${returnBlobSizes.length}` }) };
             }
-            if (url === `/api/memos/${memoId}` && (init as RequestInit | undefined)?.method === "PATCH") {
-                const body = JSON.parse(String((init as RequestInit).body ?? "{}")) as { transcript?: string };
-                latestPatchedTranscript = body.transcript ?? "";
-                return { ok: true, json: async () => ({ ok: true }) };
-            }
-            return { ok: true, json: async () => ({ text: "final" }) };
+            return { ok: true, json: async () => ({}) };
         });
 
         render(<AudioRecorder />);
@@ -1202,26 +1210,27 @@ describe("AudioRecorder live transcript cadence", () => {
         }
 
         await act(async () => { simulateVisibilityChange("hidden"); });
+        await act(async () => { jest.advanceTimersByTime(180_000); });
+        await act(async () => { await Promise.resolve(); });
 
-        for (let i = 0; i < 3; i += 1) {
+        returnBlobSizes.length = 0;
+        await act(async () => { simulateVisibilityChange("visible"); });
+        await act(async () => { await flushMicrotasks(8); });
+
+        for (let i = 0; i < 4; i += 1) {
             await act(async () => { jest.advanceTimersByTime(1500); });
-            await act(async () => { await Promise.resolve(); });
+            await act(async () => { await flushMicrotasks(4); });
         }
 
-        await act(async () => { await Promise.resolve(); });
-        await act(async () => { await Promise.resolve(); });
-
-        const repeatedClause = "come on, you gotta be working";
-        const repeatedClauseOccurrences = latestPatchedTranscript.toLowerCase().split(repeatedClause).length - 1;
-
-        expect(repeatedClauseOccurrences).toBe(1);
-        expect(latestPatchedTranscript.toLowerCase()).toContain("wowzers, the app is working");
+        expect(returnBlobSizes.length).toBeGreaterThanOrEqual(7);
+        expect(returnBlobSizes.slice(0, 3)).toEqual([80, 80, 80]);
+        expect(Math.max(...returnBlobSizes)).toBeLessThanOrEqual(150);
 
         fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
         await act(async () => { await Promise.resolve(); });
     });
 
-    it("does not persist a longer hidden-window transcript that already contains an internal duplicate block", async () => {
+    it("persists the latest hidden tail hypothesis verbatim instead of rewriting it locally", async () => {
         const memoId = "memo-hidden-internal-duplicate-test";
         const liveTexts = [
             "Are you recording now? Testing. Testing. Come on, you gotta be working. I need you like God needs the devil on a Sunday soon this do' settle.",
@@ -1270,11 +1279,7 @@ describe("AudioRecorder live transcript cadence", () => {
         await act(async () => { await Promise.resolve(); });
         await act(async () => { await Promise.resolve(); });
 
-        const repeatedClause = "come on, you gotta be working";
-        const repeatedClauseOccurrences = latestPatchedTranscript.toLowerCase().split(repeatedClause).length - 1;
-
-        expect(repeatedClauseOccurrences).toBe(1);
-        expect(latestPatchedTranscript.toLowerCase()).toContain("and hopefully this keeps recording");
+        expect(latestPatchedTranscript).toBe(liveTexts[liveTexts.length - 1]);
 
         fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
         await act(async () => { await Promise.resolve(); });
@@ -1460,17 +1465,11 @@ describe("AudioRecorder live transcript cadence", () => {
         expect(countAfterPostStopShow).toBe(countAfterStop);
     });
 
-    it("preserves pre-hide transcript content when returning from a tab switch", async () => {
+    it("replaces a superseded pre-hide tail when a newer bounded tail arrives after tab return", async () => {
         const memoId = "memo-pre-hide-content-test";
-        // Key design: liveTexts[2] contains ONLY post-hide content with no shared prefix
-        // with the pre-hide text. This forces a real merge against non-empty state.
-        // Bug scenario: if liveTranscript state is wiped on hide, mergeLiveTranscript
-        // receives ("", liveTexts[2]) and returns only liveTexts[2] — all pre-hide
-        // content disappears from the live display.
         const liveTexts = [
             "We were talking about the project timeline",
             "We were talking about the project timeline and the Q2 deliverables.",
-            // Return tick: post-hide content only, no overlap with pre-hide phrases
             "After the break we covered the budget and the staffing plan.",
         ];
         let liveCallIndex = 0;
@@ -1523,12 +1522,8 @@ describe("AudioRecorder live transcript cadence", () => {
             await act(async () => { await Promise.resolve(); });
         }
 
-        // Both pre-hide and post-return content must appear in the persisted transcript.
-        // latestPatchedTranscript mirrors liveTranscriptRef.current and preserves spaces,
-        // making it the primary signal for multi-word phrase assertions.
-        expect(latestPatchedTranscript.toLowerCase()).toContain("project timeline");
-        expect(latestPatchedTranscript.toLowerCase()).toContain("q2 deliverables");
-        expect(latestPatchedTranscript.toLowerCase()).toContain("after the break we covered the budget");
+        expect(latestPatchedTranscript).toBe(liveTexts[liveTexts.length - 1]);
+        expect(latestPatchedTranscript.toLowerCase()).not.toContain("project timeline");
 
         fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
         await act(async () => { await Promise.resolve(); });
@@ -1594,19 +1589,13 @@ describe("AudioRecorder live transcript cadence", () => {
         await act(async () => { await Promise.resolve(); });
     });
 
-    it("return tick sends full accumulated audio when hidden period exceeds LIVE_MAX_CHUNKS", async () => {
-        // Each mock chunk is new Blob(["audio"]) = 5 bytes.
-        // Snapshot of N chunks → N × 5 bytes.
-        // Current overflow cap: header(5) + 29 chunks(145) = 150 bytes → fails assertion.
-        // After fix (all chunks on return): header(5) + ~47 chunks(235) = ~240 bytes → passes.
-        const CHUNK_BYTE_SIZE = 5;
-
+    it("return catch-up always ends with an immediate bounded tail refresh after the capped finalization burst", async () => {
         const returnBlobSizes: number[] = [];
         (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
             if (url === "/api/transcribe/live") {
                 const file = (init?.body as FormData | undefined)?.get("file") as File | null;
                 returnBlobSizes.push(file?.size ?? 0);
-                return { ok: true, json: async () => ({ text: "transcribed" }) };
+                return { ok: true, json: async () => ({ text: `transcribed-${returnBlobSizes.length}` }) };
             }
             return { ok: true, json: async () => ({}) };
         });
@@ -1623,22 +1612,259 @@ describe("AudioRecorder live transcript cadence", () => {
 
         await act(async () => { simulateVisibilityChange("hidden"); });
 
-        // 45 seconds hidden → 45 more chunks accumulate (total >> LIVE_MAX_CHUNKS = 30)
-        await act(async () => { jest.advanceTimersByTime(45_000); });
+        // 180 seconds hidden → after 3 finalizations there is still a large backlog remaining.
+        await act(async () => { jest.advanceTimersByTime(180_000); });
         await act(async () => { await Promise.resolve(); });
 
-        // Measure only the return tick
+        // Measure only the immediate return catch-up drain, without waiting for the interval timer.
         returnBlobSizes.length = 0;
         await act(async () => { simulateVisibilityChange("visible"); });
-        await act(async () => { await Promise.resolve(); }); // flush immediate tick fetch
+        await act(async () => { await flushMicrotasks(8); });
 
-        // The return tick must have sent more data than the 30-chunk overflow cap.
-        // 30 chunks × 5 bytes = 150 bytes. With the fix, all ~47 chunks are included (>150).
-        const LIVE_MAX_CHUNKS = 30;
-        expect(returnBlobSizes.length).toBeGreaterThanOrEqual(1);
-        expect(returnBlobSizes[0]).toBeGreaterThan(LIVE_MAX_CHUNKS * CHUNK_BYTE_SIZE);
+        expect(returnBlobSizes.slice(0, 3)).toEqual([80, 80, 80]);
+        expect(returnBlobSizes[3]).toBeLessThanOrEqual(150);
+        expect(Math.max(...returnBlobSizes)).toBeLessThanOrEqual(150);
 
         fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
         await act(async () => { await Promise.resolve(); });
+    });
+
+    it("never persists a shorter transcript during rollover before the replacement tail lands", async () => {
+        const memoId = "memo-segment-rollover";
+        const patchTranscripts: string[] = [];
+        let liveCallCount = 0;
+        let resolveFinalization: (() => void) | null = null;
+        let resolveReplacementTail: (() => void) | null = null;
+        let sawFullTailWindow = false;
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+            if (url === "/api/memos/live") {
+                return { ok: true, json: async () => ({ memoId }) };
+            }
+            if (url === `/api/memos/${memoId}/share`) {
+                return { ok: true, json: async () => ({ shareUrl: "https://example.com/s/segment-rollover" }) };
+            }
+            if (url === "/api/transcribe/live") {
+                const file = (init?.body as FormData | undefined)?.get("file") as File | null;
+                const size = file?.size ?? 0;
+                liveCallCount += 1;
+                if (size >= 145) {
+                    sawFullTailWindow = true;
+                }
+
+                if (size === 80 && sawFullTailWindow && !resolveFinalization) {
+                    return new Promise((resolve) => {
+                        resolveFinalization = () => {
+                            resolve({ ok: true, json: async () => ({ text: "locked segment alpha" }) });
+                        };
+                    });
+                }
+
+                if (resolveFinalization) {
+                    return new Promise((resolve) => {
+                        resolveReplacementTail = () => {
+                            resolve({ ok: true, json: async () => ({ text: "tail segment beta" }) });
+                        };
+                    });
+                }
+
+                return { ok: true, json: async () => ({ text: `locked segment alpha draft tail ${liveCallCount}` }) };
+            }
+            if (url === `/api/memos/${memoId}` && init?.method === "PATCH") {
+                const body = JSON.parse(String(init.body ?? "{}")) as { transcript?: string };
+                patchTranscripts.push(body.transcript ?? "");
+                return { ok: true, json: async () => ({ ok: true }) };
+            }
+            return { ok: true, json: async () => ({}) };
+        });
+
+        render(<AudioRecorder />);
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => { await flushMicrotasks(2); });
+
+        for (let i = 0; i < 20 && !resolveFinalization; i += 1) {
+            await act(async () => { jest.advanceTimersByTime(1500); });
+            await act(async () => { await flushMicrotasks(3); });
+        }
+
+        expect(resolveFinalization).not.toBeNull();
+        const patchCountBeforeFinalization = patchTranscripts.length;
+        const previousTranscript = patchTranscripts[patchTranscripts.length - 1] ?? "";
+
+        resolveFinalization?.();
+        for (
+            let i = 0;
+            i < 10 && !resolveReplacementTail;
+            i += 1
+        ) {
+            await act(async () => { await flushMicrotasks(4); });
+        }
+
+        const intermediateTranscripts = patchTranscripts.slice(patchCountBeforeFinalization);
+
+        for (const transcript of intermediateTranscripts) {
+            expect(transcript.length).toBeGreaterThanOrEqual(previousTranscript.length);
+        }
+
+        for (
+            let i = 0;
+            i < 10 && !(patchTranscripts[patchTranscripts.length - 1] ?? "").includes("tail segment beta");
+            i += 1
+        ) {
+            if (resolveReplacementTail) {
+                resolveReplacementTail();
+                resolveReplacementTail = null;
+            } else {
+                await act(async () => { jest.advanceTimersByTime(1500); });
+            }
+            await act(async () => { await flushMicrotasks(4); });
+        }
+
+        const nextTranscript = patchTranscripts[patchTranscripts.length - 1] ?? "";
+        expect(patchTranscripts.length).toBeGreaterThan(patchCountBeforeFinalization);
+        expect(nextTranscript).toBe("locked segment alpha tail segment beta");
+
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+        await act(async () => { await Promise.resolve(); });
+    });
+
+    it("keeps locked segment text at the front of every later tail update", async () => {
+        const memoId = "memo-locked-prefix";
+        const patchTranscripts: string[] = [];
+        let sawFinalization = false;
+        let tailUpdateCount = 0;
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+            if (url === "/api/memos/live") {
+                return { ok: true, json: async () => ({ memoId }) };
+            }
+            if (url === `/api/memos/${memoId}/share`) {
+                return { ok: true, json: async () => ({ shareUrl: "https://example.com/s/locked-prefix" }) };
+            }
+            if (url === "/api/transcribe/live") {
+                const file = (init?.body as FormData | undefined)?.get("file") as File | null;
+                const size = file?.size ?? 0;
+                if (size === 80) {
+                    sawFinalization = true;
+                    return { ok: true, json: async () => ({ text: "locked segment alpha" }) };
+                }
+                if (sawFinalization) {
+                    tailUpdateCount += 1;
+                    return { ok: true, json: async () => ({ text: `tail update ${tailUpdateCount}` }) };
+                }
+                return { ok: true, json: async () => ({ text: `warmup ${patchTranscripts.length + 1}` }) };
+            }
+            if (url === `/api/memos/${memoId}` && init?.method === "PATCH") {
+                const body = JSON.parse(String(init.body ?? "{}")) as { transcript?: string };
+                patchTranscripts.push(body.transcript ?? "");
+                return { ok: true, json: async () => ({ ok: true }) };
+            }
+            return { ok: true, json: async () => ({}) };
+        });
+
+        render(<AudioRecorder />);
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => { await flushMicrotasks(2); });
+
+        for (let i = 0; i < 24; i += 1) {
+            await act(async () => { jest.advanceTimersByTime(1500); });
+            await act(async () => { await flushMicrotasks(3); });
+        }
+
+        const postLockTranscripts = patchTranscripts.filter((transcript) => transcript.startsWith("locked segment alpha"));
+
+        expect(postLockTranscripts.length).toBeGreaterThanOrEqual(5);
+        for (const transcript of postLockTranscripts) {
+            expect(transcript.startsWith("locked segment alpha")).toBe(true);
+        }
+
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+        await act(async () => { await Promise.resolve(); });
+    });
+
+    it("stopping during catch-up aborts safely and persists canonical locked state", async () => {
+        const memoId = "memo-stop-during-catchup";
+        const liveBlobSizes: number[] = [];
+        const patchTranscripts: string[] = [];
+        const unhandledRejections: unknown[] = [];
+        const abortError = Object.assign(new Error("Aborted"), { name: "AbortError" });
+
+        const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+            unhandledRejections.push(event.reason);
+            event.preventDefault();
+        };
+
+        window.addEventListener("unhandledrejection", handleUnhandledRejection);
+
+        (global.fetch as jest.Mock).mockImplementation((url: string, init?: RequestInit) => {
+            if (url === "/api/memos/live") {
+                return Promise.resolve({ ok: true, json: async () => ({ memoId }) });
+            }
+            if (url === `/api/memos/${memoId}/share`) {
+                return Promise.resolve({ ok: true, json: async () => ({ shareUrl: "https://example.com/s/stop-catchup" }) });
+            }
+            if (url === "/api/transcribe/live") {
+                const file = (init?.body as FormData | undefined)?.get("file") as File | null;
+                const size = file?.size ?? 0;
+                liveBlobSizes.push(size);
+
+                if (liveBlobSizes.length === 1) {
+                    return Promise.resolve({ ok: true, json: async () => ({ text: "warmup transcript" }) });
+                }
+
+                if (liveBlobSizes.length === 2) {
+                    return Promise.resolve({ ok: true, json: async () => ({ text: "locked segment alpha" }) });
+                }
+
+                if (liveBlobSizes.length === 3) {
+                    return new Promise((_resolve, reject) => {
+                        init?.signal?.addEventListener(
+                            "abort",
+                            () => reject(abortError),
+                            { once: true }
+                        );
+                    });
+                }
+
+                return Promise.resolve({ ok: true, json: async () => ({ text: `unexpected ${liveBlobSizes.length}` }) });
+            }
+            if (url === `/api/memos/${memoId}` && init?.method === "PATCH") {
+                const body = JSON.parse(String(init.body ?? "{}")) as { transcript?: string };
+                patchTranscripts.push(body.transcript ?? "");
+                return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
+            }
+            return Promise.resolve({ ok: true, json: async () => ({}) });
+        });
+
+        render(<AudioRecorder />);
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+        await act(async () => { await flushMicrotasks(2); });
+
+        await act(async () => { jest.advanceTimersByTime(1500); });
+        await act(async () => { await flushMicrotasks(3); });
+
+        await act(async () => { simulateVisibilityChange("hidden"); });
+        await act(async () => { jest.advanceTimersByTime(60_000); });
+        await act(async () => { await flushMicrotasks(2); });
+
+        await act(async () => { simulateVisibilityChange("visible"); });
+        for (let i = 0; i < 20 && liveBlobSizes.filter((size) => size === 80).length < 1; i += 1) {
+            await act(async () => { await flushMicrotasks(3); });
+        }
+
+        expect(liveBlobSizes.filter((size) => size === 80).length).toBeGreaterThanOrEqual(1);
+        const liveCallCountAtStop = liveBlobSizes.length;
+
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+        await act(async () => { await flushMicrotasks(4); });
+
+        window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+
+        expect(unhandledRejections).toHaveLength(0);
+        expect(liveBlobSizes.length).toBe(liveCallCountAtStop);
+        const latestTranscript = patchTranscripts[patchTranscripts.length - 1] ?? "";
+        expect(latestTranscript).toBe("locked segment alpha");
     });
 });

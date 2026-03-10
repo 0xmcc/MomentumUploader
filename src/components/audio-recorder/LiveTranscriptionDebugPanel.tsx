@@ -8,14 +8,10 @@ const DEBUG_SEGMENT_COUNT = 24;
 
 function formatWindowMode(windowMode: LiveTranscriptionWindowMode): string {
     switch (windowMode) {
-        case "full_buffer":
-            return "Full buffer";
-        case "tail_window":
-            return "Tail window";
-        case "return_catch_up":
-            return "Return catch-up";
-        case "hybrid_first_and_tail":
-            return "First + tail hybrid";
+        case "segment_finalization":
+            return "Segment finalization";
+        case "tail_update":
+            return "Tail update";
         default:
             return "Idle";
     }
@@ -28,14 +24,10 @@ function formatBytes(byteCount: number): string {
 
 function describeWindowMode(windowMode: LiveTranscriptionWindowMode): string {
     switch (windowMode) {
-        case "tail_window":
-            return "Only the newest audio tail is being sent. If the upstream model repeats older text inside this hypothesis, duplicate clauses can slip in.";
-        case "return_catch_up":
-            return "The tab just became visible again, so the full buffered window is being resent as a catch-up snapshot.";
-        case "hybrid_first_and_tail":
-            return "The request had to reuse the first chunk plus the latest tail. This split window is the riskiest duplication shape.";
-        case "full_buffer":
-            return "The whole buffered recording is being sent on each live tick.";
+        case "segment_finalization":
+            return "A bounded 15-chunk segment is being locked. The visible transcript updates on the follow-up tail request, not on this response.";
+        case "tail_update":
+            return "The newest unlocked tail is being transcribed and joined with any previously locked segments.";
         default:
             return "Waiting for the next live transcription tick.";
     }
@@ -141,8 +133,7 @@ export default function LiveTranscriptionDebugPanel({
                             ))}
                         </div>
                         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] uppercase tracking-[0.16em] text-white/35">
-                            <span>Amber = first chunk retained</span>
-                            <span>Accent = active live window</span>
+                            <span>Accent = active live request window</span>
                         </div>
                     </div>
 

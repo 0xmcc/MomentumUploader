@@ -5,18 +5,54 @@ import {
     type MutableRefObject,
 } from "react";
 import { copyToClipboard } from "@/lib/memo-ui";
-import { mergeLiveTranscript } from "@/components/audio-recorder/live-transcript";
 
 const LIVE_INTERVAL_MS = 1500;
-const LIVE_MAX_CHUNKS = 30;
+const SEGMENT_CHUNK_COUNT = 15;
+const LIVE_TAIL_CHUNK_COUNT = SEGMENT_CHUNK_COUNT * 2 - 1;
+const CATCHUP_BURST_MAX = 3;
+
+type LockedSegment = {
+    startIndex: number;
+    endIndex: number;
+    text: string;
+};
+
+type CanonicalTranscriptState = {
+    lockedSegments: LockedSegment[];
+    tailText: string;
+};
+
+function joinTranscriptParts(parts: string[]): string {
+    return parts
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join(" ");
+}
+
+function buildCanonicalTranscript(lockedSegments: LockedSegment[], tailText: string): string {
+    return joinTranscriptParts([
+        ...lockedSegments.map((segment) => segment.text),
+        tailText,
+    ]);
+}
+
+function preserveTailAcrossFinalization(finalizedText: string, previousTailText: string): string {
+    const lockedText = finalizedText.trim();
+    const tailText = previousTailText.trim();
+
+    if (!tailText || !lockedText) return tailText;
+    if (tailText === lockedText) return "";
+    if (tailText.startsWith(lockedText)) {
+        return tailText.slice(lockedText.length).trim();
+    }
+    return tailText;
+}
 
 export type LiveShareState = "idle" | "loading" | "ready" | "copied" | "error";
 export type LiveTranscriptionWindowMode =
     | "idle"
-    | "full_buffer"
-    | "tail_window"
-    | "return_catch_up"
-    | "hybrid_first_and_tail";
+    | "segment_finalization"
+    | "tail_update";
 
 export type LiveTranscriptionDebugState = {
     tabVisibility: "visible" | "hidden";
@@ -95,7 +131,10 @@ export function useLiveTranscription({
     mimeTypeRef,
     webmHeaderRef,
 }: UseLiveTranscriptionOptions): UseLiveTranscriptionResult {
-    const [liveTranscript, setLiveTranscript] = useState("");
+    const [canonicalTranscriptState, setCanonicalTranscriptState] = useState<CanonicalTranscriptState>({
+        lockedSegments: [],
+        tailText: "",
+    });
     const [animatedWords, setAnimatedWords] = useState<string[]>([]);
     const [newWordStartIndex, setNewWordStartIndex] = useState(0);
     const [liveDebug, setLiveDebug] = useState<LiveTranscriptionDebugState>(createInitialLiveDebugState);
@@ -105,7 +144,9 @@ export function useLiveTranscription({
 
     const liveTimerRef = useRef<NodeJS.Timeout | null>(null);
     const liveInFlightRef = useRef(false);
-    const isFirstReturnTickRef = useRef(false);
+    const lockedSegmentsRef = useRef<LockedSegment[]>([]);
+    const tailTextRef = useRef("");
+    const catchupBurstCountRef = useRef(0);
     const transcriptScrollRef = useRef<HTMLDivElement | null>(null);
     const abortRef = useRef<AbortController | null>(null);
     const previousTranscriptRef = useRef("");
@@ -114,17 +155,15 @@ export function useLiveTranscription({
     const pendingLiveTranscriptRef = useRef<string | null>(null);
     const syncedLiveTranscriptRef = useRef("");
     const liveShareResetTimerRef = useRef<NodeJS.Timeout | null>(null);
-    const liveTranscriptRef = useRef("");
     const isRecordingRef = useRef(false);
     const visibilityHandlerRef = useRef<(() => void) | null>(null);
+
+    const { lockedSegments, tailText } = canonicalTranscriptState;
+    const liveTranscript = buildCanonicalTranscript(lockedSegments, tailText);
 
     useEffect(() => {
         liveMemoIdRef.current = liveMemoId;
     }, [liveMemoId]);
-
-    useEffect(() => {
-        liveTranscriptRef.current = liveTranscript;
-    }, [liveTranscript]);
 
     useEffect(() => {
         if (transcriptScrollRef.current) {
@@ -172,6 +211,25 @@ export function useLiveTranscription({
         setLiveDebug((previous) => ({ ...previous, ...patch }));
     };
 
+    const updateCanonicalTranscript = (
+        nextLockedSegments: LockedSegment[],
+        nextTailText: string,
+    ) => {
+        lockedSegmentsRef.current = nextLockedSegments;
+        tailTextRef.current = nextTailText;
+        setCanonicalTranscriptState({
+            lockedSegments: nextLockedSegments,
+            tailText: nextTailText,
+        });
+
+        const transcript = buildCanonicalTranscript(nextLockedSegments, nextTailText);
+        updateLiveDebug({
+            lastTranscriptLength: transcript.length,
+            lastTranscriptWordCount: transcript.split(/\s+/).filter(Boolean).length,
+        });
+        return transcript;
+    };
+
     const resetLiveSession = () => {
         clearLiveShareResetTimer();
         if (liveTimerRef.current) clearInterval(liveTimerRef.current);
@@ -181,7 +239,7 @@ export function useLiveTranscription({
             visibilityHandlerRef.current = null;
         }
         isRecordingRef.current = false;
-        setLiveTranscript("");
+        updateCanonicalTranscript([], "");
         setAnimatedWords([]);
         setNewWordStartIndex(0);
         previousTranscriptRef.current = "";
@@ -190,7 +248,7 @@ export function useLiveTranscription({
         setLiveShareState("idle");
         liveMemoIdRef.current = null;
         liveInFlightRef.current = false;
-        isFirstReturnTickRef.current = false;
+        catchupBurstCountRef.current = 0;
         pendingLiveTranscriptRef.current = null;
         syncedLiveTranscriptRef.current = "";
         liveSyncInFlightRef.current = false;
@@ -241,10 +299,10 @@ export function useLiveTranscription({
     };
 
     useEffect(() => {
-        if (!liveMemoId || !liveTranscript.trim()) return;
-        pendingLiveTranscriptRef.current = liveTranscript;
+        if (!liveMemoId) return;
+        pendingLiveTranscriptRef.current = buildCanonicalTranscript(lockedSegments, tailText);
         void persistLiveTranscript();
-    }, [liveMemoId, liveTranscript]);
+    }, [liveMemoId, lockedSegments, tailText]);
 
     const requestLiveShareUrl = async (memoId: string): Promise<string> => {
         const response = await fetch(`/api/memos/${memoId}/share`, { method: "POST" });
@@ -281,17 +339,12 @@ export function useLiveTranscription({
         }
     };
 
-    const runLiveTick = () => {
+    const runLiveTick = (forceTailRefresh = false) => {
         if (liveInFlightRef.current) return;
+        if (!isRecordingRef.current) return;
         if (audioChunksRef.current.length === 0) return;
 
         liveInFlightRef.current = true;
-
-        // On the first tick after returning from a hidden tab, send ALL accumulated chunks
-        // so RIVA can transcribe the full recording rather than just the last 30 seconds.
-        // Reset the flag immediately so subsequent interval ticks use the normal cap.
-        const isReturnTick = isFirstReturnTickRef.current;
-        isFirstReturnTickRef.current = false;
 
         abortRef.current?.abort();
         const controller = new AbortController();
@@ -299,58 +352,33 @@ export function useLiveTranscription({
 
         const chunks = audioChunksRef.current;
         const header = webmHeaderRef.current;
-        const bufferedChunkCount = chunks.length;
-        const overflowed = bufferedChunkCount > LIVE_MAX_CHUNKS;
-        let windowMode: LiveTranscriptionWindowMode = "full_buffer";
-        let snapshotWindowStartIndex = 0;
-        let snapshotWindowChunkCount = bufferedChunkCount;
-        let firstChunkRetained = false;
-        // `header` is the WebM EBML/init blob captured at recording start (no audio data).
-        // `chunks` are the subsequent audio-only clusters from audioChunksRef.
-        //
-        // When `header` is available, ALWAYS prepend it so RIVA can decode the audio:
-        //   • Return tick or non-overflow: [header, ...all-audio-chunks]
-        //   • Normal ongoing overflow: [header, ...last-(LIVE_MAX_CHUNKS-1)-audio-chunks]
-        //
-        // When `header` is null (browser skipped the onstart requestData() call),
-        // fall back to the old behavior where chunk[0] carries both headers and first
-        // second of audio — the guardrail in mergeLiveTranscript still protects against
-        // duplications in that edge case.
-        const snapshotChunks = header
-            ? isReturnTick || chunks.length <= LIVE_MAX_CHUNKS
-                ? [header, ...chunks]
-                : [header, ...chunks.slice(-(LIVE_MAX_CHUNKS - 1))]
-            : isReturnTick || chunks.length <= LIVE_MAX_CHUNKS
-                ? [...chunks]
-                : [chunks[0], ...chunks.slice(-(LIVE_MAX_CHUNKS - 1))];
-        const snapshot = new Blob(snapshotChunks, { type: mimeTypeRef.current });
-        const snapshotAudioChunkCount = header ? snapshotChunks.length - 1 : snapshotChunks.length;
+        const locked = lockedSegmentsRef.current;
+        const finalizedEnd = locked.length > 0 ? locked[locked.length - 1].endIndex : 0;
+        const pendingCount = chunks.length - finalizedEnd;
+        const willFinalize = !forceTailRefresh && pendingCount >= SEGMENT_CHUNK_COUNT * 2;
+        const requestStart = finalizedEnd;
+        const requestEnd = willFinalize
+            ? finalizedEnd + SEGMENT_CHUNK_COUNT
+            : Math.min(chunks.length, finalizedEnd + LIVE_TAIL_CHUNK_COUNT);
 
-        if (isReturnTick) {
-            windowMode = "return_catch_up";
-        } else if (overflowed) {
-            snapshotWindowStartIndex = Math.max(0, bufferedChunkCount - (LIVE_MAX_CHUNKS - 1));
-            snapshotWindowChunkCount = Math.min(bufferedChunkCount, LIVE_MAX_CHUNKS - 1);
-            if (header) {
-                windowMode = "tail_window";
-            } else {
-                windowMode = "hybrid_first_and_tail";
-                firstChunkRetained = true;
-            }
-        }
+        const blobParts = header
+            ? [header, ...chunks.slice(requestStart, requestEnd)]
+            : [...chunks.slice(requestStart, requestEnd)];
+        const snapshot = new Blob(blobParts, { type: mimeTypeRef.current });
+        const snapshotAudioChunkCount = requestEnd - requestStart;
 
         updateLiveDebug({
             tabVisibility: getDocumentVisibilityState(),
-            windowMode,
-            bufferedChunkCount,
+            windowMode: willFinalize ? "segment_finalization" : "tail_update",
+            bufferedChunkCount: chunks.length,
             snapshotAudioChunkCount,
-            snapshotBlobCount: snapshotChunks.length,
+            snapshotBlobCount: blobParts.length,
             snapshotByteSize: snapshot.size,
-            snapshotWindowStartIndex,
-            snapshotWindowChunkCount,
-            firstChunkRetained,
+            snapshotWindowStartIndex: requestStart,
+            snapshotWindowChunkCount: requestEnd - requestStart,
+            firstChunkRetained: false,
             headerIncluded: Boolean(header),
-            overflowed,
+            overflowed: locked.length > 0,
             inFlight: true,
             lastTickAt: Date.now(),
         });
@@ -361,22 +389,28 @@ export function useLiveTranscription({
         fetch("/api/transcribe/live", { method: "POST", body: formData, signal: controller.signal })
             .then((response) => (response.ok ? response.json() : Promise.reject(response.status)))
             .then(({ text }: { text: string }) => {
-                if (text) {
-                    setLiveTranscript((previous) => {
-                        const merged = mergeLiveTranscript(previous, text);
-                        updateLiveDebug({
-                            lastResponseAt: Date.now(),
-                            lastServerText: text,
-                            lastTranscriptLength: merged.length,
-                            lastTranscriptWordCount: merged.split(/\s+/).filter(Boolean).length,
-                            inFlight: false,
-                        });
-                        return merged;
-                    });
-                } else {
+                if (willFinalize) {
+                    const finalizedText = (text ?? "").trim();
+                    const nextLockedSegments = [
+                        ...lockedSegmentsRef.current,
+                        { startIndex: requestStart, endIndex: requestEnd, text: finalizedText },
+                    ];
+                    lockedSegmentsRef.current = nextLockedSegments;
+                    tailTextRef.current = preserveTailAcrossFinalization(
+                        finalizedText,
+                        tailTextRef.current,
+                    );
                     updateLiveDebug({
                         lastResponseAt: Date.now(),
-                        lastServerText: "",
+                        lastServerText: finalizedText,
+                        inFlight: false,
+                    });
+                } else {
+                    const nextTailText = (text ?? "").trim();
+                    updateCanonicalTranscript(lockedSegmentsRef.current, nextTailText);
+                    updateLiveDebug({
+                        lastResponseAt: Date.now(),
+                        lastServerText: text ?? "",
                         inFlight: false,
                     });
                 }
@@ -391,11 +425,28 @@ export function useLiveTranscription({
             .finally(() => {
                 liveInFlightRef.current = false;
                 updateLiveDebug({ inFlight: false });
+
+                if (!willFinalize) return;
+
+                const afterEnd = lockedSegmentsRef.current.at(-1)?.endIndex ?? 0;
+                const remaining = audioChunksRef.current.length - afterEnd;
+                catchupBurstCountRef.current += 1;
+
+                const canDrainMore =
+                    remaining >= SEGMENT_CHUNK_COUNT * 2 &&
+                    catchupBurstCountRef.current < CATCHUP_BURST_MAX;
+                const shouldRefreshTail = remaining > 0;
+
+                if (canDrainMore) {
+                    runLiveTick();
+                } else if (shouldRefreshTail) {
+                    runLiveTick(true);
+                }
             });
     };
 
     const beginRecordingSession = () => {
-        setLiveTranscript("");
+        updateCanonicalTranscript([], "");
         setAnimatedWords([]);
         setNewWordStartIndex(0);
         previousTranscriptRef.current = "";
@@ -408,7 +459,7 @@ export function useLiveTranscription({
         syncedLiveTranscriptRef.current = "";
         liveSyncInFlightRef.current = false;
         liveInFlightRef.current = false;
-        isFirstReturnTickRef.current = false;
+        catchupBurstCountRef.current = 0;
         setLiveDebug(createInitialLiveDebugState());
 
         // Clean up any leftover handler from a previous session before registering a new one
@@ -424,10 +475,7 @@ export function useLiveTranscription({
             }
 
             if (liveTimerRef.current) clearInterval(liveTimerRef.current);
-            // Hidden tabs now keep polling, but browsers may still throttle timers.
-            // Keep the return tick as a catch-up path so a visible return can resend
-            // the full accumulated window without relying on a manual tab switch.
-            isFirstReturnTickRef.current = true;
+            catchupBurstCountRef.current = 0;
             if (!liveInFlightRef.current) runLiveTick();
             liveTimerRef.current = setInterval(runLiveTick, LIVE_INTERVAL_MS);
         };
@@ -449,7 +497,10 @@ export function useLiveTranscription({
             visibilityHandlerRef.current = null;
         }
         isRecordingRef.current = false;
-        pendingLiveTranscriptRef.current = liveTranscriptRef.current;
+        pendingLiveTranscriptRef.current = buildCanonicalTranscript(
+            lockedSegmentsRef.current,
+            tailTextRef.current,
+        );
         void persistLiveTranscript();
     };
 
