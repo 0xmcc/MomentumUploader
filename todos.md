@@ -1,0 +1,9 @@
+- delete voice memos
+- add voiceover playback to shared page
+- show credit cost for each voiceover in VoiceOverStudio
+- allow broader selection of voices
+- allow custom voices
+- upload files to transcribe (m4a, mp3, mp4?? we probably want to support video)
+- mobile responsiveness
+- credit system + payments for credits
+- require that each voiceover consumes credits that are tied to each user
