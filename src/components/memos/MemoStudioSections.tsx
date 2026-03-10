@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState } from "react";
 import Link from "next/link";
 import {
   Check,
@@ -11,9 +12,12 @@ import {
   Loader2,
   Mic2,
   Pause,
+  Pencil,
   Play,
   Plus,
   Search,
+  Sparkles,
+  X,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import {
@@ -102,7 +106,15 @@ function AuthControls() {
   );
 }
 
-export function MemoDetailView({ memo }: { memo: Memo }) {
+export function MemoDetailView({
+  memo,
+  onTitleSave,
+  onTitleRegenerate,
+}: {
+  memo: Memo;
+  onTitleSave?: (memoId: string, title: string) => void;
+  onTitleRegenerate?: (memoId: string) => Promise<string | null>;
+}) {
   const { playbackTheme } = useTheme();
   const {
     audioRef,
@@ -123,6 +135,38 @@ export function MemoDetailView({ memo }: { memo: Memo }) {
   const isFailed = isMemoFailed(memo);
   const isProcessing = isMemoProcessing(memo);
 
+  const displayTitle = getMemoTitle(memo);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editValue, setEditValue] = useState("");
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function startEditing() {
+    setEditValue(displayTitle);
+    setIsEditingTitle(true);
+    setTimeout(() => inputRef.current?.select(), 0);
+  }
+
+  function cancelEditing() {
+    setIsEditingTitle(false);
+  }
+
+  function commitEdit() {
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== displayTitle) {
+      onTitleSave?.(memo.id, trimmed);
+    }
+    setIsEditingTitle(false);
+  }
+
+  async function handleRegenerate() {
+    if (!onTitleRegenerate || isRegenerating) return;
+    setIsRegenerating(true);
+    await onTitleRegenerate(memo.id);
+    setIsRegenerating(false);
+    setIsEditingTitle(false);
+  }
+
   return (
     <motion.div
       key={memo.id}
@@ -131,11 +175,72 @@ export function MemoDetailView({ memo }: { memo: Memo }) {
       className="flex flex-col h-full w-full"
     >
       <div className="flex justify-between items-center pl-8 pr-8 py-6 border-b border-white/5 bg-[#121212]/50 backdrop-blur-md z-10">
-        <div className="flex flex-col">
-          <h2 className="text-xl font-semibold text-white/90">
-            {formatDate(memo.createdAt)}
-          </h2>
-          <div className="flex items-center gap-2 mt-1">
+        <div className="flex flex-col gap-1 min-w-0 flex-1 mr-4">
+          {isEditingTitle ? (
+            <div className="flex items-center gap-2">
+              <input
+                ref={inputRef}
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitEdit();
+                  if (e.key === "Escape") cancelEditing();
+                }}
+                onBlur={commitEdit}
+                autoFocus
+                className="text-xl font-semibold bg-white/5 border border-accent/40 rounded-lg px-3 py-1 text-white/90 focus:outline-none focus:ring-1 focus:ring-accent/60 min-w-0 flex-1"
+              />
+              <button
+                onMouseDown={(e) => { e.preventDefault(); commitEdit(); }}
+                title="Save title"
+                className="text-white/40 hover:text-emerald-400 transition-colors flex-shrink-0"
+              >
+                <Check size={16} />
+              </button>
+              <button
+                onMouseDown={(e) => { e.preventDefault(); cancelEditing(); }}
+                title="Cancel"
+                className="text-white/40 hover:text-red-400 transition-colors flex-shrink-0"
+              >
+                <X size={16} />
+              </button>
+              <button
+                onMouseDown={(e) => { e.preventDefault(); void handleRegenerate(); }}
+                title="Regenerate with AI"
+                disabled={isRegenerating}
+                className="text-white/40 hover:text-accent transition-colors flex-shrink-0 disabled:opacity-40"
+              >
+                {isRegenerating ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 group">
+              <h2
+                className="text-xl font-semibold text-white/90 truncate cursor-text"
+                onClick={startEditing}
+                title="Click to edit title"
+              >
+                {displayTitle}
+              </h2>
+              <button
+                onClick={startEditing}
+                title="Edit title"
+                className="opacity-0 group-hover:opacity-100 text-white/30 hover:text-white/70 transition-all flex-shrink-0"
+              >
+                <Pencil size={13} />
+              </button>
+              <button
+                onClick={() => void handleRegenerate()}
+                title="Regenerate title with AI"
+                disabled={isRegenerating}
+                className="opacity-0 group-hover:opacity-100 text-white/30 hover:text-accent transition-all flex-shrink-0 disabled:opacity-40"
+              >
+                {isRegenerating ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+              </button>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-white/35 font-mono">{formatDate(memo.createdAt)}</span>
             {isFailed ? (
               <span className="text-[10px] text-red-400 bg-red-400/10 px-2 py-0.5 rounded-full border border-red-500/20 uppercase tracking-tight">
                 Failed

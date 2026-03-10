@@ -2,6 +2,7 @@ export type TranscriptStatus = "processing" | "complete" | "failed";
 
 export type Memo = {
   id: string;
+  title?: string | null;
   transcript: string;
   transcriptStatus?: TranscriptStatus;
   createdAt: string;
@@ -30,12 +31,22 @@ export function isMemoProcessing(memo: Pick<Memo, "transcriptStatus">) {
   return memo.transcriptStatus === "processing";
 }
 
+const PROVISIONAL_TITLES = new Set([
+  "Voice Memo",
+  "Live recording (in progress)",
+  "Manual Voice Memo",
+]);
+
 export function getMemoTitle(memo: Memo) {
   if (isMemoFailed(memo)) {
     return "Transcription failed";
   }
   if (isMemoProcessing(memo) && !memo.transcript) {
     return "Transcribing…";
+  }
+
+  if (memo.title && !PROVISIONAL_TITLES.has(memo.title)) {
+    return memo.title;
   }
 
   const words = memo.transcript.split(" ");

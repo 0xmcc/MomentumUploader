@@ -25,10 +25,21 @@ type SharedMemoRow = {
 };
 
 function mockShareLookup(result: { data: SharedMemoRow | null; error: { message: string } | null }) {
+    // Memos chain: .select().eq().maybeSingle()
     const maybeSingle = jest.fn().mockResolvedValue(result);
-    const eq = jest.fn(() => ({ maybeSingle }));
-    const select = jest.fn(() => ({ eq }));
-    (supabaseAdmin.from as jest.Mock).mockReturnValue({ select });
+    const memoEq = jest.fn(() => ({ maybeSingle }));
+    const memoSelect = jest.fn(() => ({ eq: memoEq }));
+
+    // Segment chain: .select().eq().eq().order() → resolves to empty segments (no anchors for test memos)
+    const segmentOrder = jest.fn(() => Promise.resolve({ data: [], error: null }));
+    const segmentEq2 = jest.fn(() => ({ order: segmentOrder }));
+    const segmentEq1 = jest.fn(() => ({ eq: segmentEq2 }));
+    const segmentSelect = jest.fn(() => ({ eq: segmentEq1 }));
+
+    (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+        if (table === "memo_transcript_segments") return { select: segmentSelect };
+        return { select: memoSelect };
+    });
 }
 
 const activeMemo: SharedMemoRow = {
@@ -50,6 +61,114 @@ function makeReq(url: string): Request {
 describe("share route /s/[shareRef]", () => {
     beforeEach(() => {
         jest.clearAllMocks();
+    });
+
+    it("falls back when expires_at is missing from the active memo schema", async () => {
+        const legacyMemoSelect = jest.fn(() => ({
+            eq: jest.fn(() => ({
+                maybeSingle: jest.fn().mockResolvedValue({ data: activeMemo, error: null }),
+            })),
+        }));
+
+        const legacySegmentSelect = jest.fn(() => ({
+            eq: jest.fn(() => ({
+                eq: jest.fn(() => ({
+                    order: jest.fn().mockResolvedValue({ data: [], error: null }),
+                })),
+            })),
+        }));
+
+        let memoSelectCallCount = 0;
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "memo_transcript_segments") {
+                return { select: legacySegmentSelect };
+            }
+
+            return {
+                select: jest.fn(() => {
+                    memoSelectCallCount += 1;
+                    if (memoSelectCallCount === 1) {
+                        return {
+                            eq: jest.fn(() => ({
+                                maybeSingle: jest.fn().mockResolvedValue({
+                                    data: null,
+                                    error: {
+                                        code: "42703",
+                                        message: 'column "expires_at" does not exist',
+                                    },
+                                }),
+                            })),
+                        };
+                    }
+
+                    return legacyMemoSelect();
+                }),
+            };
+        });
+
+        const res = await GET(
+            makeReq("https://example.com/s/token123"),
+            { params: Promise.resolve({ shareRef: "token123" }) }
+        );
+
+        const body = await res.text();
+        expect(res.status).toBe(200);
+        expect(body).toContain("<h1>Weekly Sync</h1>");
+        expect(supabaseAdmin.from).toHaveBeenCalledWith("memos");
+        expect(memoSelectCallCount).toBe(2);
+    });
+
+    it("serves shares from minimal memo schemas without optional share columns", async () => {
+        const minimalMemo = {
+            id: "memo-legacy",
+            title: "Legacy Share",
+            transcript: "This memo came from an older schema.",
+            audio_url: "https://example.com/legacy.webm",
+            created_at: "2026-02-21T18:00:00.000Z",
+            share_token: "token123",
+        };
+
+        const segmentSelect = jest.fn(() => ({
+            eq: jest.fn(() => ({
+                eq: jest.fn(() => ({
+                    order: jest.fn().mockResolvedValue({ data: [], error: null }),
+                })),
+            })),
+        }));
+
+        const memoSelect = jest.fn((columns: string) => ({
+            eq: jest.fn(() => ({
+                maybeSingle: jest.fn().mockResolvedValue(
+                    columns === "*"
+                        ? { data: minimalMemo, error: null }
+                        : {
+                              data: null,
+                              error: {
+                                  code: "42703",
+                                  message: 'column "shared_at" does not exist',
+                              },
+                          }
+                ),
+            })),
+        }));
+
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "memo_transcript_segments") {
+                return { select: segmentSelect };
+            }
+
+            return { select: memoSelect };
+        });
+
+        const res = await GET(
+            makeReq("https://example.com/s/token123"),
+            { params: Promise.resolve({ shareRef: "token123" }) }
+        );
+
+        const body = await res.text();
+        expect(res.status).toBe(200);
+        expect(body).toContain("<h1>Legacy Share</h1>");
+        expect(body).toContain("This memo came from an older schema.");
     });
 
     it("serves html by default at the canonical share URL", async () => {

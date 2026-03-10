@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { uploadAudio, supabase, supabaseAdmin } from "@/lib/supabase";
 import { transcribeAudio } from "@/lib/riva";
 import { FAILED_TRANSCRIPT } from "@/lib/memo-ui";
+import type { TranscriptSegment } from "@/lib/transcript";
+import { isMissingColumnError } from "@/lib/supabase-compat";
+import { generateMemoTitle } from "@/lib/memo-title";
 
 const MAX_AUDIO_UPLOAD_BYTES = 75 * 1024 * 1024;
 const MAX_AUDIO_UPLOAD_MB = Math.round(MAX_AUDIO_UPLOAD_BYTES / (1024 * 1024));
 const TRANSCRIBE_MODEL = "nvidia/parakeet-rnnt-1.1b";
+const PROVISIONAL_MEMO_TITLE = "Voice Memo";
 
 type JsonResponse = ReturnType<typeof NextResponse.json>;
 export type StepResult<T> =
@@ -335,21 +339,21 @@ export async function uploadAudioToStorage(
 export async function transcribeUploadedAudio(
     uploaded: UploadedAudio,
     nvidiaApiKey: string
-): Promise<StepResult<string>> {
+): Promise<StepResult<{ transcript: string; segments: TranscriptSegment[] }>> {
     LOG("nvidia", "Sending audio to NVIDIA Parakeet via gRPC...");
     const transcribeStartMs = Date.now();
 
     try {
-        const transcriptionText = await transcribeAudio(
+        const result = await transcribeAudio(
             uploaded.audioBuffer,
             nvidiaApiKey,
             uploaded.file.type || "audio/webm",
             { priority: "final" }
         );
 
-        LOG("nvidia", "Transcription result", transcriptionText);
+        LOG("nvidia", "Transcription result", result.transcript);
         LOG("timing", "Transcription ms", Date.now() - transcribeStartMs);
-        return ok(transcriptionText);
+        return ok(result);
     } catch (transcriptionError) {
         ERR("nvidia", "Transcription failed", transcriptionError);
         return fail(
@@ -396,14 +400,47 @@ export async function persistMemoProvisional(
     LOG("db", memoId ? "Provisional update of existing memo..." : "Provisional insert into memos...");
 
     const tryUpsert = async (): Promise<StepResult<{ memoId: string }>> => {
-        if (memoId) {
-            const { data: updatedMemo, error: updateError } = await supabaseAdmin
+        const updateExistingMemo = (includeTranscriptStatus: boolean) => {
+            const payload: Record<string, unknown> = { audio_url: audioUrl };
+            if (includeTranscriptStatus) {
+                payload.transcript_status = "processing";
+            }
+
+            return supabaseAdmin
                 .from("memos")
-                .update({ audio_url: audioUrl, transcript_status: "processing" })
+                .update(payload)
                 .eq("id", memoId)
                 .eq("user_id", userId)
                 .select("id")
                 .maybeSingle();
+        };
+
+        const insertMemo = (includeTranscriptStatus: boolean) => {
+            const payload: Record<string, unknown> = {
+                title: PROVISIONAL_MEMO_TITLE,
+                transcript: "",
+                audio_url: audioUrl,
+                user_id: userId,
+            };
+            if (includeTranscriptStatus) {
+                payload.transcript_status = "processing";
+            }
+
+            return supabaseAdmin
+                .from("memos")
+                .insert(payload)
+                .select("id")
+                .single();
+        };
+
+        if (memoId) {
+            let { data: updatedMemo, error: updateError } = await updateExistingMemo(true);
+
+            if (isMissingColumnError(updateError, "memos", "transcript_status")) {
+                const legacyResult = await updateExistingMemo(false);
+                updatedMemo = legacyResult.data;
+                updateError = legacyResult.error;
+            }
 
             if (!updateError && updatedMemo?.id) {
                 LOG("db", "Provisional update succeeded", { id: updatedMemo.id });
@@ -416,16 +453,13 @@ export async function persistMemoProvisional(
             });
         }
 
-        const { data: insertData, error: insertError } = await supabaseAdmin
-            .from("memos")
-            .insert({
-                transcript: "",
-                audio_url: audioUrl,
-                user_id: userId,
-                transcript_status: "processing",
-            })
-            .select("id")
-            .single();
+        let { data: insertData, error: insertError } = await insertMemo(true);
+
+        if (isMissingColumnError(insertError, "memos", "transcript_status")) {
+            const legacyResult = await insertMemo(false);
+            insertData = legacyResult.data;
+            insertError = legacyResult.error;
+        }
 
         if (insertError || !insertData?.id) {
             ERR("db", "Provisional insert failed", insertError);
@@ -470,6 +504,7 @@ export async function persistMemoProvisional(
 export async function updateMemoFinal(
     memoId: string,
     transcript: string,
+    segments: TranscriptSegment[],
     audioUrl: string,
     userId: string,
     startedAtMs: number
@@ -477,11 +512,25 @@ export async function updateMemoFinal(
     LOG("db", "Finalizing memo with transcript...");
 
     try {
-        const { error } = await supabaseAdmin
-            .from("memos")
-            .update({ transcript, transcript_status: "complete" })
-            .eq("id", memoId)
-            .eq("user_id", userId);
+        const updateFinalMemo = (includeTranscriptStatus: boolean) => {
+            const payload: Record<string, unknown> = { transcript };
+            if (includeTranscriptStatus) {
+                payload.transcript_status = "complete";
+            }
+
+            return supabaseAdmin
+                .from("memos")
+                .update(payload)
+                .eq("id", memoId)
+                .eq("user_id", userId);
+        };
+
+        let { error } = await updateFinalMemo(true);
+
+        if (isMissingColumnError(error, "memos", "transcript_status")) {
+            const legacyResult = await updateFinalMemo(false);
+            error = legacyResult.error;
+        }
 
         if (error) {
             ERR("db", "Final transcript update failed", error);
@@ -492,6 +541,66 @@ export async function updateMemoFinal(
         }
 
         LOG("db", "Memo finalized", { id: memoId });
+
+        // Generate AI title from transcript. Non-fatal: falls back to "Memo #N".
+        try {
+            const aiTitle = await generateMemoTitle(transcript, userId, supabaseAdmin);
+            const { error: titleError } = await supabaseAdmin
+                .from("memos")
+                .update({ title: aiTitle })
+                .eq("id", memoId)
+                .eq("user_id", userId);
+            if (titleError) {
+                ERR("db", "Failed to save AI title", titleError);
+            } else {
+                LOG("db", "AI title saved", { id: memoId, title: aiTitle });
+            }
+        } catch (titleErr) {
+            ERR("db", "AI title generation threw", titleErr);
+        }
+
+        // Insert timestamped segments. Non-fatal: if this fails the transcript
+        // is already saved and the share page falls back to plain-text.
+        if (segments.length > 0) {
+            try {
+                // Delete any previous segments first (idempotent on retry).
+                const { error: deleteErr } = await supabaseAdmin
+                    .from("memo_transcript_segments")
+                    .delete()
+                    .eq("memo_id", memoId)
+                    .eq("source", "final");
+
+                if (deleteErr) {
+                    throw deleteErr;
+                }
+
+                const rows = segments.map((seg, i) => ({
+                    memo_id: memoId,
+                    user_id: userId,
+                    segment_index: i,
+                    start_ms: seg.startMs,
+                    end_ms: seg.endMs,
+                    text: seg.text,
+                    source: "final" as const,
+                }));
+
+                const { error: segErr } = await supabaseAdmin
+                    .from("memo_transcript_segments")
+                    .insert(rows);
+
+                if (segErr) {
+                    throw segErr;
+                }
+            } catch (segmentError) {
+                ERR("db", "Segment persistence failed — anchor timestamps unavailable for this memo", {
+                    memoId,
+                    segmentCount: segments.length,
+                    error: readErrorMessage(segmentError) || String(segmentError),
+                });
+                // Do NOT rethrow — the transcript write already succeeded.
+            }
+        }
+
         LOG("timing", "Total request ms", Date.now() - startedAtMs);
         LOG("done", "Returning success response");
 
@@ -518,11 +627,31 @@ export async function updateMemoFailed(
     LOG("db", "Marking memo as transcription-failed...");
 
     try {
-        await supabaseAdmin
-            .from("memos")
-            .update({ transcript: FAILED_TRANSCRIPT, transcript_status: "failed" })
-            .eq("id", memoId)
-            .eq("user_id", userId);
+        const updateFailedMemo = (includeTranscriptStatus: boolean) => {
+            const payload: Record<string, unknown> = {
+                transcript: FAILED_TRANSCRIPT,
+            };
+            if (includeTranscriptStatus) {
+                payload.transcript_status = "failed";
+            }
+
+            return supabaseAdmin
+                .from("memos")
+                .update(payload)
+                .eq("id", memoId)
+                .eq("user_id", userId);
+        };
+
+        let { error } = await updateFailedMemo(true);
+
+        if (isMissingColumnError(error, "memos", "transcript_status")) {
+            const legacyResult = await updateFailedMemo(false);
+            error = legacyResult.error;
+        }
+
+        if (error) {
+            throw error;
+        }
     } catch (dbError) {
         ERR("db", "Failed to mark memo as failed", dbError);
     }

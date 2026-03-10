@@ -404,11 +404,11 @@ export function useLiveTranscription({
                         ...lockedSegmentsRef.current,
                         { startIndex: requestStart, endIndex: requestEnd, text: finalizedText },
                     ];
-                    lockedSegmentsRef.current = nextLockedSegments;
-                    tailTextRef.current = preserveTailAcrossFinalization(
+                    const nextTailText = preserveTailAcrossFinalization(
                         finalizedText,
                         tailTextRef.current,
                     );
+                    updateCanonicalTranscript(nextLockedSegments, nextTailText);
                     updateLiveDebug({
                         lastResponseAt: Date.now(),
                         lastServerText: finalizedText,

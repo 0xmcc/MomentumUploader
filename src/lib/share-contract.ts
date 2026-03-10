@@ -1,3 +1,5 @@
+import type { TranscriptSegment } from "@/lib/transcript";
+
 export type ShareFormat = "html" | "md" | "json";
 
 export type ParsedShareRef = {
@@ -17,6 +19,7 @@ export type SharedArtifactPayload = {
   sharedAt: string | null;
   expiresAt: string | null;
   isLiveRecording?: boolean;
+  transcriptSegments?: TranscriptSegment[] | null;
 };
 
 export type SharedArtifactJson = {
@@ -27,6 +30,7 @@ export type SharedArtifactJson = {
     canonicalUrl: string;
     title: string;
     transcript: string;
+    transcriptSegments: TranscriptSegment[] | null;
     media: {
       audioUrl: string | null;
     };
@@ -108,6 +112,7 @@ export function buildSharedArtifactJson(payload: SharedArtifactPayload): SharedA
       canonicalUrl: payload.canonicalUrl,
       title: payload.title,
       transcript: payload.transcript,
+      transcriptSegments: payload.transcriptSegments ?? null,
       media: {
         audioUrl: payload.mediaUrl,
       },
@@ -154,6 +159,13 @@ export function buildSharedArtifactMarkdown(payload: SharedArtifactPayload): str
   return lines.join("\n");
 }
 
+function formatMs(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string {
   const escapedTitle = escapeHtml(payload.title);
   const escapedCanonicalUrl = escapeHtml(payload.canonicalUrl);
@@ -167,6 +179,17 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
     .filter(paragraph => paragraph.length > 0)
     .map(paragraph => `<div class="transcript-block">${paragraph}</div>`)
     .join("\n");
+
+  // Build timestamp-anchored segment list if available; otherwise fall back to plain text.
+  const transcriptContentHtml = payload.transcriptSegments?.length
+    ? `<div id="transcript-content" class="transcript">\n${payload.transcriptSegments.map(seg => {
+        const ts = formatMs(seg.startMs);
+        const escaped = escapeHtml(seg.text);
+        return `  <div class="transcript-segment" id="t-${seg.startMs}" data-start="${seg.startMs}" data-end="${seg.endMs}">` +
+          `<button class="ts-btn" type="button" data-seek="${seg.startMs}">${ts}</button>` +
+          `<span class="seg-text">${escaped}</span></div>`;
+      }).join("\n")}\n</div>`
+    : `<div class="transcript" id="transcript-content">${escapedTranscript}</div>`;
 
   const escapedAudioUrl = escapeHtml(payload.mediaUrl ?? "");
   const encodedCanonical = encodeURI(payload.canonicalUrl);
@@ -467,6 +490,32 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
       border-radius: 2px;
       padding: 0 1px;
     }
+    .transcript-segment {
+      display: flex;
+      gap: .65rem;
+      align-items: baseline;
+      padding: .3rem 0;
+      border-radius: 4px;
+      transition: background .15s;
+    }
+    .transcript-segment.active {
+      background: rgba(234, 88, 12, 0.12);
+    }
+    .ts-btn {
+      flex-shrink: 0;
+      font-family: ui-monospace, monospace;
+      font-size: .72rem;
+      color: #fdba74;
+      background: rgba(234, 88, 12, 0.14);
+      border: 1px solid rgba(251, 191, 126, 0.25);
+      border-radius: 4px;
+      padding: 1px 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      line-height: 1.5;
+    }
+    .ts-btn:hover { background: rgba(234, 88, 12, 0.3); }
+    .seg-text { flex: 1; }
   </style>
 </head>
 <body>
@@ -495,7 +544,7 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
         </section>
       </div>
       
-      <div class="transcript" id="transcript-content">${escapedTranscript}</div>
+      ${transcriptContentHtml}
       
       
     </article>
@@ -529,8 +578,8 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
 
       if (copyButton) {
         copyButton.addEventListener("click", () => {
-          // Extract text cleanly, preserving paragraph breaks
-          const paragraphs = transcriptContent.querySelectorAll(".transcript-block");
+          // Extract text cleanly — works for both segment cards and plain-text blocks
+          const paragraphs = transcriptContent.querySelectorAll(".transcript-block, .seg-text");
           let textToCopy = "";
           
           if (paragraphs.length > 0) {
@@ -561,7 +610,7 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
       const transcriptEl = document.getElementById("transcript-content");
       if (!searchInput || !matchCountEl || !prevBtn || !nextBtn || !transcriptEl) return;
 
-      const blocks = Array.from(transcriptEl.querySelectorAll(".transcript-block"));
+      const blocks = Array.from(transcriptEl.querySelectorAll(".transcript-block, .seg-text"));
       const blockTexts = blocks.map(function(b) { return b.textContent || ""; });
       const originalText = blockTexts.join("\n\n");
       const SEARCH_KEY = "transcript-search-query";
@@ -664,6 +713,55 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
         updateActive();
         e.preventDefault();
       });
+    })();
+
+    (() => {
+      // Timestamp anchor: seek audio and highlight the active segment.
+      const audio = document.querySelector("audio.share-audio");
+      const transcriptEl = document.getElementById("transcript-content");
+      if (!transcriptEl) return;
+
+      const segments = Array.from(transcriptEl.querySelectorAll(".transcript-segment[data-start]"));
+      if (!segments.length) return;
+
+      // Seek audio on timestamp button click
+      transcriptEl.addEventListener("click", function(e) {
+        const btn = e.target.closest(".ts-btn[data-seek]");
+        if (!btn || !audio) return;
+        const ms = Number(btn.getAttribute("data-seek"));
+        audio.currentTime = ms / 1000;
+        audio.play().catch(function() {});
+      });
+
+      // Highlight active segment during playback
+      if (audio) {
+        audio.addEventListener("timeupdate", function() {
+          const nowMs = audio.currentTime * 1000;
+          segments.forEach(function(seg) {
+            const start = Number(seg.getAttribute("data-start"));
+            const end = Number(seg.getAttribute("data-end"));
+            if (nowMs >= start && nowMs < end) {
+              seg.classList.add("active");
+            } else {
+              seg.classList.remove("active");
+            }
+          });
+        });
+      }
+
+      // Deep-link: /s/token#t-45000 seeks to 45 seconds and scrolls to segment
+      const hash = location.hash;
+      const hashMatch = hash.match(/^#t-(\\d+)$/);
+      if (hashMatch) {
+        const targetMs = Number(hashMatch[1]);
+        if (audio) {
+          audio.currentTime = targetMs / 1000;
+        }
+        const target = document.getElementById("t-" + targetMs);
+        if (target) {
+          target.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }
     })();
   </script>
 </body>

@@ -85,7 +85,8 @@ export async function POST(req: NextRequest) {
             return withCors(await updateMemoFailed(resolvedMemoId, uploaded.data.fileUrl, userId, startedAtMs));
         }
 
-        return withCors(await updateMemoFinal(resolvedMemoId, transcription.data, uploaded.data.fileUrl, userId, startedAtMs));
+        const { transcript, segments } = transcription.data;
+        return withCors(await updateMemoFinal(resolvedMemoId, transcript, segments, uploaded.data.fileUrl, userId, startedAtMs));
     } catch (error) {
         ERR("catch", "Unhandled error in POST handler", error);
         return withCors(NextResponse.json({ error: "Failed to transcribe audio" }, { status: 500 }));

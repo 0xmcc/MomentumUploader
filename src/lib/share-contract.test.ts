@@ -122,4 +122,60 @@ describe("share-contract", () => {
         expect(html).toContain('<div class="transcript-block">Second paragraph here with some whitespaces.</div>');
         expect(html).toContain('<div class="transcript-block">Third paragraph.</div>');
     });
+
+    describe("transcriptSegments — timestamp anchors", () => {
+        const segmentPayload: SharedArtifactPayload = {
+            ...basePayload,
+            transcriptSegments: [
+                { id: "0", startMs: 0, endMs: 4500, text: "Hello world" },
+                { id: "1", startMs: 4500, endMs: 12000, text: "How are you today" },
+            ],
+        };
+
+        it("includes transcriptSegments array in JSON output", () => {
+            const json = buildSharedArtifactJson(segmentPayload);
+            expect(json.artifact.transcriptSegments).toHaveLength(2);
+            expect(json.artifact.transcriptSegments![0]).toMatchObject({ id: "0", startMs: 0, endMs: 4500, text: "Hello world" });
+        });
+
+        it("includes null for transcriptSegments in JSON when not provided", () => {
+            const json = buildSharedArtifactJson(basePayload);
+            expect(json.artifact.transcriptSegments).toBeNull();
+        });
+
+        it("renders timestamp buttons with correct data-seek values when segments present", () => {
+            const html = buildSharedArtifactHtml(segmentPayload);
+            expect(html).toContain('class="ts-btn"');
+            expect(html).toContain('data-seek="0"');
+            expect(html).toContain('data-seek="4500"');
+            // 0ms → 0:00, 4500ms → 0:04 (4 seconds)
+            expect(html).toContain('>0:00<');
+            expect(html).toContain('>0:04<');
+        });
+
+        it("renders each segment with an anchor id matching its startMs", () => {
+            const html = buildSharedArtifactHtml(segmentPayload);
+            expect(html).toContain('id="t-0"');
+            expect(html).toContain('id="t-4500"');
+        });
+
+        it("falls back to plain transcript-block rendering when transcriptSegments is null", () => {
+            const html = buildSharedArtifactHtml({ ...basePayload, transcriptSegments: null });
+            expect(html).toContain('class="transcript-block"');
+            expect(html).not.toContain('class="ts-btn"');
+        });
+
+        it("falls back to plain transcript-block rendering when transcriptSegments is absent", () => {
+            const html = buildSharedArtifactHtml(basePayload);
+            expect(html).toContain('class="transcript-block"');
+            expect(html).not.toContain('class="ts-btn"');
+        });
+
+        it("includes seek and timeupdate JS when segments present", () => {
+            const html = buildSharedArtifactHtml(segmentPayload);
+            expect(html).toContain("data-seek");
+            expect(html).toContain("timeupdate");
+            expect(html).toContain("audio.currentTime");
+        });
+    });
 });

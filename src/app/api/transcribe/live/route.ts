@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
 
     try {
         const audioBuffer = Buffer.from(await file.arrayBuffer());
-        const text = await transcribeAudio(
+        const { transcript: text } = await transcribeAudio(
             audioBuffer,
             process.env.NVIDIA_API_KEY!,
             file.type || "audio/webm",

@@ -82,4 +82,71 @@ describe("riva transcription runtime dependencies", () => {
         expect(ffmpegCommand).not.toBe("ffmpeg");
         expect(ffmpegCommand).toBe(path.join(process.cwd(), "node_modules/ffmpeg-static/ffmpeg"));
     });
+
+    it("returns { transcript, segments } with correct startMs/endMs derived from audio_processed", async () => {
+        loadPackageDefinitionMock.mockReturnValue({
+            nvidia: {
+                riva: {
+                    asr: {
+                        RivaSpeechRecognition: jest.fn().mockImplementation(() => ({
+                            Recognize: (
+                                _request: unknown,
+                                _metadata: unknown,
+                                callback: (err: Error | null, response?: unknown) => void
+                            ) => {
+                                callback(null, {
+                                    results: [
+                                        { alternatives: [{ transcript: "Hello world" }], audio_processed: 2.5 },
+                                        { alternatives: [{ transcript: "How are you" }], audio_processed: 5.0 },
+                                    ],
+                                });
+                            },
+                        })),
+                    },
+                },
+            },
+        });
+
+        const { transcribeAudio } = await import("./riva");
+        const result = await transcribeAudio(Buffer.from("fake-audio"), "test-api-key", "audio/webm");
+
+        expect(result.transcript).toBe("Hello world How are you");
+        expect(result.segments).toHaveLength(2);
+
+        expect(result.segments[0]).toMatchObject({ id: "0", startMs: 0, endMs: 2500, text: "Hello world" });
+        expect(result.segments[1]).toMatchObject({ id: "1", startMs: 2500, endMs: 5000, text: "How are you" });
+    });
+
+    it("guards against audio_processed=0: segment endMs is always strictly greater than startMs", async () => {
+        loadPackageDefinitionMock.mockReturnValue({
+            nvidia: {
+                riva: {
+                    asr: {
+                        RivaSpeechRecognition: jest.fn().mockImplementation(() => ({
+                            Recognize: (
+                                _request: unknown,
+                                _metadata: unknown,
+                                callback: (err: Error | null, response?: unknown) => void
+                            ) => {
+                                callback(null, {
+                                    results: [
+                                        // audio_processed missing / 0 on first segment
+                                        { alternatives: [{ transcript: "Zero time segment" }] },
+                                        { alternatives: [{ transcript: "Normal segment" }], audio_processed: 3.0 },
+                                    ],
+                                });
+                            },
+                        })),
+                    },
+                },
+            },
+        });
+
+        const { transcribeAudio } = await import("./riva");
+        const result = await transcribeAudio(Buffer.from("fake-audio"), "test-api-key", "audio/webm");
+
+        expect(result.segments).toHaveLength(2);
+        expect(result.segments[0].endMs).toBeGreaterThan(result.segments[0].startMs);
+        expect(result.segments[1].startMs).toBe(result.segments[0].endMs);
+    });
 });

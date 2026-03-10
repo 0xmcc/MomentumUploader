@@ -233,6 +233,44 @@ export function useMemosWorkspace({
     void uploadBlob(pendingBlob, pendingDuration, pendingMimeType, pendingMemoId);
   }, [pendingBlob, pendingDuration, pendingMimeType, pendingMemoId, uploadBlob]);
 
+  const updateMemoTitle = useCallback(
+    async (memoId: string, newTitle: string) => {
+      // Optimistic update
+      setMemos((prev) =>
+        prev.map((m) => (m.id === memoId ? { ...m, title: newTitle } : m))
+      );
+      try {
+        const res = await fetch(`/api/memos/${memoId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: newTitle }),
+        });
+        if (!res.ok) throw new Error("PATCH failed");
+      } catch {
+        // Revert on failure
+        await fetchMemos();
+      }
+    },
+    [fetchMemos]
+  );
+
+  const regenerateMemoTitle = useCallback(
+    async (memoId: string): Promise<string | null> => {
+      try {
+        const res = await fetch(`/api/memos/${memoId}/title`, { method: "POST" });
+        if (!res.ok) return null;
+        const json = (await res.json()) as { title: string };
+        setMemos((prev) =>
+          prev.map((m) => (m.id === memoId ? { ...m, title: json.title } : m))
+        );
+        return json.title;
+      } catch {
+        return null;
+      }
+    },
+    []
+  );
+
   return {
     filteredMemos,
     handleAudioInput,
@@ -246,6 +284,8 @@ export function useMemosWorkspace({
     isUploading,
     showUploadError,
     retryUpload,
+    updateMemoTitle,
+    regenerateMemoTitle,
     uploadProgressPercent,
   };
 }

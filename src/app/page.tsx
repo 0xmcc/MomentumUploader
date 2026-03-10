@@ -21,12 +21,14 @@ export default function Home() {
     loading,
     isUploading,
     retryUpload,
+    regenerateMemoTitle,
     searchQuery,
     selectedMemo,
     selectedMemoId,
     setSearchQuery,
     setSelectedMemoId,
     showUploadError,
+    updateMemoTitle,
     uploadProgressPercent,
   } = useMemosWorkspace({
     isLoaded,
@@ -75,7 +77,12 @@ export default function Home() {
         )}
 
         {selectedMemo ? (
-          <MemoDetailView key={selectedMemo.id} memo={selectedMemo} />
+          <MemoDetailView
+            key={selectedMemo.id}
+            memo={selectedMemo}
+            onTitleSave={updateMemoTitle}
+            onTitleRegenerate={regenerateMemoTitle}
+          />
         ) : (
           <RecorderPanel
             isUploading={isUploading}

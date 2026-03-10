@@ -106,7 +106,7 @@ describe("POST /api/transcribe", () => {
         (supabaseAdmin.from as jest.Mock).mockImplementation(() => makeDefaultMock());
         process.env.NVIDIA_API_KEY = "test-nvidia-key";
         (resolveMemoUserId as jest.Mock).mockResolvedValue("user_123");
-        (transcribeAudio as jest.Mock).mockResolvedValue("hello world");
+        (transcribeAudio as jest.Mock).mockResolvedValue({ transcript: "hello world", segments: [] });
     });
 
     afterAll(() => {

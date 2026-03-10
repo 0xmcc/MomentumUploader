@@ -23,6 +23,7 @@ import os from "os";
 import { existsSync } from "fs";
 import fs from "fs/promises";
 import dns from "node:dns";
+import type { TranscriptSegment } from "@/lib/transcript";
 
 // Prefer IPv4 for node requests to avoid IPv6 'EHOSTUNREACH' routing issues
 // that could affect gRPC or other downstream service connections.
@@ -91,6 +92,7 @@ type RecognizeResult = {
     alternatives?: Array<{
         transcript?: string;
     }>;
+    audio_processed?: number; // cumulative seconds of audio processed up to this result
 };
 
 type RecognizeResponse = {
@@ -187,7 +189,11 @@ async function toPCM16(inputBuffer: Buffer, inputExt = "webm"): Promise<Buffer> 
     }
 }
 
-async function _doRecognize(audioBytes: Buffer, apiKey: string, mimeType: string): Promise<string> {
+async function _doRecognize(
+    audioBytes: Buffer,
+    apiKey: string,
+    mimeType: string
+): Promise<{ transcript: string; segments: TranscriptSegment[] }> {
     const client = getAsrClient();
     const normalizedApiKey = apiKey.trim();
 
@@ -222,7 +228,7 @@ async function _doRecognize(audioBytes: Buffer, apiKey: string, mimeType: string
         audio: pcmBuffer,
     };
 
-    return new Promise<string>((resolve, reject) => {
+    return new Promise<{ transcript: string; segments: TranscriptSegment[] }>((resolve, reject) => {
         client.Recognize(request, metadata, (err, response) => {
             if (err) {
                 console.error("[riva/grpc] Recognize error:", err);
@@ -230,12 +236,22 @@ async function _doRecognize(audioBytes: Buffer, apiKey: string, mimeType: string
                 return;
             }
             console.log("[riva/grpc] results:", JSON.stringify(response?.results?.length), "segments");
-            // Riva splits on silence — join ALL segments for the full transcript
-            const transcript = (response?.results ?? [])
-                .map((segment) => segment.alternatives?.[0]?.transcript ?? "")
-                .join(" ")
-                .trim();
-            resolve(transcript);
+            // Build timestamped segments from Riva results.
+            // audio_processed is cumulative seconds up to each result — use it to
+            // derive startMs/endMs. Guard against 0/missing values so endMs is
+            // always strictly greater than startMs.
+            let prevMs = 0;
+            const segments: TranscriptSegment[] = (response?.results ?? [])
+                .filter((r) => r.alternatives?.[0]?.transcript?.trim())
+                .map((r, i) => {
+                    const text = r.alternatives![0].transcript!.trim();
+                    const endMs = Math.max(prevMs + 1, Math.round((r.audio_processed ?? 0) * 1000));
+                    const seg: TranscriptSegment = { id: String(i), startMs: prevMs, endMs, text };
+                    prevMs = endMs;
+                    return seg;
+                });
+            const transcript = segments.map((s) => s.text).join(" ");
+            resolve({ transcript, segments });
         });
     });
 }
@@ -248,7 +264,7 @@ export async function transcribeAudio(
     apiKey: string,
     mimeType = "audio/webm",
     options?: { priority?: "live" | "final" }
-): Promise<string> {
+): Promise<{ transcript: string; segments: TranscriptSegment[] }> {
     const priority = options?.priority ?? "final";
     console.log(
         `[riva] Recognize request priority=${priority} size=${(audioBytes.byteLength / 1024).toFixed(0)} KB`

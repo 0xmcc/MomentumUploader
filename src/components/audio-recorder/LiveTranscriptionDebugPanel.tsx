@@ -25,7 +25,7 @@ function formatBytes(byteCount: number): string {
 function describeWindowMode(windowMode: LiveTranscriptionWindowMode): string {
     switch (windowMode) {
         case "segment_finalization":
-            return "A bounded 15-chunk segment is being locked. The visible transcript updates on the follow-up tail request, not on this response.";
+            return "A bounded 15-chunk segment is being locked. Successful locked text is committed immediately, then the follow-up tail request refreshes the unlocked remainder.";
         case "tail_update":
             return "The newest unlocked tail is being transcribed and joined with any previously locked segments.";
         default:

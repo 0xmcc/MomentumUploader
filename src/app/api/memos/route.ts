@@ -1,11 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { resolveMemoUserId } from "@/lib/memo-api-auth";
+import { isMissingColumnError } from "@/lib/supabase-compat";
 
 const CORS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+const MEMO_SELECT_WITH_STATUS =
+    "id, title, transcript, audio_url, duration, created_at, transcript_status";
+const MEMO_SELECT_LEGACY =
+    "id, title, transcript, audio_url, duration, created_at";
+
+type MemoRow = {
+    id: string;
+    title: string | null;
+    transcript: string | null;
+    audio_url: string | null;
+    duration: number | null;
+    created_at: string;
+    transcript_status?: "processing" | "complete" | "failed" | null;
 };
 
 export async function OPTIONS() {
@@ -32,24 +48,40 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(Number(searchParams.get("limit") ?? 50), 200);
     const offset = Number(searchParams.get("offset") ?? 0);
 
-    let query = supabaseAdmin
+    const buildQuery = (selectClause: string) => supabaseAdmin
         .from("memos")
-        .select("id, title, transcript, audio_url, duration, created_at, transcript_status", { count: "exact" })
+        .select(selectClause, { count: "exact" })
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .range(offset, offset + limit - 1);
+
+    let query = buildQuery(MEMO_SELECT_WITH_STATUS);
 
     if (search) {
         query = query.ilike("transcript", `%${search}%`);
     }
 
-    const { data, error, count } = await query;
+    let { data, error, count } = await query;
+
+    if (isMissingColumnError(error, "memos", "transcript_status")) {
+        let legacyQuery = buildQuery(MEMO_SELECT_LEGACY);
+        if (search) {
+            legacyQuery = legacyQuery.ilike("transcript", `%${search}%`);
+        }
+
+        const legacyResult = await legacyQuery;
+        data = legacyResult.data;
+        error = legacyResult.error;
+        count = legacyResult.count;
+    }
 
     if (error) {
         return NextResponse.json({ error: error.message }, { status: 500, headers: CORS });
     }
 
-    const memos = (data ?? []).map((row) => ({
+    const rows = (data ?? []) as unknown as MemoRow[];
+
+    const memos = rows.map((row) => ({
         id: row.id,
         title: row.title ?? null,
         transcript: row.transcript ?? "",

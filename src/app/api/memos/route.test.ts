@@ -115,4 +115,70 @@ describe("GET /api/memos", () => {
         expect(body.total).toBe(1);
         expect(body.memos[0].id).toBe("memo-token-1");
     });
+
+    it("falls back to legacy schema when transcript_status is missing", async () => {
+        (auth as unknown as jest.Mock).mockResolvedValue({ userId: "user_legacy" });
+
+        const legacyResult = {
+            data: [
+                {
+                    id: "memo-legacy-1",
+                    title: "Legacy Memo",
+                    transcript: "legacy schema still works",
+                    audio_url: "https://example.com/legacy.webm",
+                    duration: 15,
+                    created_at: "2026-02-21T00:00:00.000Z",
+                },
+            ],
+            error: null,
+            count: 1,
+        };
+
+        const legacyRange = jest.fn(() => legacyResult);
+        const legacyOrder = jest.fn(() => ({ range: legacyRange }));
+        const legacyEq = jest.fn(() => ({ order: legacyOrder }));
+        const legacySelect = jest.fn(() => ({ eq: legacyEq }));
+
+        const statusRange = jest.fn(() => ({
+            data: null,
+            error: {
+                code: "42703",
+                message: "column memos.transcript_status does not exist",
+            },
+            count: null,
+        }));
+        const statusOrder = jest.fn(() => ({ range: statusRange }));
+        const statusEq = jest.fn(() => ({ order: statusOrder }));
+        const statusSelect = jest.fn(() => ({ eq: statusEq }));
+
+        let fromCallCount = 0;
+        (supabaseAdmin.from as jest.Mock).mockImplementation(() => {
+            fromCallCount += 1;
+            return fromCallCount === 1
+                ? { select: statusSelect }
+                : { select: legacySelect };
+        });
+
+        const req = {
+            nextUrl: new URL("https://example.com/api/memos"),
+        } as NextRequest;
+
+        const res = await GET(req);
+        const body = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(supabaseAdmin.from).toHaveBeenCalledTimes(2);
+        expect(statusSelect).toHaveBeenCalledWith(
+            "id, title, transcript, audio_url, duration, created_at, transcript_status",
+            { count: "exact" }
+        );
+        expect(legacySelect).toHaveBeenCalledWith(
+            "id, title, transcript, audio_url, duration, created_at",
+            { count: "exact" }
+        );
+        expect(body.memos[0]).toMatchObject({
+            id: "memo-legacy-1",
+            transcriptStatus: "complete",
+        });
+    });
 });
