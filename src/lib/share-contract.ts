@@ -1,183 +1,188 @@
 export type ShareFormat = "html" | "md" | "json";
 
 export type ParsedShareRef = {
-    shareToken: string;
-    pathFormat: ShareFormat;
+  shareToken: string;
+  pathFormat: ShareFormat;
 };
 
 export type SharedArtifactPayload = {
-    artifactType: string;
-    artifactId: string;
+  artifactType: string;
+  artifactId: string;
+  shareToken: string;
+  canonicalUrl: string;
+  title: string;
+  transcript: string;
+  mediaUrl: string | null;
+  createdAt: string;
+  sharedAt: string | null;
+  expiresAt: string | null;
+  isLiveRecording?: boolean;
+};
+
+export type SharedArtifactJson = {
+  artifact: {
+    type: string;
+    id: string;
     shareToken: string;
     canonicalUrl: string;
     title: string;
     transcript: string;
-    mediaUrl: string | null;
-    createdAt: string;
-    sharedAt: string | null;
-    expiresAt: string | null;
-    isLiveRecording?: boolean;
-};
-
-export type SharedArtifactJson = {
-    artifact: {
-        type: string;
-        id: string;
-        shareToken: string;
-        canonicalUrl: string;
-        title: string;
-        transcript: string;
-        media: {
-            audioUrl: string | null;
-        };
-        timestamps: {
-            createdAt: string;
-            sharedAt: string | null;
-            expiresAt: string | null;
-        };
+    media: {
+      audioUrl: string | null;
     };
+    timestamps: {
+      createdAt: string;
+      sharedAt: string | null;
+      expiresAt: string | null;
+    };
+  };
 };
 
 const SUPPORTED_QUERY_FORMATS = new Set<string>(["html", "md", "json"]);
 
 function escapeHtml(input: string): string {
-    return input
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll("\"", "&quot;")
-        .replaceAll("'", "&#039;");
+  return input
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function toSafeFileName(input: string): string {
-    const normalized = input
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "");
+  const normalized = input
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 
-    return normalized || "shared-memo";
+  return normalized || "shared-memo";
 }
 
 function tokenFromRef(shareRef: string): ParsedShareRef {
-    if (shareRef.endsWith(".md")) {
-        return { shareToken: shareRef.slice(0, -3), pathFormat: "md" };
-    }
-    if (shareRef.endsWith(".json")) {
-        return { shareToken: shareRef.slice(0, -5), pathFormat: "json" };
-    }
-    return { shareToken: shareRef, pathFormat: "html" };
+  if (shareRef.endsWith(".md")) {
+    return { shareToken: shareRef.slice(0, -3), pathFormat: "md" };
+  }
+  if (shareRef.endsWith(".json")) {
+    return { shareToken: shareRef.slice(0, -5), pathFormat: "json" };
+  }
+  return { shareToken: shareRef, pathFormat: "html" };
 }
 
 export function parseShareRef(shareRef: string): ParsedShareRef {
-    const normalized = shareRef.trim();
-    if (!normalized) {
-        throw new Error("Missing share reference");
-    }
-    return tokenFromRef(normalized);
+  const normalized = shareRef.trim();
+  if (!normalized) {
+    throw new Error("Missing share reference");
+  }
+  return tokenFromRef(normalized);
 }
 
 export function resolveShareFormat(pathFormat: ShareFormat, queryFormat: string | null): ShareFormat {
-    if (!queryFormat) {
-        return pathFormat;
-    }
+  if (!queryFormat) {
+    return pathFormat;
+  }
 
-    const normalized = queryFormat.trim().toLowerCase();
-    if (!SUPPORTED_QUERY_FORMATS.has(normalized)) {
-        throw new Error("Unsupported format");
-    }
+  const normalized = queryFormat.trim().toLowerCase();
+  if (!SUPPORTED_QUERY_FORMATS.has(normalized)) {
+    throw new Error("Unsupported format");
+  }
 
-    const resolved = normalized as ShareFormat;
-    if (pathFormat !== "html" && resolved !== pathFormat) {
-        throw new Error("Conflicting format selectors");
-    }
+  const resolved = normalized as ShareFormat;
+  if (pathFormat !== "html" && resolved !== pathFormat) {
+    throw new Error("Conflicting format selectors");
+  }
 
-    return resolved;
+  return resolved;
 }
 
 export function isValidShareToken(token: string): boolean {
-    return /^[A-Za-z0-9_-]{8,128}$/.test(token);
+  return /^[A-Za-z0-9_-]{8,128}$/.test(token);
 }
 
 export function buildSharedArtifactJson(payload: SharedArtifactPayload): SharedArtifactJson {
-    return {
-        artifact: {
-            type: payload.artifactType,
-            id: payload.artifactId,
-            shareToken: payload.shareToken,
-            canonicalUrl: payload.canonicalUrl,
-            title: payload.title,
-            transcript: payload.transcript,
-            media: {
-                audioUrl: payload.mediaUrl,
-            },
-            timestamps: {
-                createdAt: payload.createdAt,
-                sharedAt: payload.sharedAt,
-                expiresAt: payload.expiresAt,
-            },
-        },
-    };
+  return {
+    artifact: {
+      type: payload.artifactType,
+      id: payload.artifactId,
+      shareToken: payload.shareToken,
+      canonicalUrl: payload.canonicalUrl,
+      title: payload.title,
+      transcript: payload.transcript,
+      media: {
+        audioUrl: payload.mediaUrl,
+      },
+      timestamps: {
+        createdAt: payload.createdAt,
+        sharedAt: payload.sharedAt,
+        expiresAt: payload.expiresAt,
+      },
+    },
+  };
 }
 
 export function buildSharedArtifactMarkdown(payload: SharedArtifactPayload): string {
-    const lines = [
-        "---",
-        `artifact_type: ${payload.artifactType}`,
-        `artifact_id: ${payload.artifactId}`,
-        `share_token: ${payload.shareToken}`,
-        `canonical_url: ${payload.canonicalUrl}`,
-        `created_at: ${payload.createdAt}`,
-        `shared_at: ${payload.sharedAt ?? "null"}`,
-        `expires_at: ${payload.expiresAt ?? "null"}`,
-        `media_url: ${payload.mediaUrl ?? "null"}`,
-        "---",
-        "",
-        `# ${payload.title}`,
-        "",
-        "## Transcript",
-        "",
-        payload.transcript || "*(no transcript)*",
-        "",
-        "## Metadata",
-        "",
-        `- Artifact type: ${payload.artifactType}`,
-        `- Artifact id: ${payload.artifactId}`,
-        `- Canonical URL: ${payload.canonicalUrl}`,
-        `- Created at: ${payload.createdAt}`,
-        `- Shared at: ${payload.sharedAt ?? "n/a"}`,
-        `- Expires at: ${payload.expiresAt ?? "n/a"}`,
-        `- Audio URL: ${payload.mediaUrl ?? "n/a"}`,
-        "",
-    ];
+  const lines = [
+    "---",
+    `artifact_type: ${payload.artifactType}`,
+    `artifact_id: ${payload.artifactId}`,
+    `share_token: ${payload.shareToken}`,
+    `canonical_url: ${payload.canonicalUrl}`,
+    `created_at: ${payload.createdAt}`,
+    `shared_at: ${payload.sharedAt ?? "null"}`,
+    `expires_at: ${payload.expiresAt ?? "null"}`,
+    `media_url: ${payload.mediaUrl ?? "null"}`,
+    "---",
+    "",
+    `# ${payload.title}`,
+    "",
+    "## Transcript",
+    "",
+    payload.transcript || "*(no transcript)*",
+    "",
+    "## Metadata",
+    "",
+    `- Artifact type: ${payload.artifactType}`,
+    `- Artifact id: ${payload.artifactId}`,
+    `- Canonical URL: ${payload.canonicalUrl}`,
+    `- Created at: ${payload.createdAt}`,
+    `- Shared at: ${payload.sharedAt ?? "n/a"}`,
+    `- Expires at: ${payload.expiresAt ?? "n/a"}`,
+    `- Audio URL: ${payload.mediaUrl ?? "n/a"}`,
+    "",
+  ];
 
-    return lines.join("\n");
+  return lines.join("\n");
 }
 
 export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string {
-    const escapedTitle = escapeHtml(payload.title);
-    const escapedTranscript = escapeHtml(payload.transcript || "(no transcript)");
-    const escapedCanonicalUrl = escapeHtml(payload.canonicalUrl);
-    const escapedArtifactType = escapeHtml(payload.artifactType);
-    const escapedArtifactId = escapeHtml(payload.artifactId);
-    const escapedCreatedAt = escapeHtml(payload.createdAt);
-    const escapedSharedAt = escapeHtml(payload.sharedAt ?? "n/a");
-    const escapedExpiresAt = escapeHtml(payload.expiresAt ?? "n/a");
-    const escapedAudioUrl = escapeHtml(payload.mediaUrl ?? "");
-    const encodedCanonical = encodeURI(payload.canonicalUrl);
-    const encodedMarkdown = `${encodedCanonical}.md`;
-    const encodedJson = `${encodedCanonical}.json`;
-    const transcriptFileName = `${toSafeFileName(payload.title)}-transcript.txt`;
-    const escapedTranscriptFileName = escapeHtml(transcriptFileName);
-    const isLiveRecording = payload.isLiveRecording === true;
-    const liveRefreshMeta = isLiveRecording
-        ? "<meta http-equiv=\"refresh\" content=\"3\" />"
-        : "";
-    const liveStatusNotice = isLiveRecording
-        ? "<p class=\"live-status\">Live recording in progress. This page refreshes every 3 seconds.</p>"
-        : "";
+  const escapedTitle = escapeHtml(payload.title);
+  const escapedCanonicalUrl = escapeHtml(payload.canonicalUrl);
+  const escapedArtifactType = escapeHtml(payload.artifactType);
 
-    return `<!doctype html>
+  // Process transcript: default text if empty, escape HTML, then wrap \n\n blocks in <p> tags
+  const rawTranscript = payload.transcript || "(no transcript)";
+  const escapedTranscript = escapeHtml(rawTranscript)
+    .split(/\n\s*\n/) // split by double newlines or double newlines with whitespace
+    .map(paragraph => paragraph.trim())
+    .filter(paragraph => paragraph.length > 0)
+    .map(paragraph => `<p>${paragraph}</p>`)
+    .join("\n");
+
+  const escapedAudioUrl = escapeHtml(payload.mediaUrl ?? "");
+  const encodedCanonical = encodeURI(payload.canonicalUrl);
+  const encodedMarkdown = `${encodedCanonical}.md`;
+  const encodedJson = `${encodedCanonical}.json`;
+  const transcriptFileName = `${toSafeFileName(payload.title)}-transcript.txt`;
+  const escapedTranscriptFileName = escapeHtml(transcriptFileName);
+  const isLiveRecording = payload.isLiveRecording === true;
+  const liveRefreshMeta = isLiveRecording
+    ? "<meta http-equiv=\"refresh\" content=\"3\" />"
+    : "";
+  const liveStatusNotice = isLiveRecording
+    ? "<p class=\"live-status\">Live recording in progress. This page refreshes every 3 seconds.</p>"
+    : "";
+
+  return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -221,6 +226,11 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
       justify-content: space-between;
       gap: .75rem;
     }
+    .transcript-header-actions {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
     .transcript-header h2 { margin: 0; }
     p.meta {
       margin: 0 0 1rem;
@@ -235,18 +245,36 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
       text-transform: uppercase;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     }
+    .transcript-sticky-container {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: #190e05; /* matches article background to avoid transparency clash */
+      margin: 0 -1.25rem;
+      padding: 0.5rem 1.25rem 1rem;
+      border-bottom: 1px solid rgba(251, 146, 60, 0.15);
+      border-radius: 18px 18px 0 0; /* Match article border radius when it sticks */
+    }
     .transcript {
-      white-space: pre-wrap;
+      max-width: 65ch;
+      margin: 1.5rem auto 0;
       background: rgba(0, 0, 0, 0.2);
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 12px;
-      padding: 1rem;
-      height: 24rem;
+      padding: 1rem 1.75rem;
+      height: 60vh;
       overflow-y: auto;
       overflow-wrap: anywhere;
       word-break: break-word;
+      line-height: 1.7;
     }
-    .export-transcript-btn {
+    .transcript p {
+      margin-bottom: 1.25rem;
+    }
+    .transcript p:last-child {
+      margin-bottom: 0;
+    }
+    .export-transcript-btn, .copy-transcript-btn {
       border: 1px solid rgba(251, 191, 126, 0.35);
       background: rgba(234, 88, 12, 0.18);
       color: #ffedd5;
@@ -260,9 +288,15 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
       background: rgba(234, 88, 12, 0.34);
       border-color: rgba(251, 191, 126, 0.55);
     }
-    .export-transcript-btn:focus-visible {
+    .export-transcript-btn:focus-visible, .copy-transcript-btn:focus-visible {
       outline: 2px solid rgba(251, 191, 126, 0.7);
       outline-offset: 2px;
+    }
+    .copy-transcript-btn {
+      background: rgba(251, 146, 60, 0.18);
+    }
+    .copy-transcript-btn:hover {
+      background: rgba(251, 146, 60, 0.34);
     }
     .share-audio {
       width: 100%;
@@ -436,20 +470,28 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
       <h1>${escapedTitle}</h1>
       <p class="meta">Shared ${escapedArtifactType} • canonical URL: <a href="${escapedCanonicalUrl}" style="color:#fdba74">${escapedCanonicalUrl}</a></p>
       ${liveStatusNotice}
-      ${payload.mediaUrl ? `<audio class="share-audio" controls preload="metadata" src="${escapedAudioUrl}"></audio>` : ""}
-      <section aria-labelledby="transcript-heading">
-        <div class="transcript-header">
-          <h2 id="transcript-heading">Transcript</h2>
-          <button type="button" id="export-transcript-btn" class="export-transcript-btn" data-filename="${escapedTranscriptFileName}">Export transcript</button>
-        </div>
-        <div class="transcript-search-row">
-          <input type="text" id="transcript-search" class="transcript-search-input" placeholder="Search transcript…" aria-label="Search transcript" autocomplete="off" />
-          <span id="search-match-count" class="search-match-count" aria-live="polite" aria-atomic="true"></span>
-          <button id="search-prev" class="search-nav-btn" aria-label="Previous match" disabled>↑</button>
-          <button id="search-next" class="search-nav-btn" aria-label="Next match" disabled>↓</button>
-        </div>
-        <div class="transcript" id="transcript-content">${escapedTranscript}</div>
-      </section>
+      
+      <div class="transcript-sticky-container">
+        ${payload.mediaUrl ? `<audio class="share-audio" controls preload="metadata" src="${escapedAudioUrl}"></audio>` : ""}
+        <section aria-labelledby="transcript-heading">
+          <div class="transcript-header">
+            <h2 id="transcript-heading">Transcript</h2>
+            <div class="transcript-header-actions">
+              <button type="button" id="copy-transcript-btn" class="copy-transcript-btn">Copy</button>
+              <button type="button" id="export-transcript-btn" class="export-transcript-btn" data-filename="${escapedTranscriptFileName}">Export</button>
+            </div>
+          </div>
+          <div class="transcript-search-row">
+            <input type="text" id="transcript-search" class="transcript-search-input" placeholder="Search transcript…" aria-label="Search transcript" autocomplete="off" />
+            <span id="search-match-count" class="search-match-count" aria-live="polite" aria-atomic="true"></span>
+            <button id="search-prev" class="search-nav-btn" aria-label="Previous match" disabled>↑</button>
+            <button id="search-next" class="search-nav-btn" aria-label="Next match" disabled>↓</button>
+          </div>
+        </section>
+      </div>
+      
+      <div class="transcript" id="transcript-content">${escapedTranscript}</div>
+      
       
     </article>
   </main>
@@ -460,10 +502,12 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
   <script>
     (() => {
       const exportButton = document.getElementById("export-transcript-btn");
+      const copyButton = document.getElementById("copy-transcript-btn");
       const transcriptContent = document.getElementById("transcript-content");
-      if (!exportButton || !transcriptContent) return;
+      
+      if (!transcriptContent) return;
 
-      exportButton.addEventListener("click", () => {
+      if (exportButton) {
         const transcript = transcriptContent.textContent || "";
         const fileName = exportButton.getAttribute("data-filename") || "shared-transcript.txt";
         const blob = new Blob([transcript], { type: "text/plain;charset=utf-8" });
@@ -476,6 +520,32 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
         downloadLink.remove();
         URL.revokeObjectURL(downloadUrl);
       });
+      }
+
+      if (copyButton) {
+        copyButton.addEventListener("click", () => {
+          // Extract text cleanly, preserving paragraph breaks
+          const paragraphs = transcriptContent.querySelectorAll("p");
+          let textToCopy = "";
+          
+          if (paragraphs.length > 0) {
+            textToCopy = Array.from(paragraphs).map(p => p.textContent).join("\\n\\n");
+          } else {
+            textToCopy = transcriptContent.textContent || "";
+          }
+
+          navigator.clipboard.writeText(textToCopy).then(() => {
+            const originalText = copyButton.textContent;
+            copyButton.textContent = "Copied!";
+            setTimeout(() => {
+              copyButton.textContent = originalText;
+            }, 2000);
+          }).catch(err => {
+            console.error("Failed to copy text: ", err);
+            copyButton.textContent = "Error";
+          });
+        });
+      }
     })();
 
     (() => {
@@ -594,12 +664,12 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
 }
 
 export function buildShareErrorMarkdown(message: string): string {
-    return `# Share Unavailable\n\n${message}\n`;
+  return `# Share Unavailable\n\n${message}\n`;
 }
 
 export function buildShareErrorHtml(message: string): string {
-    const safeMessage = escapeHtml(message);
-    return `<!doctype html>
+  const safeMessage = escapeHtml(message);
+  return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
