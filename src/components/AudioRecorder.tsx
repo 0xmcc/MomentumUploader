@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useTheme } from "./ThemeProvider";
 import {
     getFileExtensionFromMime,
@@ -19,6 +19,7 @@ export type UploadCompletePayload = {
     url?: string;
     modelUsed?: string;
     durationSeconds?: number;
+    transcriptStatus?: "processing" | "complete" | "failed";
 };
 
 export type AudioInputPayload = {
@@ -26,6 +27,7 @@ export type AudioInputPayload = {
     durationSeconds: number;
     mimeType: string;
     memoId?: string;
+    provisionalTranscript?: string;
 };
 
 export default function AudioRecorder({
@@ -70,18 +72,30 @@ export default function AudioRecorder({
         mimeType,
     }: AudioInputPayload) {
         const memoId = liveTranscription.liveMemoId;
+        const provisionalTranscript = liveTranscription.liveTranscript || undefined;
         if (onAudioInput) {
             onAudioInput({
                 blob,
                 durationSeconds,
                 mimeType,
                 memoId: memoId ?? undefined,
+                provisionalTranscript,
             });
             return;
         }
 
         void handleUpload(blob, mimeType, undefined, memoId);
     }
+
+    useEffect(() => {
+        if (!isUploadActive && !recording.isRecording) return;
+        const handler = (e: BeforeUnloadEvent) => {
+            e.preventDefault();
+            e.returnValue = "";
+        };
+        window.addEventListener("beforeunload", handler);
+        return () => window.removeEventListener("beforeunload", handler);
+    }, [isUploadActive, recording.isRecording]);
 
     const startRecording = async () => {
         await recording.startRecording();

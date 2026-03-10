@@ -4,8 +4,10 @@ import {
     ERR,
     LOG,
     parseUploadRequest,
-    persistMemo,
+    persistMemoProvisional,
     transcribeUploadedAudio,
+    updateMemoFailed,
+    updateMemoFinal,
     uploadAudioToStorage,
 } from "./workflow";
 
@@ -63,15 +65,27 @@ export async function POST(req: NextRequest) {
         const uploaded = await uploadAudioToStorage(parsed.data, startedAtMs);
         if (!uploaded.ok) return withCors(uploaded.response);
 
-        const transcription = await transcribeUploadedAudio(uploaded.data, nvidiaApiKey);
-        if (!transcription.ok) return withCors(transcription.response);
+        // Stage A: persist memo row immediately after audio is stored.
+        // This guarantees the recording is accessible even if transcription fails.
+        const provisional = await persistMemoProvisional(
+            uploaded.data.memoId,
+            uploaded.data.fileUrl,
+            userId
+        );
+        if (!provisional.ok) return withCors(provisional.response);
 
-        return withCors(await persistMemo(
-            uploaded.data,
-            transcription.data,
-            userId,
-            startedAtMs
-        ));
+        const resolvedMemoId = provisional.data.memoId;
+        LOG("db", "Provisional memo persisted", { id: resolvedMemoId });
+
+        // Stage B: transcribe, then finalize or mark failed.
+        const transcription = await transcribeUploadedAudio(uploaded.data, nvidiaApiKey);
+        if (!transcription.ok) {
+            // Transcription failed but audio is safe. Mark memo failed and return 200.
+            LOG("nvidia", "Transcription failed; marking memo failed and returning degraded 200");
+            return withCors(await updateMemoFailed(resolvedMemoId, uploaded.data.fileUrl, userId, startedAtMs));
+        }
+
+        return withCors(await updateMemoFinal(resolvedMemoId, transcription.data, uploaded.data.fileUrl, userId, startedAtMs));
     } catch (error) {
         ERR("catch", "Unhandled error in POST handler", error);
         return withCors(NextResponse.json({ error: "Failed to transcribe audio" }, { status: 500 }));

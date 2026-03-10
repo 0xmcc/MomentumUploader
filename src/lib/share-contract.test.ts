@@ -109,18 +109,17 @@ describe("share-contract", () => {
         expect(html).toContain("height: 60vh;");
         expect(html).toContain("overflow-y: auto;");
         expect(html).toContain("overflow-wrap: anywhere;");
-        // Our new UX changes wrap the text in <p> tags
-        expect(html).toContain("<p>Sentence one is here. Sentence two keeps the idea moving. Sentence three starts another thought. Sentence four closes it cleanly.</p>");
+        expect(html).toContain('<div class="transcript-block">Sentence one is here. Sentence two keeps the idea moving. Sentence three starts another thought. Sentence four closes it cleanly.</div>');
     });
 
-    it("wraps double newline chunks in paragraph tags for better typography", () => {
+    it("wraps double newline chunks in transcript-block divs for better typography", () => {
         const html = buildSharedArtifactHtml({
             ...basePayload,
             transcript: "First paragraph here.\n\nSecond paragraph here with some whitespaces.\n  \nThird paragraph.",
         });
 
-        expect(html).toContain("<p>First paragraph here.</p>");
-        expect(html).toContain("<p>Second paragraph here with some whitespaces.</p>");
-        expect(html).toContain("<p>Third paragraph.</p>");
+        expect(html).toContain('<div class="transcript-block">First paragraph here.</div>');
+        expect(html).toContain('<div class="transcript-block">Second paragraph here with some whitespaces.</div>');
+        expect(html).toContain('<div class="transcript-block">Third paragraph.</div>');
     });
 });

@@ -1,8 +1,11 @@
 import {
   MEMO_ESTIMATED_COST_PER_MINUTE_USD,
+  FAILED_TRANSCRIPT,
   formatMemoEstimatedCost,
   getMemoAudioDownloadName,
   getMemoEstimatedCostUsd,
+  isMemoFailed,
+  isMemoProcessing,
 } from "./memo-ui";
 
 describe("memo cost formatting", () => {
@@ -48,5 +51,39 @@ describe("memo cost formatting", () => {
         url: "not-a-valid-url",
       })
     ).toBe("memo-unknown-date-memo-1.webm");
+  });
+});
+
+describe("transcript status helpers", () => {
+  it("isMemoProcessing returns true for processing status", () => {
+    expect(isMemoProcessing({ transcriptStatus: "processing" })).toBe(true);
+  });
+
+  it("isMemoProcessing returns false for complete and failed status", () => {
+    expect(isMemoProcessing({ transcriptStatus: "complete" })).toBe(false);
+    expect(isMemoProcessing({ transcriptStatus: "failed" })).toBe(false);
+    expect(isMemoProcessing({})).toBe(false);
+  });
+
+  it("isMemoFailed returns true only for failed status, not for processing", () => {
+    expect(isMemoFailed({ transcript: "", transcriptStatus: "failed" })).toBe(true);
+    expect(isMemoFailed({ transcript: "", transcriptStatus: "processing" })).toBe(false);
+  });
+
+  it("isMemoFailed does not treat processing memo as failed even with empty transcript", () => {
+    // A processing memo has an empty transcript but should NOT show as failed
+    expect(isMemoFailed({ transcript: "", transcriptStatus: "processing" })).toBe(false);
+    expect(isMemoProcessing({ transcriptStatus: "processing" })).toBe(true);
+  });
+
+  it("isMemoFailed falls back to FAILED_TRANSCRIPT sentinel for memos without explicit status", () => {
+    // Memos created before transcript_status column existed have no transcriptStatus
+    expect(isMemoFailed({ transcript: FAILED_TRANSCRIPT })).toBe(true);
+    expect(isMemoFailed({ transcript: "actual content" })).toBe(false);
+  });
+
+  it("isMemoFailed returns false for complete status even with FAILED_TRANSCRIPT content", () => {
+    // Explicit status wins over content heuristic
+    expect(isMemoFailed({ transcript: FAILED_TRANSCRIPT, transcriptStatus: "complete" })).toBe(false);
   });
 });

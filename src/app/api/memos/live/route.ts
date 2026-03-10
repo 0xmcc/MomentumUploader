@@ -29,6 +29,7 @@ export async function POST() {
       transcript: "",
       audio_url: "",
       user_id: userId,
+      transcript_status: "processing",
     })
     .select("id")
     .single();

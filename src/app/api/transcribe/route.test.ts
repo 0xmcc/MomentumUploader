@@ -18,9 +18,6 @@ jest.mock("next/server", () => {
 
 
 jest.mock("@/lib/supabase", () => {
-    const insertMock = jest.fn(() => ({
-        select: jest.fn().mockResolvedValue({ data: [{ id: "1" }], error: null }),
-    }));
     return {
         uploadAudio: jest.fn(),
         supabase: {
@@ -31,9 +28,7 @@ jest.mock("@/lib/supabase", () => {
             },
         },
         supabaseAdmin: {
-            from: jest.fn(() => ({
-                insert: insertMock,
-            })),
+            from: jest.fn(),
         },
     };
 });
@@ -46,20 +41,71 @@ jest.mock("@/lib/memo-api-auth", () => ({
     resolveMemoUserId: jest.fn(),
 }));
 
+/**
+ * Build a chainable Supabase update query mock.
+ * Supports: .update().eq().eq() (thenable) and .update().eq().eq().select().maybeSingle()
+ */
+function makeUpdateChain(resolvedValue: unknown) {
+    const selectResult = {
+        maybeSingle: jest.fn().mockResolvedValue(resolvedValue),
+        single: jest.fn().mockResolvedValue(resolvedValue),
+    };
+    const eqFn = jest.fn();
+    const selectFn = jest.fn().mockReturnValue(selectResult);
+    const thenFn = (onfulfilled: (v: unknown) => unknown) =>
+        Promise.resolve(resolvedValue).then(onfulfilled);
+
+    const chain: Record<string, unknown> = { eq: eqFn, select: selectFn, then: thenFn };
+    eqFn.mockReturnValue(chain);
+    return chain;
+}
+
+/**
+ * Default two-stage pipeline mock:
+ * - provisional: insert → select → single → { data: { id: "1" }, error: null }
+ * - final:       update → eq → eq → { data: null, error: null }
+ */
+function makeDefaultMock() {
+    return {
+        insert: jest.fn(() => ({
+            select: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: { id: "1" }, error: null }),
+                maybeSingle: jest.fn().mockResolvedValue({ data: { id: "1" }, error: null }),
+            }),
+        })),
+        update: jest.fn(() => makeUpdateChain({ data: null, error: null })),
+    };
+}
+
+function makeAudioFormData(overrides?: { name?: string; type?: string; size?: number; memoId?: string }) {
+    const name = overrides?.name ?? "test-memo.webm";
+    const type = overrides?.type ?? "audio/webm";
+    const size = overrides?.size ?? 10;
+    return {
+        get: (key: string) => {
+            if (key === "file") {
+                return {
+                    name,
+                    type,
+                    size,
+                    arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
+                };
+            }
+            if (key === "memoId") return overrides?.memoId ?? null;
+            return null;
+        },
+    };
+}
+
 describe("POST /api/transcribe", () => {
     const originalNvidiaApiKey = process.env.NVIDIA_API_KEY;
 
     beforeEach(() => {
         jest.clearAllMocks();
         (supabaseAdmin.from as jest.Mock).mockReset();
-        (supabaseAdmin.from as jest.Mock).mockImplementation(() => ({
-            insert: jest.fn(() => ({
-                select: jest.fn().mockResolvedValue({ data: [{ id: "1" }], error: null }),
-            })),
-        }));
+        (supabaseAdmin.from as jest.Mock).mockImplementation(() => makeDefaultMock());
         process.env.NVIDIA_API_KEY = "test-nvidia-key";
         (resolveMemoUserId as jest.Mock).mockResolvedValue("user_123");
-        // Give transcript
         (transcribeAudio as jest.Mock).mockResolvedValue("hello world");
     });
 
@@ -71,23 +117,9 @@ describe("POST /api/transcribe", () => {
         process.env.NVIDIA_API_KEY = originalNvidiaApiKey;
     });
 
-    it("should process audio, upload as buffer, and save to memos table", async () => {
-        const formDataObj = {
-            get: (key: string) => {
-                if (key === "file") {
-                    return {
-                        name: "test-memo.webm",
-                        type: "audio/webm",
-                        size: 10,
-                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
-                    };
-                }
-                return null;
-            }
-        };
-
+    it("should process audio, upload as buffer, and persist a memo row", async () => {
         const req = {
-            formData: async () => formDataObj,
+            formData: async () => makeAudioFormData(),
         } as unknown as NextRequest;
 
         const res = await POST(req);
@@ -98,40 +130,32 @@ describe("POST /api/transcribe", () => {
         expect(json.id).toBe("1");
         expect(json.text).toBe("hello world");
 
-        // We expect uploadAudio to be called with a Buffer, not a raw File object from FormData
+        // Upload must be called with a Buffer
         expect(uploadAudio).toHaveBeenCalled();
         const uploadedFile = (uploadAudio as jest.Mock).mock.calls[0][0];
         expect(Buffer.isBuffer(uploadedFile)).toBe(true);
 
-        // We expect it to save to the 'memos' table, not 'items'
-        expect(supabaseAdmin.from).toHaveBeenCalledWith("memos");
+        // Two calls to from("memos"): provisional insert + final update
+        const allCalls = (supabaseAdmin.from as jest.Mock).mock.calls;
+        expect(allCalls.length).toBeGreaterThanOrEqual(2);
 
-        // Ensure the insert payload matches the expected schema
-        const insertMockFn = (supabaseAdmin.from as jest.Mock).mock.results[0].value.insert;
-        const insertPayload = insertMockFn.mock.calls[0][0];
-        expect(insertPayload).toHaveProperty("title");
-        expect(insertPayload).toHaveProperty("transcript", "hello world");
+        // First call: provisional insert with transcript_status = 'processing'
+        const provisionalResult = (supabaseAdmin.from as jest.Mock).mock.results[0].value;
+        const insertPayload = provisionalResult.insert.mock.calls[0][0];
+        expect(insertPayload).toHaveProperty("transcript_status", "processing");
         expect(insertPayload).toHaveProperty("audio_url", "https://example.com/audio.webm");
         expect(insertPayload).toHaveProperty("user_id", "user_123");
+
+        // Second call: final update with full transcript + complete status
+        const finalResult = (supabaseAdmin.from as jest.Mock).mock.results[1].value;
+        const updatePayload = finalResult.update.mock.calls[0][0];
+        expect(updatePayload).toHaveProperty("transcript", "hello world");
+        expect(updatePayload).toHaveProperty("transcript_status", "complete");
     });
 
     it("passes final-priority hint to transcription to avoid live-call contention", async () => {
-        const formDataObj = {
-            get: (key: string) => {
-                if (key === "file") {
-                    return {
-                        name: "test-memo.webm",
-                        type: "audio/webm",
-                        size: 10,
-                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
-                    };
-                }
-                return null;
-            }
-        };
-
         const req = {
-            formData: async () => formDataObj,
+            formData: async () => makeAudioFormData(),
         } as unknown as NextRequest;
 
         await POST(req);
@@ -144,28 +168,13 @@ describe("POST /api/transcribe", () => {
     });
 
     it("accepts m4a uploads and forwards the source MIME type to transcription", async () => {
-        const formDataObj = {
-            get: (key: string) => {
-                if (key === "file") {
-                    return {
-                        name: "iphone-note.m4a",
-                        type: "audio/x-m4a",
-                        size: 10,
-                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
-                    };
-                }
-                return null;
-            }
-        };
-
         const req = {
-            formData: async () => formDataObj,
+            formData: async () => makeAudioFormData({ name: "iphone-note.m4a", type: "audio/x-m4a" }),
         } as unknown as NextRequest;
 
         const res = await POST(req);
         expect(res.status).toBe(200);
 
-        expect(transcribeAudio).toHaveBeenCalledTimes(1);
         const [_audioArg, _apiKeyArg, mimeArg, optionsArg] = (transcribeAudio as jest.Mock).mock.calls[0];
         expect(mimeArg).toBe("audio/x-m4a");
         expect(optionsArg).toEqual({ priority: "final" });
@@ -181,22 +190,8 @@ describe("POST /api/transcribe", () => {
             }
         );
 
-        const formDataObj = {
-            get: (key: string) => {
-                if (key === "file") {
-                    return {
-                        name: "iphone-note.m4a",
-                        type: "audio/x-m4a",
-                        size: 10,
-                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
-                    };
-                }
-                return null;
-            }
-        };
-
         const req = {
-            formData: async () => formDataObj,
+            formData: async () => makeAudioFormData({ name: "iphone-note.m4a", type: "audio/x-m4a" }),
         } as unknown as NextRequest;
 
         const res = await POST(req);
@@ -209,45 +204,26 @@ describe("POST /api/transcribe", () => {
         expect(res.status).toBe(200);
     });
 
-    it("updates an existing memo when memoId is provided", async () => {
-        const maybeSingle = jest.fn().mockResolvedValue({
-            data: { id: "memo-live-1" },
-            error: null,
+    it("updates an existing live memo when memoId is provided", async () => {
+        let callCount = 0;
+        (supabaseAdmin.from as jest.Mock).mockImplementation(() => {
+            callCount++;
+            if (callCount === 1) {
+                // provisional persist: update existing memo by memoId
+                return {
+                    update: jest.fn(() => makeUpdateChain({ data: { id: "memo-live-1" }, error: null })),
+                    insert: jest.fn(),
+                };
+            }
+            // final update
+            return {
+                update: jest.fn(() => makeUpdateChain({ data: null, error: null })),
+                insert: jest.fn(),
+            };
         });
-        const updateQuery = {
-            eq: jest.fn(),
-            select: jest.fn(() => ({ maybeSingle })),
-        };
-        updateQuery.eq.mockReturnValue(updateQuery);
-        const update = jest.fn(() => updateQuery);
-        const insert = jest.fn(() => ({
-            select: jest.fn().mockResolvedValue({ data: [{ id: "fallback-1" }], error: null }),
-        }));
-
-        (supabaseAdmin.from as jest.Mock).mockReturnValue({
-            update,
-            insert,
-        });
-
-        const formDataObj = {
-            get: (key: string) => {
-                if (key === "file") {
-                    return {
-                        name: "live-memo.webm",
-                        type: "audio/webm",
-                        size: 10,
-                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
-                    };
-                }
-                if (key === "memoId") {
-                    return "memo-live-1";
-                }
-                return null;
-            },
-        };
 
         const req = {
-            formData: async () => formDataObj,
+            formData: async () => makeAudioFormData({ name: "live-memo.webm", memoId: "memo-live-1" }),
         } as unknown as NextRequest;
 
         const res = await POST(req);
@@ -255,14 +231,19 @@ describe("POST /api/transcribe", () => {
 
         expect(res.status).toBe(200);
         expect(json.id).toBe("memo-live-1");
-        expect(update).toHaveBeenCalledWith(
-            expect.objectContaining({
-                title: "live-memo.webm",
-                transcript: "hello world",
-                audio_url: "https://example.com/audio.webm",
-            })
-        );
-        expect(insert).not.toHaveBeenCalled();
+
+        // Provisional: sets audio_url + transcript_status = 'processing', NOT transcript
+        const provisionalUpdateFn = (supabaseAdmin.from as jest.Mock).mock.results[0].value.update;
+        const provisionalPayload = provisionalUpdateFn.mock.calls[0][0];
+        expect(provisionalPayload).toHaveProperty("audio_url", "https://example.com/audio.webm");
+        expect(provisionalPayload).toHaveProperty("transcript_status", "processing");
+        expect(provisionalPayload).not.toHaveProperty("transcript");
+
+        // Final: sets transcript + transcript_status = 'complete'
+        const finalUpdateFn = (supabaseAdmin.from as jest.Mock).mock.results[1].value.update;
+        const finalPayload = finalUpdateFn.mock.calls[0][0];
+        expect(finalPayload).toHaveProperty("transcript", "hello world");
+        expect(finalPayload).toHaveProperty("transcript_status", "complete");
     });
 
     it("normalizes octet-stream uploads to audio/mp4 when filename indicates mp4", async () => {
@@ -275,22 +256,8 @@ describe("POST /api/transcribe", () => {
             }
         );
 
-        const formDataObj = {
-            get: (key: string) => {
-                if (key === "file") {
-                    return {
-                        name: "memo_123.mp4",
-                        type: "application/octet-stream",
-                        size: 10,
-                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
-                    };
-                }
-                return null;
-            }
-        };
-
         const req = {
-            formData: async () => formDataObj,
+            formData: async () => makeAudioFormData({ name: "memo_123.mp4", type: "application/octet-stream" }),
         } as unknown as NextRequest;
 
         const res = await POST(req);
@@ -317,22 +284,8 @@ describe("POST /api/transcribe", () => {
     it("persists uploads for bearer-authenticated callers", async () => {
         (resolveMemoUserId as jest.Mock).mockResolvedValue("user_bearer_456");
 
-        const formDataObj = {
-            get: (key: string) => {
-                if (key === "file") {
-                    return {
-                        name: "bearer-memo.webm",
-                        type: "audio/webm",
-                        size: 10,
-                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
-                    };
-                }
-                return null;
-            }
-        };
-
         const req = {
-            formData: async () => formDataObj,
+            formData: async () => makeAudioFormData({ name: "bearer-memo.webm" }),
             headers: {
                 get: (name: string) =>
                     name.toLowerCase() == "authorization" ? "Bearer vm1.fake.fake" : null,
@@ -345,53 +298,35 @@ describe("POST /api/transcribe", () => {
         expect(res.status).toBe(200);
         expect(json.success).toBe(true);
 
-        const insertMockFn = (supabaseAdmin.from as jest.Mock).mock.results[0].value.insert;
-        const insertPayload = insertMockFn.mock.calls[0][0];
+        // Provisional insert should carry the resolved user_id
+        const provisionalResult = (supabaseAdmin.from as jest.Mock).mock.results[0].value;
+        const insertPayload = provisionalResult.insert.mock.calls[0][0];
         expect(insertPayload.user_id).toBe("user_bearer_456");
         expect(resolveMemoUserId).toHaveBeenCalledWith(req);
     });
 
-    it("returns 500 when memo DB insert fails", async () => {
-        const insertMockFn = (supabaseAdmin.from as jest.Mock).mock.results[0]?.value?.insert as jest.Mock | undefined;
-        if (!insertMockFn) {
-            (supabaseAdmin.from as jest.Mock).mockReturnValue({
-                insert: jest.fn(() => ({
-                    select: jest.fn().mockResolvedValue({
+    it("returns 500 when provisional memo DB insert fails after retry", async () => {
+        (supabaseAdmin.from as jest.Mock).mockImplementation(() => ({
+            insert: jest.fn(() => ({
+                select: jest.fn().mockReturnValue({
+                    single: jest.fn().mockResolvedValue({
                         data: null,
-                        error: { message: 'column "user_id" of relation "memos" does not exist' },
+                        error: { message: 'column "user_id" does not exist' },
                     }),
-                })),
-            });
-        } else {
-            insertMockFn.mockReturnValue({
-                select: jest.fn().mockResolvedValue({
-                    data: null,
-                    error: { message: 'column "user_id" of relation "memos" does not exist' },
                 }),
-            });
-        }
-
-        const formDataObj = {
-            get: (key: string) => {
-                if (key === "file") {
-                    return {
-                        name: "test-memo.webm",
-                        type: "audio/webm",
-                        size: 10,
-                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
-                    };
-                }
-                return null;
-            }
-        };
+            })),
+            update: jest.fn(() => makeUpdateChain({ data: null, error: null })),
+        }));
 
         const req = {
-            formData: async () => formDataObj,
+            formData: async () => makeAudioFormData(),
         } as unknown as NextRequest;
 
         const res = await POST(req);
         const json = await res.json();
 
+        // Audio was uploaded but DB row creation failed — no storage rollback
+        expect(uploadAudio).toHaveBeenCalled();
         expect(res.status).toBe(500);
         expect(json.error).toBe("Failed to save memo");
     });
@@ -399,22 +334,8 @@ describe("POST /api/transcribe", () => {
     it("returns 500 when NVIDIA_API_KEY is missing", async () => {
         delete process.env.NVIDIA_API_KEY;
 
-        const formDataObj = {
-            get: (key: string) => {
-                if (key === "file") {
-                    return {
-                        name: "test-memo.webm",
-                        type: "audio/webm",
-                        size: 10,
-                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
-                    };
-                }
-                return null;
-            },
-        };
-
         const req = {
-            formData: async () => formDataObj,
+            formData: async () => makeAudioFormData(),
         } as unknown as NextRequest;
 
         const res = await POST(req);
@@ -425,37 +346,33 @@ describe("POST /api/transcribe", () => {
         expect(uploadAudio).not.toHaveBeenCalled();
     });
 
-    it("returns an upstream error and skips DB write when transcription fails in production runtime", async () => {
-        const insert = jest.fn(() => ({
-            select: jest.fn().mockResolvedValue({ data: [{ id: "should-not-insert" }], error: null }),
-        }));
-        (supabaseAdmin.from as jest.Mock).mockReturnValue({ insert });
+    it("transcription failure saves memo as failed and returns 200 with degraded payload", async () => {
         (transcribeAudio as jest.Mock).mockRejectedValue(new Error("spawn ffmpeg ENOENT"));
 
-        const formDataObj = {
-            get: (key: string) => {
-                if (key === "file") {
-                    return {
-                        name: "prod-memo.webm",
-                        type: "audio/webm",
-                        size: 10,
-                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
-                    };
-                }
-                return null;
-            },
-        };
-
         const req = {
-            formData: async () => formDataObj,
+            formData: async () => makeAudioFormData({ name: "prod-memo.webm" }),
         } as unknown as NextRequest;
 
         const res = await POST(req);
         const json = await res.json();
 
-        expect(res.status).toBe(502);
-        expect(json.error).toBe("Failed to transcribe audio with NVIDIA");
-        expect(insert).not.toHaveBeenCalled();
+        // Audio is uploaded and memo is preserved — not a total failure
+        expect(uploadAudio).toHaveBeenCalled();
+        expect(res.status).toBe(200);
+        expect(json.success).toBe(true);
+        expect(json.transcriptStatus).toBe("failed");
+        expect(json.text).toBe("[Transcription failed]");
+        expect(json.url).toBe("https://example.com/audio.webm");
+        expect(json.id).toBeDefined();
+
+        // Provisional memo was created, then marked failed
+        const provisionalCall = (supabaseAdmin.from as jest.Mock).mock.results[0].value;
+        expect(provisionalCall.insert).toHaveBeenCalled();
+
+        const failedCall = (supabaseAdmin.from as jest.Mock).mock.results[1].value;
+        const failedUpdatePayload = failedCall.update.mock.calls[0][0];
+        expect(failedUpdatePayload).toHaveProperty("transcript_status", "failed");
+        expect(failedUpdatePayload).toHaveProperty("transcript", "[Transcription failed]");
     });
 
     it("returns 413 when multipart payload exceeds body-size limits", async () => {
@@ -474,31 +391,9 @@ describe("POST /api/transcribe", () => {
 
     it("accepts uploads larger than 50MB when file size is within updated limit", async () => {
         (uploadAudio as jest.Mock).mockResolvedValue({ path: "audio/big-memo.m4a" });
-        (supabaseAdmin.from as jest.Mock).mockReturnValue({
-            insert: jest.fn(() => ({
-                select: jest.fn().mockResolvedValue({
-                    data: [{ id: "big-1" }],
-                    error: null,
-                }),
-            })),
-        });
-
-        const formDataObj = {
-            get: (key: string) => {
-                if (key === "file") {
-                    return {
-                        name: "big-memo.m4a",
-                        type: "audio/mp4",
-                        size: 55 * 1024 * 1024,
-                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
-                    };
-                }
-                return null;
-            }
-        };
 
         const req = {
-            formData: async () => formDataObj,
+            formData: async () => makeAudioFormData({ name: "big-memo.m4a", type: "audio/mp4", size: 55 * 1024 * 1024 }),
         } as unknown as NextRequest;
 
         const res = await POST(req);
@@ -530,22 +425,8 @@ describe("POST /api/transcribe", () => {
 
         (uploadAudio as jest.Mock).mockRejectedValue(uploadFailure);
 
-        const formDataObj = {
-            get: (key: string) => {
-                if (key === "file") {
-                    return {
-                        name: "memo_1771832019333.mp4",
-                        type: "audio/x-m4a",
-                        size: 55_089_770,
-                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
-                    };
-                }
-                return null;
-            }
-        };
-
         const req = {
-            formData: async () => formDataObj,
+            formData: async () => makeAudioFormData({ name: "memo_1771832019333.mp4", type: "audio/x-m4a", size: 55_089_770 }),
         } as unknown as NextRequest;
 
         const res = await POST(req);
@@ -582,22 +463,8 @@ describe("POST /api/transcribe", () => {
         );
         (uploadAudio as jest.Mock).mockRejectedValue(uploadFailure);
 
-        const formDataObj = {
-            get: (key: string) => {
-                if (key === "file") {
-                    return {
-                        name: "memo_1771832233112.mp4",
-                        type: "audio/x-m4a",
-                        size: 55_089_770,
-                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
-                    };
-                }
-                return null;
-            },
-        };
-
         const req = {
-            formData: async () => formDataObj,
+            formData: async () => makeAudioFormData({ name: "memo_1771832233112.mp4", type: "audio/x-m4a", size: 55_089_770 }),
         } as unknown as NextRequest;
 
         const res = await POST(req);
@@ -627,22 +494,8 @@ describe("POST /api/transcribe", () => {
         });
         (uploadAudio as jest.Mock).mockRejectedValue(uploadFailure);
 
-        const formDataObj = {
-            get: (key: string) => {
-                if (key === "file") {
-                    return {
-                        name: "memo_1771832588640.mp4",
-                        type: "audio/x-m4a",
-                        size: 55_089_770,
-                        arrayBuffer: async () => new Uint8Array(Buffer.from("fake-audio")).buffer,
-                    };
-                }
-                return null;
-            },
-        };
-
         const req = {
-            formData: async () => formDataObj,
+            formData: async () => makeAudioFormData({ name: "memo_1771832588640.mp4", type: "audio/x-m4a", size: 55_089_770 }),
         } as unknown as NextRequest;
 
         const res = await POST(req);

@@ -40,6 +40,7 @@ import {
   getMemoAudioDownloadName,
   getMemoTitle,
   isMemoFailed,
+  isMemoProcessing,
   type Memo,
 } from "@/lib/memo-ui";
 
@@ -120,6 +121,7 @@ export function MemoDetailView({ memo }: { memo: Memo }) {
     togglePlay,
   } = useMemoPlayback(memo);
   const isFailed = isMemoFailed(memo);
+  const isProcessing = isMemoProcessing(memo);
 
   return (
     <motion.div
@@ -137,6 +139,10 @@ export function MemoDetailView({ memo }: { memo: Memo }) {
             {isFailed ? (
               <span className="text-[10px] text-red-400 bg-red-400/10 px-2 py-0.5 rounded-full border border-red-500/20 uppercase tracking-tight">
                 Failed
+              </span>
+            ) : isProcessing ? (
+              <span className="text-[10px] text-yellow-400/80 bg-yellow-400/10 px-2 py-0.5 rounded-full border border-yellow-500/20 uppercase tracking-tight">
+                Processing…
               </span>
             ) : (
               <span className="text-[10px] text-green-400/80 bg-green-400/10 px-2 py-0.5 rounded-full border border-green-500/20 uppercase tracking-tight">

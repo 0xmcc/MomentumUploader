@@ -1,6 +1,9 @@
+export type TranscriptStatus = "processing" | "complete" | "failed";
+
 export type Memo = {
   id: string;
   transcript: string;
+  transcriptStatus?: TranscriptStatus;
   createdAt: string;
   url?: string;
   modelUsed?: string;
@@ -15,13 +18,24 @@ export const MEMO_RECONCILE_DELAY_MS = 1500;
 export const MEMO_TITLE_WORD_LIMIT = 6;
 export const MEMO_ESTIMATED_COST_PER_MINUTE_USD = 0.3;
 
-export function isMemoFailed(memo: Pick<Memo, "transcript">) {
-  return memo.transcript === FAILED_TRANSCRIPT || !memo.transcript;
+export function isMemoFailed(memo: Pick<Memo, "transcript" | "transcriptStatus">) {
+  if (memo.transcriptStatus !== undefined) {
+    return memo.transcriptStatus === "failed";
+  }
+  // Fallback for memos fetched before the transcript_status column existed.
+  return memo.transcript === FAILED_TRANSCRIPT;
+}
+
+export function isMemoProcessing(memo: Pick<Memo, "transcriptStatus">) {
+  return memo.transcriptStatus === "processing";
 }
 
 export function getMemoTitle(memo: Memo) {
   if (isMemoFailed(memo)) {
     return "Transcription failed";
+  }
+  if (isMemoProcessing(memo) && !memo.transcript) {
+    return "Transcribing…";
   }
 
   const words = memo.transcript.split(" ");

@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
 
     let query = supabaseAdmin
         .from("memos")
-        .select("id, title, transcript, audio_url, duration, created_at", { count: "exact" })
+        .select("id, title, transcript, audio_url, duration, created_at, transcript_status", { count: "exact" })
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .range(offset, offset + limit - 1);
@@ -57,6 +57,7 @@ export async function GET(req: NextRequest) {
         wordCount: row.transcript ? row.transcript.split(/\s+/).filter(Boolean).length : 0,
         createdAt: row.created_at,
         updatedAt: row.created_at, // No updated_at in schema, fallback to created_at
+        transcriptStatus: (row.transcript_status ?? "complete") as "processing" | "complete" | "failed",
     }));
 
     return NextResponse.json(

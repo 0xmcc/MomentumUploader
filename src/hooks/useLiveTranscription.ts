@@ -153,6 +153,9 @@ export function useLiveTranscription({
     const liveMemoIdRef = useRef<string | null>(null);
     const liveSyncInFlightRef = useRef(false);
     const pendingLiveTranscriptRef = useRef<string | null>(null);
+    // Set when recording ends; blocks retry syncs to prevent a late PATCH from
+    // overwriting the final transcript written by the upload pipeline.
+    const sessionEndedRef = useRef(false);
     const syncedLiveTranscriptRef = useRef("");
     const liveShareResetTimerRef = useRef<NodeJS.Timeout | null>(null);
     const isRecordingRef = useRef(false);
@@ -252,6 +255,7 @@ export function useLiveTranscription({
         pendingLiveTranscriptRef.current = null;
         syncedLiveTranscriptRef.current = "";
         liveSyncInFlightRef.current = false;
+        sessionEndedRef.current = false;
         setLiveDebug(createInitialLiveDebugState());
     };
 
@@ -280,6 +284,10 @@ export function useLiveTranscription({
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ transcript: normalizedTranscript }),
             });
+            if (response.status === 409) {
+                // Memo has been finalized by the upload pipeline; this sync is a no-op.
+                return;
+            }
             if (!response.ok) {
                 throw new Error(`Live transcript update failed: ${response.status}`);
             }
@@ -292,7 +300,8 @@ export function useLiveTranscription({
             const hasPendingUpdate =
                 typeof pendingTranscript === "string" &&
                 pendingTranscript.trim() !== syncedLiveTranscriptRef.current.trim();
-            if (hasPendingUpdate) {
+            // Do not retry after the session has ended — finalization is imminent or done.
+            if (hasPendingUpdate && !sessionEndedRef.current) {
                 void persistLiveTranscript();
             }
         }
@@ -458,6 +467,7 @@ export function useLiveTranscription({
         pendingLiveTranscriptRef.current = null;
         syncedLiveTranscriptRef.current = "";
         liveSyncInFlightRef.current = false;
+        sessionEndedRef.current = false;
         liveInFlightRef.current = false;
         catchupBurstCountRef.current = 0;
         setLiveDebug(createInitialLiveDebugState());
@@ -497,6 +507,9 @@ export function useLiveTranscription({
             visibilityHandlerRef.current = null;
         }
         isRecordingRef.current = false;
+        // Mark session ended so no retry syncs fire after this final one.
+        // The flag is checked in persistLiveTranscript's retry guard.
+        sessionEndedRef.current = true;
         pendingLiveTranscriptRef.current = buildCanonicalTranscript(
             lockedSegmentsRef.current,
             tailTextRef.current,

@@ -6,6 +6,7 @@ import type {
 import {
   MEMO_RECONCILE_DELAY_MS,
   type Memo,
+  type TranscriptStatus,
 } from "@/lib/memo-ui";
 import {
   DEFAULT_PENDING_MIME_TYPE,
@@ -33,6 +34,7 @@ export function useMemosWorkspace({
   const [pendingDuration, setPendingDuration] = useState(0);
   const [pendingMimeType, setPendingMimeType] = useState(DEFAULT_PENDING_MIME_TYPE);
   const [pendingMemoId, setPendingMemoId] = useState<string | null>(null);
+  const [pendingProvisionalTranscript, setPendingProvisionalTranscript] = useState<string | null>(null);
   const [activeUploadCount, setActiveUploadCount] = useState(0);
   const [uploadProgressPercent, setUploadProgressPercent] = useState(0);
   const [uploadError, setUploadError] = useState(false);
@@ -82,6 +84,7 @@ export function useMemosWorkspace({
       const newMemo: Memo = {
         id: newMemoId,
         transcript: data?.text ?? "",
+        transcriptStatus: data?.transcriptStatus ?? "complete",
         createdAt: new Date().toISOString(),
         url: data?.url,
         modelUsed: data?.modelUsed,
@@ -91,7 +94,17 @@ export function useMemosWorkspace({
         durationSeconds: data?.durationSeconds,
         success: data?.success,
       };
-      setMemos((prev) => [newMemo, ...prev]);
+      // Update in place if the memo already exists (e.g. was immediately surfaced on recording stop).
+      // Otherwise prepend as a new entry.
+      setMemos((prev) => {
+        const idx = prev.findIndex((m) => m.id === newMemoId);
+        if (idx >= 0) {
+          const updated = [...prev];
+          updated[idx] = newMemo;
+          return updated;
+        }
+        return [newMemo, ...prev];
+      });
       setSelectedMemoId(newMemoId);
 
       if (reconcileTimerRef.current) {
@@ -121,6 +134,7 @@ export function useMemosWorkspace({
     setPendingDuration(0);
     setPendingMimeType(DEFAULT_PENDING_MIME_TYPE);
     setPendingMemoId(null);
+    setPendingProvisionalTranscript(null);
   }, []);
 
   const uploadBlob = useCallback(
@@ -163,11 +177,23 @@ export function useMemosWorkspace({
       setPendingDuration(payload.durationSeconds);
       setPendingMimeType(payload.mimeType);
       setPendingMemoId(payload.memoId ?? null);
+      setPendingProvisionalTranscript(payload.provisionalTranscript ?? null);
+
+      // If a live memo already exists, surface it immediately so the user sees
+      // their recording before transcription completes.
+      if (payload.memoId) {
+        handleUploadComplete({
+          id: payload.memoId,
+          text: payload.provisionalTranscript ?? "",
+          transcriptStatus: "processing",
+        });
+      }
+
       if (!isSignedIn) {
         void openSignIn();
       }
     },
-    [isSignedIn, openSignIn]
+    [handleUploadComplete, isSignedIn, openSignIn]
   );
 
   useEffect(() => {

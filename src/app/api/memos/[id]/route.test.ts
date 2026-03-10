@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 import { auth } from "@clerk/nextjs/server";
-import { GET } from "./route";
+import { GET, PATCH } from "./route";
 import { supabaseAdmin } from "@/lib/supabase";
 import { NextRequest } from "next/server";
 
@@ -49,5 +49,106 @@ describe("GET /api/memos/:id", () => {
         expect(body.error).toBe("Memo not found");
         expect(idEq).toHaveBeenCalledWith("id", "memo-owned-by-user-b");
         expect(userEq).toHaveBeenCalledWith("user_id", "user_a");
+    });
+});
+
+describe("PATCH /api/memos/:id — finalization lock", () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+        (auth as unknown as jest.Mock).mockResolvedValue({ userId: "user_a" });
+    });
+
+    function makePatchReq(body: Record<string, unknown>) {
+        return {
+            json: async () => body,
+        } as unknown as NextRequest;
+    }
+
+    it("returns 409 when patching transcript of a completed memo", async () => {
+        // First from call: status check for finalization lock
+        const statusSingle = jest.fn().mockResolvedValue({
+            data: { transcript_status: "complete" },
+            error: null,
+        });
+        const statusEq2 = jest.fn(() => ({ single: statusSingle }));
+        const statusEq1 = jest.fn(() => ({ eq: statusEq2 }));
+        const statusSelect = jest.fn(() => ({ eq: statusEq1 }));
+        (supabaseAdmin.from as jest.Mock).mockReturnValue({ select: statusSelect });
+
+        const req = makePatchReq({ transcript: "overwrite attempt" });
+        const res = await PATCH(req, { params: Promise.resolve({ id: "memo-1" }) });
+        const body = await res.json();
+
+        expect(res.status).toBe(409);
+        expect(body.error).toMatch(/finalized/i);
+    });
+
+    it("returns 409 when patching transcript of a failed memo", async () => {
+        const statusSingle = jest.fn().mockResolvedValue({
+            data: { transcript_status: "failed" },
+            error: null,
+        });
+        const statusEq2 = jest.fn(() => ({ single: statusSingle }));
+        const statusEq1 = jest.fn(() => ({ eq: statusEq2 }));
+        const statusSelect = jest.fn(() => ({ eq: statusEq1 }));
+        (supabaseAdmin.from as jest.Mock).mockReturnValue({ select: statusSelect });
+
+        const req = makePatchReq({ transcript: "overwrite attempt" });
+        const res = await PATCH(req, { params: Promise.resolve({ id: "memo-1" }) });
+
+        expect(res.status).toBe(409);
+    });
+
+    it("allows patching transcript of a processing memo", async () => {
+        let callCount = 0;
+        (supabaseAdmin.from as jest.Mock).mockImplementation(() => {
+            callCount++;
+            if (callCount === 1) {
+                // Status check: returns 'processing'
+                const statusSingle = jest.fn().mockResolvedValue({
+                    data: { transcript_status: "processing" },
+                    error: null,
+                });
+                const statusEq2 = jest.fn(() => ({ single: statusSingle }));
+                const statusEq1 = jest.fn(() => ({ eq: statusEq2 }));
+                const statusSelect = jest.fn(() => ({ eq: statusEq1 }));
+                return { select: statusSelect };
+            }
+            // Second call: the actual update
+            const updateSingle = jest.fn().mockResolvedValue({
+                data: { id: "memo-1", transcript: "new text", audio_url: "", created_at: new Date().toISOString() },
+                error: null,
+            });
+            const updateEq2 = jest.fn(() => ({ select: jest.fn(() => ({ single: updateSingle })) }));
+            const updateEq1 = jest.fn(() => ({ eq: updateEq2 }));
+            const update = jest.fn(() => ({ eq: updateEq1 }));
+            return { update };
+        });
+
+        const req = makePatchReq({ transcript: "new text" });
+        const res = await PATCH(req, { params: Promise.resolve({ id: "memo-1" }) });
+
+        expect(res.status).toBe(200);
+    });
+
+    it("allows patching title without checking transcript_status", async () => {
+        // No status-check call; straight to update
+        const updateSingle = jest.fn().mockResolvedValue({
+            data: { id: "memo-1", transcript: "", audio_url: "", created_at: new Date().toISOString() },
+            error: null,
+        });
+        const updateEq2 = jest.fn(() => ({ select: jest.fn(() => ({ single: updateSingle })) }));
+        const updateEq1 = jest.fn(() => ({ eq: updateEq2 }));
+        const update = jest.fn(() => ({ eq: updateEq1 }));
+        (supabaseAdmin.from as jest.Mock).mockReturnValue({ update });
+
+        const req = makePatchReq({ title: "My Title" });
+        const res = await PATCH(req, { params: Promise.resolve({ id: "memo-1" }) });
+
+        expect(res.status).toBe(200);
+        // Status check should not be called for title-only patches
+        const allCalls = (supabaseAdmin.from as jest.Mock).mock.calls;
+        // Only one from call (the update itself, no status-check select)
+        expect(allCalls.length).toBe(1);
     });
 });

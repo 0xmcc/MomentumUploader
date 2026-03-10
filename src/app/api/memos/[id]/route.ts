@@ -71,6 +71,28 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         return NextResponse.json({ error: "Invalid JSON body" }, { status: 400, headers: CORS });
     }
 
+    // Fetch current status to enforce finalization lock.
+    // A memo that has been finalized (complete or failed) must not have its
+    // transcript overwritten by a late live-sync PATCH.
+    if (body.transcript !== undefined) {
+        const { data: current } = await supabaseAdmin
+            .from("memos")
+            .select("transcript_status")
+            .eq("id", id)
+            .eq("user_id", userId)
+            .single();
+
+        if (
+            current?.transcript_status === "complete" ||
+            current?.transcript_status === "failed"
+        ) {
+            return NextResponse.json(
+                { error: "Memo transcript is already finalized" },
+                { status: 409, headers: CORS }
+            );
+        }
+    }
+
     const updates: Record<string, unknown> = {};
     if (body.title !== undefined) updates.title = body.title;
     if (body.transcript !== undefined) {

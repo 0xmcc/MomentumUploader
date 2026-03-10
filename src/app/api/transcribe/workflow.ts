@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { uploadAudio, supabase, supabaseAdmin } from "@/lib/supabase";
 import { transcribeAudio } from "@/lib/riva";
+import { FAILED_TRANSCRIPT } from "@/lib/memo-ui";
 
 const MAX_AUDIO_UPLOAD_BYTES = 75 * 1024 * 1024;
 const MAX_AUDIO_UPLOAD_MB = Math.round(MAX_AUDIO_UPLOAD_BYTES / (1024 * 1024));
@@ -368,7 +369,8 @@ export async function transcribeUploadedAudio(
 function successResponse(
     id: string,
     text: string,
-    url: string
+    url: string,
+    transcriptStatus: "complete" | "failed" = "complete"
 ): JsonResponse {
     return NextResponse.json({
         success: true,
@@ -376,77 +378,155 @@ function successResponse(
         text,
         url,
         modelUsed: TRANSCRIBE_MODEL,
+        transcriptStatus,
     });
 }
 
-export async function persistMemo(
-    uploaded: UploadedAudio,
-    transcriptionText: string,
-    userId: string,
-    startedAtMs: number
-): Promise<JsonResponse> {
-    LOG("db", uploaded.memoId ? "Updating existing memo row..." : "Inserting into memos table...");
+/**
+ * Stage A: Persist a memo row as soon as audio is stored in Supabase.
+ * Creates a new row or updates the existing live memo row.
+ * Sets transcript_status = 'processing' so the UI can show the memo immediately.
+ * On DB error, retries once. Never deletes the uploaded audio.
+ */
+export async function persistMemoProvisional(
+    memoId: string | null,
+    audioUrl: string,
+    userId: string
+): Promise<StepResult<{ memoId: string }>> {
+    LOG("db", memoId ? "Provisional update of existing memo..." : "Provisional insert into memos...");
 
-    try {
-        if (uploaded.memoId) {
+    const tryUpsert = async (): Promise<StepResult<{ memoId: string }>> => {
+        if (memoId) {
             const { data: updatedMemo, error: updateError } = await supabaseAdmin
                 .from("memos")
-                .update({
-                    title: uploaded.file.name || "Voice Memo",
-                    transcript: transcriptionText,
-                    audio_url: uploaded.fileUrl,
-                })
-                .eq("id", uploaded.memoId)
+                .update({ audio_url: audioUrl, transcript_status: "processing" })
+                .eq("id", memoId)
                 .eq("user_id", userId)
                 .select("id")
                 .maybeSingle();
 
             if (!updateError && updatedMemo?.id) {
-                LOG("db", "Updated existing memo row", { id: updatedMemo.id });
-                LOG("timing", "Total request ms", Date.now() - startedAtMs);
-                LOG("done", "Returning success response");
-                return successResponse(updatedMemo.id, transcriptionText, uploaded.fileUrl);
+                LOG("db", "Provisional update succeeded", { id: updatedMemo.id });
+                return ok({ memoId: updatedMemo.id });
             }
 
-            LOG("db", "Live memo update failed, falling back to insert", {
-                memoId: uploaded.memoId,
+            LOG("db", "Provisional update found no row, falling back to insert", {
+                memoId,
                 error: updateError?.message ?? "memo not found",
             });
         }
 
-        const { data: dbData, error: dbError } = await supabaseAdmin.from("memos").insert({
-            title: uploaded.file.name || "Voice Memo",
-            transcript: transcriptionText,
-            audio_url: uploaded.fileUrl,
-            user_id: userId,
-        }).select();
+        const { data: insertData, error: insertError } = await supabaseAdmin
+            .from("memos")
+            .insert({
+                transcript: "",
+                audio_url: audioUrl,
+                user_id: userId,
+                transcript_status: "processing",
+            })
+            .select("id")
+            .single();
 
-        if (dbError) {
-            ERR("db", "DB insert error", dbError);
+        if (insertError || !insertData?.id) {
+            ERR("db", "Provisional insert failed", insertError);
+            return fail(
+                NextResponse.json(
+                    { error: "Failed to save memo", detail: insertError?.message ?? "No ID returned" },
+                    { status: 500 }
+                )
+            );
+        }
+
+        LOG("db", "Provisional insert succeeded", { id: insertData.id });
+        return ok({ memoId: insertData.id });
+    };
+
+    try {
+        const result = await tryUpsert();
+        if (!result.ok) {
+            LOG("db", "Provisional persist failed, retrying once...");
+            return await tryUpsert();
+        }
+        return result;
+    } catch (dbError) {
+        ERR("db", "Provisional persist threw, retrying once...", dbError);
+        try {
+            return await tryUpsert();
+        } catch (retryError) {
+            ERR("db", "Provisional persist retry also threw", retryError);
+            return fail(
+                NextResponse.json(
+                    { error: "Failed to save memo", detail: String(retryError) },
+                    { status: 500 }
+                )
+            );
+        }
+    }
+}
+
+/**
+ * Stage B (success): Write the final transcript and mark the memo complete.
+ */
+export async function updateMemoFinal(
+    memoId: string,
+    transcript: string,
+    audioUrl: string,
+    userId: string,
+    startedAtMs: number
+): Promise<JsonResponse> {
+    LOG("db", "Finalizing memo with transcript...");
+
+    try {
+        const { error } = await supabaseAdmin
+            .from("memos")
+            .update({ transcript, transcript_status: "complete" })
+            .eq("id", memoId)
+            .eq("user_id", userId);
+
+        if (error) {
+            ERR("db", "Final transcript update failed", error);
             return NextResponse.json(
-                { error: "Failed to save memo", detail: dbError.message },
+                { error: "Failed to save transcript", detail: error.message },
                 { status: 500 }
             );
         }
 
-        const insertedId = dbData?.[0]?.id as string | undefined;
-        if (!insertedId) {
-            ERR("db", "Insert returned no ID", dbData);
-            return NextResponse.json(
-                { error: "Failed to save memo", detail: "No ID returned" },
-                { status: 500 }
-            );
-        }
-
-        LOG("db", "Inserted row", dbData);
+        LOG("db", "Memo finalized", { id: memoId });
         LOG("timing", "Total request ms", Date.now() - startedAtMs);
         LOG("done", "Returning success response");
-        return successResponse(insertedId, transcriptionText, uploaded.fileUrl);
+
+        return successResponse(memoId, transcript, audioUrl);
     } catch (dbError) {
-        ERR("db", "Unexpected DB error", dbError);
+        ERR("db", "Unexpected error finalizing memo", dbError);
         return NextResponse.json(
-            { error: "Failed to save memo", detail: String(dbError) },
+            { error: "Failed to save transcript", detail: String(dbError) },
             { status: 500 }
         );
     }
+}
+
+/**
+ * Stage B (failure): Mark the memo as failed so the UI shows the correct state.
+ * The audio_url remains intact — the recording is preserved.
+ */
+export async function updateMemoFailed(
+    memoId: string,
+    audioUrl: string,
+    userId: string,
+    startedAtMs: number
+): Promise<JsonResponse> {
+    LOG("db", "Marking memo as transcription-failed...");
+
+    try {
+        await supabaseAdmin
+            .from("memos")
+            .update({ transcript: FAILED_TRANSCRIPT, transcript_status: "failed" })
+            .eq("id", memoId)
+            .eq("user_id", userId);
+    } catch (dbError) {
+        ERR("db", "Failed to mark memo as failed", dbError);
+    }
+
+    LOG("timing", "Total request ms", Date.now() - startedAtMs);
+    return successResponse(memoId, FAILED_TRANSCRIPT, audioUrl, "failed");
 }

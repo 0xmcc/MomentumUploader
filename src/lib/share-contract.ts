@@ -165,7 +165,7 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
     .split(/\n\s*\n/) // split by double newlines or double newlines with whitespace
     .map(paragraph => paragraph.trim())
     .filter(paragraph => paragraph.length > 0)
-    .map(paragraph => `<p>${paragraph}</p>`)
+    .map(paragraph => `<div class="transcript-block">${paragraph}</div>`)
     .join("\n");
 
   const escapedAudioUrl = escapeHtml(payload.mediaUrl ?? "");
@@ -268,10 +268,15 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
       word-break: break-word;
       line-height: 1.7;
     }
-    .transcript p {
-      margin-bottom: 1.25rem;
+    .transcript-block {
+      padding: 12px 16px;
+      margin-bottom: 10px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(251, 146, 60, 0.14);
+      border-radius: 8px;
+      line-height: 1.7;
     }
-    .transcript p:last-child {
+    .transcript-block:last-child {
       margin-bottom: 0;
     }
     .export-transcript-btn, .copy-transcript-btn {
@@ -525,7 +530,7 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
       if (copyButton) {
         copyButton.addEventListener("click", () => {
           // Extract text cleanly, preserving paragraph breaks
-          const paragraphs = transcriptContent.querySelectorAll("p");
+          const paragraphs = transcriptContent.querySelectorAll(".transcript-block");
           let textToCopy = "";
           
           if (paragraphs.length > 0) {
@@ -556,7 +561,9 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
       const transcriptEl = document.getElementById("transcript-content");
       if (!searchInput || !matchCountEl || !prevBtn || !nextBtn || !transcriptEl) return;
 
-      const originalText = transcriptEl.textContent || "";
+      const blocks = Array.from(transcriptEl.querySelectorAll(".transcript-block"));
+      const blockTexts = blocks.map(function(b) { return b.textContent || ""; });
+      const originalText = blockTexts.join("\n\n");
       const SEARCH_KEY = "transcript-search-query";
       let currentIndex = -1;
 
@@ -570,7 +577,7 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
 
       function applySearch(query) {
         if (!query) {
-          transcriptEl.innerHTML = escHtml(originalText);
+          blocks.forEach(function(b, i) { b.innerHTML = escHtml(blockTexts[i]); });
           matchCountEl.textContent = "";
           prevBtn.disabled = true;
           nextBtn.disabled = true;
@@ -578,22 +585,22 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
           return;
         }
 
-        let regex;
-        try { regex = new RegExp(escRegExp(query), "gi"); } catch { return; }
-
-        let html = "";
-        let last = 0;
-        let count = 0;
-        let m;
-        while ((m = regex.exec(originalText)) !== null) {
-          html += escHtml(originalText.slice(last, m.index));
-          html += '<mark class="search-hit">' + escHtml(m[0]) + "</mark>";
-          last = regex.lastIndex;
-          count++;
-          if (regex.lastIndex === m.index) { regex.lastIndex++; }
-        }
-        html += escHtml(originalText.slice(last));
-        transcriptEl.innerHTML = html;
+        let totalCount = 0;
+        blocks.forEach(function(b, i) {
+          var html = "", last = 0;
+          var localRegex = new RegExp(escRegExp(query), "gi");
+          var m;
+          while ((m = localRegex.exec(blockTexts[i])) !== null) {
+            html += escHtml(blockTexts[i].slice(last, m.index));
+            html += '<mark class="search-hit">' + escHtml(m[0]) + "</mark>";
+            last = localRegex.lastIndex;
+            totalCount++;
+            if (localRegex.lastIndex === m.index) { localRegex.lastIndex++; }
+          }
+          html += escHtml(blockTexts[i].slice(last));
+          b.innerHTML = html;
+        });
+        var count = totalCount;
 
         const hasMatches = count > 0;
         matchCountEl.textContent = hasMatches ? "1 / " + count : "0 matches";
