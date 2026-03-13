@@ -5,6 +5,7 @@ import {
     LOG,
     parseUploadRequest,
     persistMemoProvisional,
+    promoteLiveSegmentsToFinal,
     transcribeUploadedAudio,
     updateMemoFailed,
     updateMemoFinal,
@@ -39,18 +40,6 @@ export async function POST(req: NextRequest) {
         return withCors(NextResponse.json({ error: "Unauthorized" }, { status: 401 }));
     }
 
-    const nvidiaApiKey = process.env.NVIDIA_API_KEY?.trim();
-    if (!nvidiaApiKey) {
-        ERR("env", "NVIDIA_API_KEY is missing", null);
-        return withCors(NextResponse.json(
-            {
-                error: "Transcription is not configured",
-                detail: "NVIDIA_API_KEY is not set on the server.",
-            },
-            { status: 500 }
-        ));
-    }
-
     LOG("env", "NEXT_PUBLIC_SUPABASE_URL set?", !!process.env.NEXT_PUBLIC_SUPABASE_URL);
     LOG("env", "NEXT_PUBLIC_SUPABASE_ANON_KEY set?", !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
     LOG("env", "NVIDIA_API_KEY set?", !!process.env.NVIDIA_API_KEY);
@@ -61,6 +50,18 @@ export async function POST(req: NextRequest) {
     try {
         const parsed = await parseUploadRequest(req, startedAtMs);
         if (!parsed.ok) return withCors(parsed.response);
+
+        const nvidiaApiKey = process.env.NVIDIA_API_KEY?.trim();
+        if (!parsed.data.provisionalTranscript && !nvidiaApiKey) {
+            ERR("env", "NVIDIA_API_KEY is missing", null);
+            return withCors(NextResponse.json(
+                {
+                    error: "Transcription is not configured",
+                    detail: "NVIDIA_API_KEY is not set on the server.",
+                },
+                { status: 500 }
+            ));
+        }
 
         const uploaded = await uploadAudioToStorage(parsed.data, startedAtMs);
         if (!uploaded.ok) return withCors(uploaded.response);
@@ -77,8 +78,22 @@ export async function POST(req: NextRequest) {
         const resolvedMemoId = provisional.data.memoId;
         LOG("db", "Provisional memo persisted", { id: resolvedMemoId });
 
+        if (parsed.data.provisionalTranscript) {
+            await promoteLiveSegmentsToFinal(resolvedMemoId, userId);
+            return withCors(
+                await updateMemoFinal(
+                    resolvedMemoId,
+                    parsed.data.provisionalTranscript,
+                    [],
+                    uploaded.data.fileUrl,
+                    userId,
+                    startedAtMs,
+                )
+            );
+        }
+
         // Stage B: transcribe, then finalize or mark failed.
-        const transcription = await transcribeUploadedAudio(uploaded.data, nvidiaApiKey);
+        const transcription = await transcribeUploadedAudio(uploaded.data, nvidiaApiKey!);
         if (!transcription.ok) {
             // Transcription failed but audio is safe. Mark memo failed and return 200.
             LOG("nvidia", "Transcription failed; marking memo failed and returning degraded 200");

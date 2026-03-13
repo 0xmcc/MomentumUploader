@@ -2,6 +2,7 @@
 
 import {
     persistMemoProvisional,
+    promoteLiveSegmentsToFinal,
     updateMemoFailed,
     updateMemoFinal,
 } from "./workflow";
@@ -382,5 +383,58 @@ describe("transcribe workflow legacy transcript_status fallback", () => {
             undefined,
             supabaseAdmin
         );
+    });
+
+    it("promotes persisted live segments to final segments before final compaction", async () => {
+        const liveRows = [
+            {
+                memo_id: "memo-1",
+                user_id: "user-1",
+                segment_index: 0,
+                start_ms: 0,
+                end_ms: 1000,
+                text: "hello",
+                source: "live",
+            },
+        ];
+
+        const selectOrderStart = jest.fn().mockResolvedValue({
+            data: liveRows,
+            error: null,
+        });
+        const selectOrderSegment = jest.fn(() => ({ order: selectOrderStart }));
+        const selectEqSource = jest.fn(() => ({ order: selectOrderSegment }));
+        const selectEqMemo = jest.fn(() => ({ eq: selectEqSource }));
+        const deleteEqSource = jest.fn().mockResolvedValue({ data: null, error: null });
+        const deleteEqMemo = jest.fn(() => ({ eq: deleteEqSource }));
+        const deleteRows = jest.fn(() => ({ eq: deleteEqMemo }));
+        const insertRows = jest.fn().mockResolvedValue({ data: null, error: null });
+
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table !== "memo_transcript_segments") {
+                throw new Error(`Unexpected table ${table}`);
+            }
+
+            return {
+                select: jest.fn(() => ({ eq: selectEqMemo })),
+                delete: deleteRows,
+                insert: insertRows,
+            };
+        });
+
+        await promoteLiveSegmentsToFinal("memo-1", "user-1");
+
+        expect(deleteRows).toHaveBeenCalled();
+        expect(insertRows).toHaveBeenCalledWith([
+            {
+                memo_id: "memo-1",
+                user_id: "user-1",
+                segment_index: 0,
+                start_ms: 0,
+                end_ms: 1000,
+                text: "hello",
+                source: "final",
+            },
+        ]);
     });
 });

@@ -21,6 +21,7 @@ export type StepResult<T> =
 
 type ParsedUpload = {
     memoId: string | null;
+    provisionalTranscript: string | null;
     file: File;
     fileName: string;
     audioBuffer: Buffer;
@@ -225,6 +226,12 @@ export async function parseUploadRequest(
         typeof memoIdValue === "string" && memoIdValue.trim().length > 0
             ? memoIdValue.trim()
             : null;
+    const provisionalTranscriptValue = formData.get("provisionalTranscript");
+    const provisionalTranscript =
+        typeof provisionalTranscriptValue === "string" &&
+        provisionalTranscriptValue.trim().length > 0
+            ? provisionalTranscriptValue.trim()
+            : null;
     const file = formData.get("file") as File | null;
 
     if (!file) {
@@ -244,6 +251,7 @@ export async function parseUploadRequest(
 
     return ok({
         memoId,
+        provisionalTranscript,
         file,
         fileName,
         audioBuffer,
@@ -370,6 +378,63 @@ export async function transcribeUploadedAudio(
                 { status: 502 }
             )
         );
+    }
+}
+
+export async function promoteLiveSegmentsToFinal(
+    memoId: string,
+    userId: string,
+): Promise<void> {
+    try {
+        const { data: liveSegments, error: selectError } = await supabaseAdmin
+            .from("memo_transcript_segments")
+            .select("memo_id, user_id, segment_index, start_ms, end_ms, text, source")
+            .eq("memo_id", memoId)
+            .eq("source", "live")
+            .order("segment_index", { ascending: true })
+            .order("start_ms", { ascending: true });
+
+        if (selectError) {
+            throw selectError;
+        }
+
+        if (!liveSegments || liveSegments.length === 0) {
+            return;
+        }
+
+        const { error: deleteError } = await supabaseAdmin
+            .from("memo_transcript_segments")
+            .delete()
+            .eq("memo_id", memoId)
+            .eq("source", "final");
+
+        if (deleteError) {
+            throw deleteError;
+        }
+
+        const promotedRows = liveSegments.map((segment) => ({
+            memo_id: memoId,
+            user_id: userId,
+            segment_index: segment.segment_index,
+            start_ms: segment.start_ms,
+            end_ms: segment.end_ms,
+            text: segment.text,
+            source: "final" as const,
+        }));
+
+        const { error: insertError } = await supabaseAdmin
+            .from("memo_transcript_segments")
+            .insert(promotedRows);
+
+        if (insertError) {
+            throw insertError;
+        }
+    } catch (error) {
+        ERR("db", "Promoting live segments to final failed", {
+            memoId,
+            userId,
+            error: readErrorMessage(error) || String(error),
+        });
     }
 }
 

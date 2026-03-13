@@ -29,6 +29,7 @@ jest.mock("@/lib/supabase", () => {
         },
         supabaseAdmin: {
             from: jest.fn(),
+            rpc: jest.fn(),
         },
     };
 });
@@ -77,7 +78,13 @@ function makeDefaultMock() {
     };
 }
 
-function makeAudioFormData(overrides?: { name?: string; type?: string; size?: number; memoId?: string }) {
+function makeAudioFormData(overrides?: {
+    name?: string;
+    type?: string;
+    size?: number;
+    memoId?: string;
+    provisionalTranscript?: string;
+}) {
     const name = overrides?.name ?? "test-memo.webm";
     const type = overrides?.type ?? "audio/webm";
     const size = overrides?.size ?? 10;
@@ -92,6 +99,7 @@ function makeAudioFormData(overrides?: { name?: string; type?: string; size?: nu
                 };
             }
             if (key === "memoId") return overrides?.memoId ?? null;
+            if (key === "provisionalTranscript") return overrides?.provisionalTranscript ?? null;
             return null;
         },
     };
@@ -104,6 +112,7 @@ describe("POST /api/transcribe", () => {
         jest.clearAllMocks();
         (supabaseAdmin.from as jest.Mock).mockReset();
         (supabaseAdmin.from as jest.Mock).mockImplementation(() => makeDefaultMock());
+        (supabaseAdmin.rpc as jest.Mock).mockResolvedValue({ data: [], error: null });
         process.env.NVIDIA_API_KEY = "test-nvidia-key";
         (resolveMemoUserId as jest.Mock).mockResolvedValue("user_123");
         (transcribeAudio as jest.Mock).mockResolvedValue({ transcript: "hello world", segments: [] });
@@ -244,6 +253,92 @@ describe("POST /api/transcribe", () => {
         const finalPayload = finalUpdateFn.mock.calls[0][0];
         expect(finalPayload).toHaveProperty("transcript", "hello world");
         expect(finalPayload).toHaveProperty("transcript_status", "complete");
+    });
+
+    it("bypasses final Riva transcription when a provisional transcript is provided", async () => {
+        let callCount = 0;
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "memo_transcript_segments") {
+                const orderStart = jest.fn().mockResolvedValue({
+                    data: [
+                        {
+                            memo_id: "memo-live-1",
+                            user_id: "user_123",
+                            segment_index: 0,
+                            start_ms: 0,
+                            end_ms: 1000,
+                            text: "Hello world",
+                            source: "live",
+                        },
+                    ],
+                    error: null,
+                });
+                const orderSegment = jest.fn(() => ({ order: orderStart }));
+                const eqSourceSelect = jest.fn(() => ({ order: orderSegment }));
+                const eqMemoSelect = jest.fn(() => ({ eq: eqSourceSelect }));
+
+                const deleteEqSource = jest.fn().mockResolvedValue({ data: null, error: null });
+                const deleteEqMemo = jest.fn(() => ({ eq: deleteEqSource }));
+                const deleteRows = jest.fn(() => ({ eq: deleteEqMemo }));
+
+                return {
+                    select: jest.fn(() => ({ eq: eqMemoSelect })),
+                    delete: deleteRows,
+                    insert: jest.fn().mockResolvedValue({ data: null, error: null }),
+                };
+            }
+
+            callCount += 1;
+            if (callCount === 1) {
+                return {
+                    update: jest.fn(() => makeUpdateChain({ data: { id: "memo-live-1" }, error: null })),
+                    insert: jest.fn(),
+                };
+            }
+
+            return {
+                update: jest.fn(() => makeUpdateChain({ data: null, error: null })),
+                insert: jest.fn(),
+            };
+        });
+
+        const req = {
+            formData: async () => makeAudioFormData({
+                name: "live-memo.webm",
+                memoId: "memo-live-1",
+                provisionalTranscript: "Hello world",
+            }),
+        } as unknown as NextRequest;
+
+        const res = await POST(req);
+        const json = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(json.text).toBe("Hello world");
+        expect(json.transcriptStatus).toBe("complete");
+        expect(transcribeAudio).not.toHaveBeenCalled();
+
+        const finalResult = (supabaseAdmin.from as jest.Mock).mock.results.find(
+            (result) => result.value?.update?.mock?.calls?.some(
+                ([payload]: [Record<string, unknown>]) => payload.transcript === "Hello world"
+            )
+        )?.value;
+        expect(finalResult).toBeDefined();
+        expect(finalResult.update.mock.calls[0][0]).toMatchObject({
+            transcript: "Hello world",
+            transcript_status: "complete",
+        });
+    });
+
+    it("still calls Riva exactly once for manual uploads with no provisional transcript", async () => {
+        const req = {
+            formData: async () => makeAudioFormData({ name: "manual-upload.webm" }),
+        } as unknown as NextRequest;
+
+        const res = await POST(req);
+
+        expect(res.status).toBe(200);
+        expect(transcribeAudio).toHaveBeenCalledTimes(1);
     });
 
     it("normalizes octet-stream uploads to audio/mp4 when filename indicates mp4", async () => {

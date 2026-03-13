@@ -1828,7 +1828,10 @@ describe("AudioRecorder live transcript cadence", () => {
                     });
                 }
 
-                return Promise.resolve({ ok: true, json: async () => ({ text: `unexpected ${liveBlobSizes.length}` }) });
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({ text: "final tail after stop" }),
+                });
             }
             if (url === `/api/memos/${memoId}` && init?.method === "PATCH") {
                 const body = JSON.parse(String(init.body ?? "{}")) as { transcript?: string };
@@ -1863,7 +1866,7 @@ describe("AudioRecorder live transcript cadence", () => {
         window.removeEventListener("unhandledrejection", handleUnhandledRejection);
 
         expect(unhandledRejections).toHaveLength(0);
-        expect(liveBlobSizes.length).toBe(liveCallCountAtStop);
+        expect(liveBlobSizes.length).toBe(liveCallCountAtStop + 1);
         const latestTranscript = patchTranscripts[patchTranscripts.length - 1] ?? "";
         expect(latestTranscript).toBe("locked segment alpha");
     });

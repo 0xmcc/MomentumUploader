@@ -411,4 +411,118 @@ describe("useLiveTranscription finalization fallback", () => {
 
         secondSession.unmount();
     });
+
+    it("runFinalTailTick returns the final locked-plus-tail transcript and only hits /api/transcribe/live after stop", async () => {
+        const memoId = `memo-live-${Math.random().toString(36).slice(2, 10)}`;
+        const patchTranscripts: string[] = [];
+        let liveCallCount = 0;
+
+        Object.defineProperty(global, "fetch", {
+            writable: true,
+            value: jest.fn((url: string, init?: RequestInit) => {
+                if (url === "/api/memos/live") {
+                    return Promise.resolve({
+                        ok: true,
+                        json: async () => ({ memoId }),
+                    });
+                }
+
+                if (url === `/api/memos/${memoId}/share`) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: async () => ({ shareUrl: `https://example.com/s/${memoId}` }),
+                    });
+                }
+
+                if (url === `/api/memos/${memoId}` && init?.method === "PATCH") {
+                    const body = JSON.parse(String(init.body ?? "{}")) as { transcript?: string };
+                    patchTranscripts.push(body.transcript ?? "");
+                    return Promise.resolve({
+                        ok: true,
+                        json: async () => ({ ok: true }),
+                    });
+                }
+
+                if (url === "/api/transcribe/live") {
+                    liveCallCount += 1;
+
+                    if (liveCallCount === 1) {
+                        return Promise.resolve(makeTranscribeResponse("locked segment alpha"));
+                    }
+
+                    if (liveCallCount === 2) {
+                        return Promise.resolve(
+                            makeTranscribeResponse("draft tail before stop")
+                        );
+                    }
+
+                    return Promise.resolve(makeTranscribeResponse("final second words"));
+                }
+
+                if (url === `/api/memos/${memoId}/segments/live`) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: async () => ({ ok: true }),
+                    });
+                }
+
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({}),
+                });
+            }),
+        });
+
+        const refs = buildChunkRefs(30);
+        const { result, unmount } = renderHook(() => useLiveTranscription(refs));
+
+        act(() => {
+            result.current.beginRecordingSession();
+        });
+
+        await waitFor(() => {
+            expect(result.current.liveMemoId).toBe(memoId);
+        });
+
+        act(() => {
+            result.current.runLiveTick();
+        });
+
+        await waitFor(() => {
+            expect(result.current.liveTranscript).toBe(
+                "locked segment alpha draft tail before stop"
+            );
+        });
+
+        act(() => {
+            result.current.endRecordingSession();
+        });
+
+        await act(async () => {
+            await flushMicrotasks();
+        });
+
+        const patchCountAfterStop = patchTranscripts.length;
+        const fetchCallCountAfterStop = (global.fetch as jest.Mock).mock.calls.length;
+
+        let finalTranscript = "";
+        await act(async () => {
+            finalTranscript = await result.current.runFinalTailTick();
+            await flushMicrotasks();
+        });
+
+        expect(finalTranscript).toBe("locked segment alpha final second words");
+        expect(result.current.liveTranscript).toBe("locked segment alpha draft tail before stop");
+        expect(patchTranscripts).toHaveLength(patchCountAfterStop);
+
+        const postStopCalls = (global.fetch as jest.Mock).mock.calls.slice(fetchCallCountAfterStop);
+        expect(postStopCalls).toHaveLength(1);
+        expect(postStopCalls[0]?.[0]).toBe("/api/transcribe/live");
+        expect(postStopCalls.some(([url, init]) =>
+            url === `/api/memos/${memoId}` &&
+            (init as RequestInit | undefined)?.method === "PATCH"
+        )).toBe(false);
+
+        unmount();
+    });
 });

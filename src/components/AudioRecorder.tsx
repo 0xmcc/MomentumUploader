@@ -66,13 +66,13 @@ export default function AudioRecorder({
         liveTranscription.runLiveTick();
     }
 
-    function handleRecordingStopped({
+    async function handleRecordingStopped({
         blob,
         durationSeconds,
         mimeType,
     }: AudioInputPayload) {
         const memoId = liveTranscription.liveMemoId;
-        const provisionalTranscript = liveTranscription.liveTranscript || undefined;
+        const provisionalTranscript = (await liveTranscription.runFinalTailTick()) || undefined;
         if (onAudioInput) {
             onAudioInput({
                 blob,
@@ -84,7 +84,7 @@ export default function AudioRecorder({
             return;
         }
 
-        void handleUpload(blob, mimeType, undefined, memoId);
+        void handleUpload(blob, mimeType, undefined, memoId, provisionalTranscript);
     }
 
     useEffect(() => {
@@ -111,7 +111,8 @@ export default function AudioRecorder({
         blob: Blob,
         mimeType: string = recording.mimeTypeRef.current,
         fileName?: string,
-        memoId?: string | null
+        memoId?: string | null,
+        provisionalTranscript?: string,
     ) => {
         if (!blob) return;
         setIsUploading(true);
@@ -122,6 +123,9 @@ export default function AudioRecorder({
             formData.append("file", blob, uploadFileName);
             if (memoId) {
                 formData.append("memoId", memoId);
+            }
+            if (provisionalTranscript) {
+                formData.append("provisionalTranscript", provisionalTranscript);
             }
             const response = await fetch("/api/transcribe", { method: "POST", body: formData });
             if (!response.ok) throw new Error("Upload failed");

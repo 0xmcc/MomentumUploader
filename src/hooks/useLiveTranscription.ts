@@ -90,6 +90,7 @@ type UseLiveTranscriptionResult = {
     endRecordingSession: () => void;
     resetLiveSession: () => void;
     runLiveTick: () => void;
+    runFinalTailTick: () => Promise<string>;
     handleCopyLiveShare: () => Promise<void>;
     getLiveShareLabel: () => string;
 };
@@ -486,6 +487,46 @@ export function useLiveTranscription({
             });
     };
 
+    const runFinalTailTick = async (): Promise<string> => {
+        const chunks = audioChunksRef.current;
+        const locked = lockedSegmentsRef.current;
+        const startIndex = locked.at(-1)?.endIndex ?? 0;
+        const endIndex = chunks.length;
+
+        if (endIndex <= startIndex) {
+            return buildCanonicalTranscript(lockedSegmentsRef.current, tailTextRef.current);
+        }
+
+        const header = webmHeaderRef.current;
+        const blobParts = header
+            ? [header, ...chunks.slice(startIndex, endIndex)]
+            : chunks.slice(startIndex, endIndex);
+        const snapshot = new Blob(blobParts, { type: mimeTypeRef.current });
+
+        const controller = new AbortController();
+        const formData = new FormData();
+        formData.append("file", snapshot, `final_tail_${Date.now()}.webm`);
+
+        try {
+            const response = await fetch("/api/transcribe/live", {
+                method: "POST",
+                body: formData,
+                signal: controller.signal,
+            });
+            const payload = response.ok
+                ? ((await response.json()) as { text?: string })
+                : { text: "" };
+            const nextTailText = (payload.text ?? "").trim();
+
+            // Intentionally ref-only: avoid state updates that would trigger the
+            // live memo PATCH effect after the session has already ended.
+            tailTextRef.current = nextTailText;
+            return buildCanonicalTranscript(lockedSegmentsRef.current, nextTailText);
+        } catch {
+            return buildCanonicalTranscript(lockedSegmentsRef.current, tailTextRef.current);
+        }
+    };
+
     const beginRecordingSession = () => {
         updateCanonicalTranscript([], "");
         setAnimatedWords([]);
@@ -600,6 +641,7 @@ export function useLiveTranscription({
         endRecordingSession,
         resetLiveSession,
         runLiveTick,
+        runFinalTailTick,
         handleCopyLiveShare,
         getLiveShareLabel,
     };
