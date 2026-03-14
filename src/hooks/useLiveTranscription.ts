@@ -1,129 +1,30 @@
-import {
-    useEffect,
-    useRef,
-    useState,
-    type MutableRefObject,
-} from "react";
+import { useEffect, useRef, useState } from "react";
 import { copyToClipboard } from "@/lib/memo-ui";
-import type { LiveLockedSegment } from "@/lib/live-segments";
+import {
+    buildFinalTailSnapshot,
+    buildLiveSnapshot,
+} from "./useLiveTranscription.windowing";
+import {
+    buildCanonicalTranscript,
+    CATCHUP_BURST_MAX,
+    createInitialLiveDebugState,
+    getDocumentVisibilityState,
+    getLiveShareLabel as describeLiveShareLabel,
+    LIVE_INTERVAL_MS,
+    SEGMENT_CHUNK_COUNT,
+    preserveTailAcrossFinalization,
+    type CanonicalTranscriptState,
+    type LiveTranscriptionDebugState,
+    type LockedSegment,
+    type UseLiveTranscriptionOptions,
+    type UseLiveTranscriptionResult,
+} from "./useLiveTranscription.shared";
 
-const LIVE_INTERVAL_MS = 1500;
-const SEGMENT_CHUNK_COUNT = 15;
-const LIVE_TAIL_CHUNK_COUNT = SEGMENT_CHUNK_COUNT * 2 - 1;
-const CATCHUP_BURST_MAX = 3;
-
-type LockedSegment = LiveLockedSegment;
-
-type CanonicalTranscriptState = {
-    lockedSegments: LockedSegment[];
-    tailText: string;
-};
-
-function joinTranscriptParts(parts: string[]): string {
-    return parts
-        .map((part) => part.trim())
-        .filter(Boolean)
-        .join(" ");
-}
-
-function buildCanonicalTranscript(lockedSegments: LockedSegment[], tailText: string): string {
-    return joinTranscriptParts([
-        ...lockedSegments.map((segment) => segment.text),
-        tailText,
-    ]);
-}
-
-function preserveTailAcrossFinalization(finalizedText: string, previousTailText: string): string {
-    const lockedText = finalizedText.trim();
-    const tailText = previousTailText.trim();
-
-    if (!tailText || !lockedText) return tailText;
-    if (tailText === lockedText) return "";
-    if (tailText.startsWith(lockedText)) {
-        return tailText.slice(lockedText.length).trim();
-    }
-    return tailText;
-}
-
-export type LiveShareState = "idle" | "loading" | "ready" | "copied" | "error";
-export type LiveTranscriptionWindowMode =
-    | "idle"
-    | "segment_finalization"
-    | "tail_update";
-
-export type LiveTranscriptionDebugState = {
-    tabVisibility: "visible" | "hidden";
-    windowMode: LiveTranscriptionWindowMode;
-    bufferedChunkCount: number;
-    snapshotAudioChunkCount: number;
-    snapshotBlobCount: number;
-    snapshotByteSize: number;
-    snapshotWindowStartIndex: number;
-    snapshotWindowChunkCount: number;
-    firstChunkRetained: boolean;
-    headerIncluded: boolean;
-    overflowed: boolean;
-    inFlight: boolean;
-    lastTickAt: number | null;
-    lastResponseAt: number | null;
-    lastServerText: string;
-    lastTranscriptLength: number;
-    lastTranscriptWordCount: number;
-};
-
-type UseLiveTranscriptionOptions = {
-    audioChunksRef: MutableRefObject<Blob[]>;
-    mimeTypeRef: MutableRefObject<string>;
-    webmHeaderRef: MutableRefObject<Blob | null>;
-    chunkPruneOffsetRef: MutableRefObject<number>;
-};
-
-type UseLiveTranscriptionResult = {
-    liveTranscript: string;
-    animatedWords: string[];
-    newWordStartIndex: number;
-    liveDebug: LiveTranscriptionDebugState;
-    transcriptScrollRef: MutableRefObject<HTMLDivElement | null>;
-    liveMemoId: string | null;
-    liveShareUrl: string | null;
-    liveShareState: LiveShareState;
-    beginRecordingSession: () => void;
-    endRecordingSession: () => void;
-    resetLiveSession: () => void;
-    runLiveTick: () => void;
-    runFinalTailTick: () => Promise<string>;
-    handleCopyLiveShare: () => Promise<void>;
-    getLiveShareLabel: () => string;
-};
-
-function getDocumentVisibilityState(): "visible" | "hidden" {
-    if (typeof document === "undefined") return "visible";
-    return document.hidden ? "hidden" : "visible";
-}
-
-function createInitialLiveDebugState(
-    tabVisibility: "visible" | "hidden" = getDocumentVisibilityState()
-): LiveTranscriptionDebugState {
-    return {
-        tabVisibility,
-        windowMode: "idle",
-        bufferedChunkCount: 0,
-        snapshotAudioChunkCount: 0,
-        snapshotBlobCount: 0,
-        snapshotByteSize: 0,
-        snapshotWindowStartIndex: 0,
-        snapshotWindowChunkCount: 0,
-        firstChunkRetained: false,
-        headerIncluded: false,
-        overflowed: false,
-        inFlight: false,
-        lastTickAt: null,
-        lastResponseAt: null,
-        lastServerText: "",
-        lastTranscriptLength: 0,
-        lastTranscriptWordCount: 0,
-    };
-}
+export type {
+    LiveShareState,
+    LiveTranscriptionDebugState,
+    LiveTranscriptionWindowMode,
+} from "./useLiveTranscription.shared";
 
 export function useLiveTranscription({
     audioChunksRef,
@@ -131,16 +32,21 @@ export function useLiveTranscription({
     webmHeaderRef,
     chunkPruneOffsetRef,
 }: UseLiveTranscriptionOptions): UseLiveTranscriptionResult {
-    const [canonicalTranscriptState, setCanonicalTranscriptState] = useState<CanonicalTranscriptState>({
-        lockedSegments: [],
-        tailText: "",
-    });
+    const [canonicalTranscriptState, setCanonicalTranscriptState] =
+        useState<CanonicalTranscriptState>({
+            lockedSegments: [],
+            tailText: "",
+        });
     const [animatedWords, setAnimatedWords] = useState<string[]>([]);
     const [newWordStartIndex, setNewWordStartIndex] = useState(0);
-    const [liveDebug, setLiveDebug] = useState<LiveTranscriptionDebugState>(createInitialLiveDebugState);
+    const [liveDebug, setLiveDebug] = useState<LiveTranscriptionDebugState>(
+        createInitialLiveDebugState
+    );
     const [liveMemoId, setLiveMemoId] = useState<string | null>(null);
     const [liveShareUrl, setLiveShareUrl] = useState<string | null>(null);
-    const [liveShareState, setLiveShareState] = useState<LiveShareState>("idle");
+    const [liveShareState, setLiveShareState] = useState<
+        UseLiveTranscriptionResult["liveShareState"]
+    >("idle");
 
     const liveTimerRef = useRef<NodeJS.Timeout | null>(null);
     const liveInFlightRef = useRef(false);
@@ -154,8 +60,6 @@ export function useLiveTranscription({
     const liveSyncInFlightRef = useRef(false);
     const pendingLiveTranscriptRef = useRef<string | null>(null);
     const persistedSegmentCountRef = useRef(0);
-    // Set when recording ends; blocks retry syncs to prevent a late PATCH from
-    // overwriting the final transcript written by the upload pipeline.
     const sessionEndedRef = useRef(false);
     const syncedLiveTranscriptRef = useRef("");
     const liveShareResetTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -186,9 +90,11 @@ export function useLiveTranscription({
 
         const previousText = previousTranscriptRef.current.trim();
         const nextWords = nextText.split(/\s+/).filter(Boolean);
-        const previousWords = previousText ? previousText.split(/\s+/).filter(Boolean) : [];
-
+        const previousWords = previousText
+            ? previousText.split(/\s+/).filter(Boolean)
+            : [];
         const isAppendOnly = !!previousText && nextText.startsWith(previousText);
+
         setNewWordStartIndex(isAppendOnly ? previousWords.length : 0);
         setAnimatedWords(nextWords);
         previousTranscriptRef.current = nextText;
@@ -196,10 +102,15 @@ export function useLiveTranscription({
 
     useEffect(() => () => {
         if (liveTimerRef.current) clearInterval(liveTimerRef.current);
-        if (liveShareResetTimerRef.current) clearTimeout(liveShareResetTimerRef.current);
+        if (liveShareResetTimerRef.current) {
+            clearTimeout(liveShareResetTimerRef.current);
+        }
         abortRef.current?.abort();
         if (visibilityHandlerRef.current) {
-            document.removeEventListener("visibilitychange", visibilityHandlerRef.current);
+            document.removeEventListener(
+                "visibilitychange",
+                visibilityHandlerRef.current
+            );
             visibilityHandlerRef.current = null;
         }
     }, []);
@@ -217,7 +128,7 @@ export function useLiveTranscription({
 
     const updateCanonicalTranscript = (
         nextLockedSegments: LockedSegment[],
-        nextTailText: string,
+        nextTailText: string
     ) => {
         lockedSegmentsRef.current = nextLockedSegments;
         tailTextRef.current = nextTailText;
@@ -242,6 +153,7 @@ export function useLiveTranscription({
             document.removeEventListener("visibilitychange", visibilityHandlerRef.current);
             visibilityHandlerRef.current = null;
         }
+
         isRecordingRef.current = false;
         updateCanonicalTranscript([], "");
         setAnimatedWords([]);
@@ -263,7 +175,7 @@ export function useLiveTranscription({
 
     const persistLiveSegments = async (
         memoId: string,
-        segments: LockedSegment[],
+        segments: LockedSegment[]
     ) => {
         if (segments.length === 0) return;
 
@@ -284,6 +196,7 @@ export function useLiveTranscription({
 
     const persistLiveTranscript = async () => {
         if (liveSyncInFlightRef.current) return;
+
         const memoId = liveMemoIdRef.current;
         const transcript = pendingLiveTranscriptRef.current;
         if (!memoId || transcript == null) return;
@@ -307,13 +220,14 @@ export function useLiveTranscription({
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ transcript: normalizedTranscript }),
             });
+
             if (response.status === 409) {
-                // Memo has been finalized by the upload pipeline; this sync is a no-op.
                 return;
             }
             if (!response.ok) {
                 throw new Error(`Live transcript update failed: ${response.status}`);
             }
+
             syncedLiveTranscriptRef.current = normalizedTranscript;
         } catch (error) {
             console.error("[live-sync]", error);
@@ -323,7 +237,7 @@ export function useLiveTranscription({
             const hasPendingUpdate =
                 typeof pendingTranscript === "string" &&
                 pendingTranscript.trim() !== syncedLiveTranscriptRef.current.trim();
-            // Do not retry after the session has ended — finalization is imminent or done.
+
             if (hasPendingUpdate && !sessionEndedRef.current) {
                 void persistLiveTranscript();
             }
@@ -332,22 +246,31 @@ export function useLiveTranscription({
 
     useEffect(() => {
         if (!liveMemoId) return;
-        pendingLiveTranscriptRef.current = buildCanonicalTranscript(lockedSegments, tailText);
+        pendingLiveTranscriptRef.current = buildCanonicalTranscript(
+            lockedSegments,
+            tailText
+        );
         void persistLiveTranscript();
     }, [liveMemoId, lockedSegments, tailText]);
 
     const requestLiveShareUrl = async (memoId: string): Promise<string> => {
-        const response = await fetch(`/api/memos/${memoId}/share`, { method: "POST" });
+        const response = await fetch(`/api/memos/${memoId}/share`, {
+            method: "POST",
+        });
         const json = await response.json().catch(() => null);
-        const nextShareUrl = typeof json?.shareUrl === "string" ? json.shareUrl : null;
+        const nextShareUrl =
+            typeof json?.shareUrl === "string" ? json.shareUrl : null;
+
         if (!response.ok || !nextShareUrl) {
             throw new Error("Unable to create live share link.");
         }
+
         return nextShareUrl;
     };
 
     const startLiveShareSession = async () => {
         setLiveShareState("loading");
+
         try {
             const liveMemoResponse = await fetch("/api/memos/live", { method: "POST" });
             if (liveMemoResponse.status === 401) {
@@ -356,7 +279,11 @@ export function useLiveTranscription({
             }
 
             const liveMemoJson = await liveMemoResponse.json().catch(() => null);
-            const memoId = typeof liveMemoJson?.memoId === "string" ? liveMemoJson.memoId : null;
+            const memoId =
+                typeof liveMemoJson?.memoId === "string"
+                    ? liveMemoJson.memoId
+                    : null;
+
             if (!liveMemoResponse.ok || !memoId) {
                 throw new Error("Unable to initialize live memo.");
             }
@@ -382,59 +309,46 @@ export function useLiveTranscription({
         const controller = new AbortController();
         abortRef.current = controller;
 
-        const chunks = audioChunksRef.current;
-        const pruneOffset = chunkPruneOffsetRef.current;
-        const trueTotal = chunks.length + pruneOffset;
-        const header = webmHeaderRef.current;
-        const locked = lockedSegmentsRef.current;
-        const finalizedEnd = locked.length > 0 ? locked[locked.length - 1].endIndex : 0;
-        const pendingCount = trueTotal - finalizedEnd;
-        const willFinalize = !forceTailRefresh && pendingCount >= SEGMENT_CHUNK_COUNT * 2;
-        const requestStart = finalizedEnd;
-        const requestEnd = willFinalize
-            ? finalizedEnd + SEGMENT_CHUNK_COUNT
-            : Math.min(trueTotal, finalizedEnd + LIVE_TAIL_CHUNK_COUNT);
-        const arrayStart = Math.max(0, requestStart - pruneOffset);
-        const arrayEnd = Math.max(arrayStart, requestEnd - pruneOffset);
-
-        const blobParts = header
-            ? [header, ...chunks.slice(arrayStart, arrayEnd)]
-            : [...chunks.slice(arrayStart, arrayEnd)];
-        const snapshot = new Blob(blobParts, { type: mimeTypeRef.current });
-        const snapshotAudioChunkCount = arrayEnd - arrayStart;
-
-        updateLiveDebug({
+        const snapshot = buildLiveSnapshot({
+            chunks: audioChunksRef.current,
+            mimeType: mimeTypeRef.current,
+            header: webmHeaderRef.current,
+            pruneOffset: chunkPruneOffsetRef.current,
+            lockedSegments: lockedSegmentsRef.current,
+            forceTailRefresh,
             tabVisibility: getDocumentVisibilityState(),
-            windowMode: willFinalize ? "segment_finalization" : "tail_update",
-            bufferedChunkCount: trueTotal,
-            snapshotAudioChunkCount,
-            snapshotBlobCount: blobParts.length,
-            snapshotByteSize: snapshot.size,
-            snapshotWindowStartIndex: requestStart,
-            snapshotWindowChunkCount: requestEnd - requestStart,
-            firstChunkRetained: false,
-            headerIncluded: Boolean(header),
-            overflowed: locked.length > 0,
-            inFlight: true,
-            lastTickAt: Date.now(),
+            now: Date.now(),
         });
 
-        const formData = new FormData();
-        formData.append("file", snapshot, `live_${Date.now()}.webm`);
+        updateLiveDebug(snapshot.debugPatch);
 
-        fetch("/api/transcribe/live", { method: "POST", body: formData, signal: controller.signal })
-            .then((response) => (response.ok ? response.json() : Promise.reject(response.status)))
+        const formData = new FormData();
+        formData.append("file", snapshot.snapshot, `live_${Date.now()}.webm`);
+
+        fetch("/api/transcribe/live", {
+            method: "POST",
+            body: formData,
+            signal: controller.signal,
+        })
+            .then((response) =>
+                response.ok ? response.json() : Promise.reject(response.status)
+            )
             .then(({ text }: { text: string }) => {
-                if (willFinalize) {
+                if (snapshot.willFinalize) {
                     const finalizedText = (text ?? "").trim();
                     const nextLockedSegments = [
                         ...lockedSegmentsRef.current,
-                        { startIndex: requestStart, endIndex: requestEnd, text: finalizedText },
+                        {
+                            startIndex: snapshot.requestStart,
+                            endIndex: snapshot.requestEnd,
+                            text: finalizedText,
+                        },
                     ];
                     const nextTailText = preserveTailAcrossFinalization(
                         finalizedText,
-                        tailTextRef.current,
+                        tailTextRef.current
                     );
+
                     updateCanonicalTranscript(nextLockedSegments, nextTailText);
                     updateLiveDebug({
                         lastResponseAt: Date.now(),
@@ -448,20 +362,20 @@ export function useLiveTranscription({
                         nextLockedSegments.length > persistedSegmentCountRef.current
                     ) {
                         const newSegments = nextLockedSegments.slice(
-                            persistedSegmentCountRef.current,
+                            persistedSegmentCountRef.current
                         );
                         void persistLiveSegments(memoId, newSegments);
                         persistedSegmentCountRef.current = nextLockedSegments.length;
                     }
-                } else {
-                    const nextTailText = (text ?? "").trim();
-                    updateCanonicalTranscript(lockedSegmentsRef.current, nextTailText);
-                    updateLiveDebug({
-                        lastResponseAt: Date.now(),
-                        lastServerText: text ?? "",
-                        inFlight: false,
-                    });
+                    return;
                 }
+
+                updateCanonicalTranscript(lockedSegmentsRef.current, (text ?? "").trim());
+                updateLiveDebug({
+                    lastResponseAt: Date.now(),
+                    lastServerText: text ?? "",
+                    inFlight: false,
+                });
             })
             .catch((error) => {
                 if (error?.name !== "AbortError") console.error("[live]", error);
@@ -474,7 +388,7 @@ export function useLiveTranscription({
                 liveInFlightRef.current = false;
                 updateLiveDebug({ inFlight: false });
 
-                if (!willFinalize) return;
+                if (!snapshot.willFinalize) return;
 
                 const afterEnd = lockedSegmentsRef.current.at(-1)?.endIndex ?? 0;
                 const remaining =
@@ -497,22 +411,20 @@ export function useLiveTranscription({
     };
 
     const runFinalTailTick = async (): Promise<string> => {
-        const chunks = audioChunksRef.current;
-        const pruneOffset = chunkPruneOffsetRef.current;
-        const locked = lockedSegmentsRef.current;
-        const startIndex = locked.at(-1)?.endIndex ?? 0;
-        const trueTotal = chunks.length + pruneOffset;
+        const snapshot = buildFinalTailSnapshot({
+            chunks: audioChunksRef.current,
+            mimeType: mimeTypeRef.current,
+            header: webmHeaderRef.current,
+            pruneOffset: chunkPruneOffsetRef.current,
+            lockedSegments: lockedSegmentsRef.current,
+        });
 
-        if (trueTotal <= startIndex) {
-            return buildCanonicalTranscript(lockedSegmentsRef.current, tailTextRef.current);
+        if (!snapshot) {
+            return buildCanonicalTranscript(
+                lockedSegmentsRef.current,
+                tailTextRef.current
+            );
         }
-
-        const header = webmHeaderRef.current;
-        const arrayStart = Math.max(0, startIndex - pruneOffset);
-        const blobParts = header
-            ? [header, ...chunks.slice(arrayStart)]
-            : chunks.slice(arrayStart);
-        const snapshot = new Blob(blobParts, { type: mimeTypeRef.current });
 
         const controller = new AbortController();
         const formData = new FormData();
@@ -529,12 +441,13 @@ export function useLiveTranscription({
                 : { text: "" };
             const nextTailText = (payload.text ?? "").trim();
 
-            // Intentionally ref-only: avoid state updates that would trigger the
-            // live memo PATCH effect after the session has already ended.
             tailTextRef.current = nextTailText;
             return buildCanonicalTranscript(lockedSegmentsRef.current, nextTailText);
         } catch {
-            return buildCanonicalTranscript(lockedSegmentsRef.current, tailTextRef.current);
+            return buildCanonicalTranscript(
+                lockedSegmentsRef.current,
+                tailTextRef.current
+            );
         }
     };
 
@@ -557,13 +470,13 @@ export function useLiveTranscription({
         catchupBurstCountRef.current = 0;
         setLiveDebug(createInitialLiveDebugState());
 
-        // Clean up any leftover handler from a previous session before registering a new one
         if (visibilityHandlerRef.current) {
             document.removeEventListener("visibilitychange", visibilityHandlerRef.current);
         }
 
         const handleVisibilityChange = () => {
             if (!isRecordingRef.current) return;
+
             updateLiveDebug({ tabVisibility: getDocumentVisibilityState() });
             if (document.hidden) {
                 return;
@@ -591,13 +504,12 @@ export function useLiveTranscription({
             document.removeEventListener("visibilitychange", visibilityHandlerRef.current);
             visibilityHandlerRef.current = null;
         }
+
         isRecordingRef.current = false;
-        // Mark session ended so no retry syncs fire after this final one.
-        // The flag is checked in persistLiveTranscript's retry guard.
         sessionEndedRef.current = true;
         pendingLiveTranscriptRef.current = buildCanonicalTranscript(
             lockedSegmentsRef.current,
-            tailTextRef.current,
+            tailTextRef.current
         );
         void persistLiveTranscript();
     };
@@ -632,12 +544,7 @@ export function useLiveTranscription({
         }
     };
 
-    const getLiveShareLabel = () => {
-        if (liveShareState === "loading") return "Preparing link...";
-        if (liveShareState === "copied") return "Copied";
-        if (liveShareState === "error") return "Retry live link";
-        return "Copy live link";
-    };
+    const getLiveShareLabel = () => describeLiveShareLabel(liveShareState);
 
     return {
         liveTranscript,

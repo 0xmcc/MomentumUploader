@@ -23,13 +23,25 @@ function parseIndex(value: FormDataEntryValue | null): number | null {
     return Number.isInteger(parsed) ? parsed : null;
 }
 
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    if (typeof error === "object" && error !== null && "message" in error) {
+        return String((error as { message?: unknown }).message ?? "");
+    }
+    return String(error);
+}
+
 function logChunkUploadError(error: unknown) {
+    const message = getErrorMessage(error);
     const details =
         typeof error === "object" && error !== null && "details" in error
             ? String((error as { details?: unknown }).details ?? "")
             : "";
-
-    console.error("[chunk-upload]", error instanceof Error ? error.message : error, details);
+    const statusCode =
+        typeof error === "object" && error !== null && "statusCode" in error
+            ? String((error as { statusCode?: unknown }).statusCode ?? "")
+            : "";
+    console.error("[chunk-upload]", message, { details, statusCode });
 }
 
 export async function OPTIONS() {
@@ -72,15 +84,22 @@ export async function POST(req: NextRequest) {
         if (error) {
             logChunkUploadError(error);
             return withCors(
-                NextResponse.json({ error: "Failed to store audio chunk" }, { status: 500 })
+                NextResponse.json(
+                    { error: "Failed to store audio chunk", detail: getErrorMessage(error) },
+                    { status: 500 }
+                )
             );
         }
 
+        console.log("[chunk-upload] ok", { memoId, startIndex, endIndex, path: objectPath });
         return withCors(NextResponse.json({ ok: true }));
     } catch (error) {
         logChunkUploadError(error);
         return withCors(
-            NextResponse.json({ error: "Failed to store audio chunk" }, { status: 500 })
+            NextResponse.json(
+                { error: "Failed to store audio chunk", detail: getErrorMessage(error) },
+                { status: 500 }
+            )
         );
     }
 }

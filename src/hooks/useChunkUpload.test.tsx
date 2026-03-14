@@ -2,8 +2,11 @@ import { act, renderHook } from "@testing-library/react";
 import { useChunkUpload } from "./useChunkUpload";
 
 describe("useChunkUpload", () => {
+    let consoleLogSpy: jest.SpyInstance;
+
     beforeEach(() => {
         jest.useFakeTimers();
+        consoleLogSpy = jest.spyOn(console, "log").mockImplementation(() => {});
         Object.defineProperty(global, "fetch", {
             writable: true,
             value: jest.fn().mockResolvedValue({
@@ -15,6 +18,7 @@ describe("useChunkUpload", () => {
 
     afterEach(() => {
         jest.clearAllMocks();
+        consoleLogSpy.mockRestore();
         jest.useRealTimers();
     });
 
@@ -316,5 +320,50 @@ describe("useChunkUpload", () => {
         expect(formData.get("memoId")).toBe("memo-ref-swap");
         expect(formData.get("startIndex")).toBe("0");
         expect(formData.get("endIndex")).toBe("14");
+    });
+
+    it("logs when the upload effect is skipped before memoId exists and when it later starts", () => {
+        const audioChunksRef = {
+            current: Array.from(
+                { length: 2 },
+                (_, index) => new Blob([`chunk-${index}`], { type: "audio/webm" })
+            ),
+        };
+        const webmHeaderRef = { current: new Blob(["header"], { type: "audio/webm" }) };
+        const mimeTypeRef = { current: "audio/webm" };
+
+        const { rerender } = renderHook(
+            ({ memoId }) =>
+                useChunkUpload({
+                    audioChunksRef,
+                    webmHeaderRef,
+                    mimeTypeRef,
+                    memoId,
+                    enabled: true,
+                }),
+            { initialProps: { memoId: null as string | null } }
+        );
+
+        expect(consoleLogSpy).toHaveBeenCalledWith(
+            "[chunk-upload]",
+            "effect:skip",
+            expect.objectContaining({
+                reason: "missing-memo-id",
+                enabled: true,
+                totalChunks: 2,
+            })
+        );
+
+        rerender({ memoId: "memo-log-visible" });
+
+        expect(consoleLogSpy).toHaveBeenCalledWith(
+            "[chunk-upload]",
+            "effect:start",
+            expect.objectContaining({
+                memoId: "memo-log-visible",
+                enabled: true,
+                totalChunks: 2,
+            })
+        );
     });
 });

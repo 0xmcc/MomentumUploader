@@ -1,12 +1,15 @@
 /** @jest-environment node */
 
 import {
+    parseUploadRequest,
     persistMemoProvisional,
     promoteLiveSegmentsToFinal,
+    transcribeUploadedAudio,
     updateMemoFailed,
     updateMemoFinal,
+    uploadAudioToStorage,
 } from "./workflow";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabase, supabaseAdmin, uploadAudio } from "@/lib/supabase";
 import {
     compactFinalChunks,
 } from "@/lib/memo-chunks";
@@ -16,7 +19,21 @@ import {
 } from "@/lib/memo-artifacts";
 import { runPendingMemoJobs } from "@/lib/memo-jobs";
 
-jest.mock("@/lib/supabase");
+jest.mock("@/lib/supabase", () => ({
+    uploadAudio: jest.fn(),
+    supabase: {
+        storage: {
+            from: jest.fn(() => ({
+                getPublicUrl: jest.fn(() => ({
+                    data: { publicUrl: "https://example.com/audio.webm" },
+                })),
+            })),
+        },
+    },
+    supabaseAdmin: {
+        from: jest.fn(),
+    },
+}));
 
 jest.mock("@/lib/memo-chunks", () => ({
     compactFinalChunks: jest.fn(),
@@ -29,6 +46,10 @@ jest.mock("@/lib/memo-artifacts", () => ({
 
 jest.mock("@/lib/memo-jobs", () => ({
     runPendingMemoJobs: jest.fn(),
+}));
+
+jest.mock("@/lib/riva", () => ({
+    transcribeAudio: jest.fn(),
 }));
 
 function makeLegacyUpdateChain(resolvedValue: unknown) {
@@ -54,6 +75,110 @@ describe("transcribe workflow legacy transcript_status fallback", () => {
     beforeEach(() => {
         jest.clearAllMocks();
         (runPendingMemoJobs as jest.Mock).mockResolvedValue(undefined);
+        (uploadAudio as jest.Mock).mockReset();
+        (supabase.storage.from as jest.Mock).mockReset();
+        (supabase.storage.from as jest.Mock).mockReturnValue({
+            getPublicUrl: jest.fn(() => ({
+                data: { publicUrl: "https://example.com/audio.webm" },
+            })),
+        });
+    });
+
+    it("parses upload form data, trims memo metadata, and normalizes storage content type", async () => {
+        const req = {
+            formData: async () => {
+                const formData = new FormData();
+                formData.set("memoId", " memo-live-1 ");
+                formData.set("provisionalTranscript", " provisional text ");
+                formData.set(
+                    "file",
+                    new File([Buffer.from("audio-data")], "iphone-note.m4a", {
+                        type: "audio/x-m4a",
+                    })
+                );
+                return formData;
+            },
+        };
+
+        const result = await parseUploadRequest(req as never, Date.now());
+
+        expect(result.ok).toBe(true);
+        if (!result.ok) {
+            throw new Error("Expected parsed upload to succeed");
+        }
+
+        expect(result.data.memoId).toBe("memo-live-1");
+        expect(result.data.provisionalTranscript).toBe("provisional text");
+        expect(result.data.fileName).toEqual(expect.stringContaining("iphone-note.m4a"));
+        expect(result.data.uploadContentType).toBe("audio/mp4");
+        expect(Buffer.isBuffer(result.data.audioBuffer)).toBe(true);
+    });
+
+    it("returns a 413 response when storage rejects the upload as too large", async () => {
+        (uploadAudio as jest.Mock).mockRejectedValue({
+            namespace: "storage",
+            status: 413,
+            message: "maximum allowed size exceeded",
+        });
+
+        const result = await uploadAudioToStorage(
+            {
+                memoId: null,
+                provisionalTranscript: null,
+                file: new File([Buffer.from("audio-data")], "large.webm", {
+                    type: "audio/webm",
+                }),
+                fileName: "large.webm",
+                audioBuffer: Buffer.from("audio-data"),
+                uploadContentType: "audio/webm",
+            },
+            Date.now()
+        );
+
+        expect(result.ok).toBe(false);
+        if (result.ok) {
+            throw new Error("Expected upload to fail");
+        }
+
+        expect(result.response.status).toBe(413);
+        await expect(result.response.json()).resolves.toMatchObject({
+            error: "Audio file too large for storage",
+        });
+    });
+
+    it("returns a 502 response when the transcription provider throws", async () => {
+        const upstreamError = new Error("provider unavailable");
+        (uploadAudio as jest.Mock).mockResolvedValue({ path: "audio/test.webm" });
+        const { transcribeAudio } = jest.requireMock("@/lib/riva") as {
+            transcribeAudio: jest.Mock;
+        };
+        transcribeAudio.mockRejectedValue(upstreamError);
+
+        const result = await transcribeUploadedAudio(
+            {
+                memoId: null,
+                provisionalTranscript: null,
+                file: new File([Buffer.from("audio-data")], "memo.webm", {
+                    type: "audio/webm",
+                }),
+                fileName: "memo.webm",
+                audioBuffer: Buffer.from("audio-data"),
+                uploadContentType: "audio/webm",
+                fileUrl: "https://example.com/audio.webm",
+            },
+            "nvidia-key"
+        );
+
+        expect(result.ok).toBe(false);
+        if (result.ok) {
+            throw new Error("Expected transcription to fail");
+        }
+
+        expect(result.response.status).toBe(502);
+        await expect(result.response.json()).resolves.toMatchObject({
+            error: "Failed to transcribe audio with NVIDIA",
+            detail: "provider unavailable",
+        });
     });
 
     it("retries provisional live-memo update without transcript_status instead of inserting a duplicate memo", async () => {

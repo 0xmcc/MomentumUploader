@@ -336,7 +336,8 @@ describe("AudioRecorder pipeline coverage", () => {
         expect(chunkCalls).toHaveLength(2);
         expect(directTranscribeCalls(fetchMock)).toHaveLength(0);
         expect(firstUploadedBatch.get("startIndex")).toBe("0");
-        expect(firstUploadedEndIndex).toBeGreaterThanOrEqual(3);
+        expect(firstUploadedEndIndex).toBeGreaterThanOrEqual(1);
+        expect(firstUploadedEndIndex).toBeLessThan(finalUploadedEndIndex);
         expect(secondUploadedBatch.get("startIndex")).toBe(String(firstUploadedEndIndex));
         expect(finalizeBody).toEqual({
             memoId,
@@ -355,7 +356,7 @@ describe("AudioRecorder pipeline coverage", () => {
         });
     });
 
-    it("calls upload-chunks after memos/live resolves late (first upload via 15s timer or readiness poll)", async () => {
+    it("posts upload-chunks within 2s after memos/live resolves late once chunks already exist", async () => {
         const memoId = "memo-late-live";
         let resolveLive: (value: { ok: boolean; json: () => Promise<{ memoId: string }> }) => void;
         const livePromise = new Promise<{ ok: boolean; json: () => Promise<{ memoId: string }> }>((resolve) => {
@@ -388,7 +389,7 @@ describe("AudioRecorder pipeline coverage", () => {
         fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
 
         await act(async () => {
-            jest.advanceTimersByTime(12_000);
+            jest.advanceTimersByTime(3_000);
         });
         resolveLive!({
             ok: true,
@@ -404,14 +405,15 @@ describe("AudioRecorder pipeline coverage", () => {
             );
         });
         await act(async () => {
-            jest.advanceTimersByTime(15_000);
+            jest.advanceTimersByTime(2_500);
         });
         await act(async () => {
             await flushMicrotasks(12);
         });
 
         const fetchMock = global.fetch as jest.Mock;
-        expect(uploadCalls(fetchMock).length).toBeGreaterThanOrEqual(1);
+        expect(uploadCalls(fetchMock)).toHaveLength(1);
+        expect(uploadCalls(fetchMock)[0]?.[0]).toBe("/api/transcribe/upload-chunks");
     });
 
     it("falls back to a single transcribe POST when recording stops before the live memo id exists", async () => {

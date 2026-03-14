@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { copyToClipboard } from "@/lib/memo-ui";
 import { useLiveTranscription } from "./useLiveTranscription";
 
 jest.mock("@/lib/memo-ui", () => ({
@@ -643,6 +644,147 @@ describe("useLiveTranscription finalization fallback", () => {
             "locked segment alpha locked segment beta final tail after prune"
         );
         expect(liveCallCount).toBe(4);
+
+        unmount();
+    });
+});
+
+describe("useLiveTranscription session controls", () => {
+    afterEach(() => {
+        jest.clearAllMocks();
+        jest.useRealTimers();
+    });
+
+    it("resets transcript, share state, and debug counters when the live session is reset", async () => {
+        const memoId = "memo-reset-state";
+
+        Object.defineProperty(global, "fetch", {
+            writable: true,
+            value: jest.fn(async (url: string, init?: RequestInit) => {
+                if (url === "/api/memos/live") {
+                    return {
+                        ok: true,
+                        json: async () => ({ memoId }),
+                    };
+                }
+
+                if (url === `/api/memos/${memoId}/share`) {
+                    return {
+                        ok: true,
+                        json: async () => ({ shareUrl: `https://example.com/s/${memoId}` }),
+                    };
+                }
+
+                if (url === `/api/memos/${memoId}` && init?.method === "PATCH") {
+                    return {
+                        ok: true,
+                        json: async () => ({ ok: true }),
+                    };
+                }
+
+                if (url === "/api/transcribe/live") {
+                    return makeTranscribeResponse("tail text only");
+                }
+
+                return {
+                    ok: true,
+                    json: async () => ({ ok: true }),
+                };
+            }),
+        });
+
+        const refs = buildChunkRefs(20);
+        const { result, unmount } = renderHook(() => useLiveTranscription(refs));
+
+        act(() => {
+            result.current.beginRecordingSession();
+        });
+
+        await waitFor(() => {
+            expect(result.current.liveShareState).toBe("ready");
+        });
+
+        act(() => {
+            result.current.runLiveTick();
+        });
+
+        await waitFor(() => {
+            expect(result.current.liveTranscript).toBe("tail text only");
+        });
+
+        act(() => {
+            result.current.resetLiveSession();
+        });
+
+        expect(result.current.liveTranscript).toBe("");
+        expect(result.current.animatedWords).toEqual([]);
+        expect(result.current.newWordStartIndex).toBe(0);
+        expect(result.current.liveMemoId).toBeNull();
+        expect(result.current.liveShareUrl).toBeNull();
+        expect(result.current.liveShareState).toBe("idle");
+        expect(result.current.liveDebug.windowMode).toBe("idle");
+        expect(result.current.liveDebug.bufferedChunkCount).toBe(0);
+        expect(result.current.liveDebug.lastServerText).toBe("");
+        expect(result.current.liveDebug.lastTranscriptLength).toBe(0);
+        expect(result.current.liveDebug.lastTranscriptWordCount).toBe(0);
+
+        unmount();
+    });
+
+    it("copies the live share URL and restores the ready state after the timeout", async () => {
+        jest.useFakeTimers();
+        const memoId = "memo-live-share";
+
+        Object.defineProperty(global, "fetch", {
+            writable: true,
+            value: jest.fn(async (url: string) => {
+                if (url === "/api/memos/live") {
+                    return {
+                        ok: true,
+                        json: async () => ({ memoId }),
+                    };
+                }
+
+                if (url === `/api/memos/${memoId}/share`) {
+                    return {
+                        ok: true,
+                        json: async () => ({ shareUrl: `https://example.com/s/${memoId}` }),
+                    };
+                }
+
+                return {
+                    ok: true,
+                    json: async () => ({ ok: true }),
+                };
+            }),
+        });
+
+        const refs = buildChunkRefs(5);
+        const { result, unmount } = renderHook(() => useLiveTranscription(refs));
+
+        act(() => {
+            result.current.beginRecordingSession();
+        });
+
+        await waitFor(() => {
+            expect(result.current.liveShareState).toBe("ready");
+        });
+
+        await act(async () => {
+            await result.current.handleCopyLiveShare();
+        });
+
+        expect(copyToClipboard).toHaveBeenCalledWith(`https://example.com/s/${memoId}`);
+        expect(result.current.liveShareState).toBe("copied");
+        expect(result.current.getLiveShareLabel()).toBe("Copied");
+
+        await act(async () => {
+            jest.advanceTimersByTime(3000);
+            await flushMicrotasks();
+        });
+
+        expect(result.current.liveShareState).toBe("ready");
+        expect(result.current.getLiveShareLabel()).toBe("Copy live link");
 
         unmount();
     });
