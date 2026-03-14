@@ -85,4 +85,26 @@ describe("POST /api/transcribe/upload-chunks", () => {
             }
         );
     });
+
+    it("rejects invalid chunk upload payloads before writing to storage", async () => {
+        const file = new File(["chunk-audio"], "chunk.webm", { type: "audio/webm" });
+        const req = {
+            formData: async () => ({
+                get: (key: string) => {
+                    if (key === "memoId") return "memo-1";
+                    if (key === "startIndex") return "60";
+                    if (key === "endIndex") return "60";
+                    if (key === "file") return file;
+                    return null;
+                },
+            }),
+        } as unknown as NextRequest;
+
+        const res = await POST(req);
+        const json = await res.json();
+
+        expect(res.status).toBe(400);
+        expect(json).toEqual({ error: "Invalid chunk upload payload" });
+        expect(upload).not.toHaveBeenCalled();
+    });
 });

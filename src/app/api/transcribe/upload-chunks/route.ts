@@ -23,6 +23,15 @@ function parseIndex(value: FormDataEntryValue | null): number | null {
     return Number.isInteger(parsed) ? parsed : null;
 }
 
+function logChunkUploadError(error: unknown) {
+    const details =
+        typeof error === "object" && error !== null && "details" in error
+            ? String((error as { details?: unknown }).details ?? "")
+            : "";
+
+    console.error("[chunk-upload]", error instanceof Error ? error.message : error, details);
+}
+
 export async function OPTIONS() {
     return withCors(new NextResponse(null, { status: 204 }));
 }
@@ -61,7 +70,7 @@ export async function POST(req: NextRequest) {
             });
 
         if (error) {
-            console.error("[chunk-upload]", error);
+            logChunkUploadError(error);
             return withCors(
                 NextResponse.json({ error: "Failed to store audio chunk" }, { status: 500 })
             );
@@ -69,7 +78,7 @@ export async function POST(req: NextRequest) {
 
         return withCors(NextResponse.json({ ok: true }));
     } catch (error) {
-        console.error("[chunk-upload]", error);
+        logChunkUploadError(error);
         return withCors(
             NextResponse.json({ error: "Failed to store audio chunk" }, { status: 500 })
         );

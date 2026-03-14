@@ -24,6 +24,39 @@ describe("useChunkUpload retry and pruning behavior", () => {
         jest.useRealTimers();
     });
 
+    it("does nothing when uploads are disabled even if a memo id exists", async () => {
+        Object.defineProperty(global, "fetch", {
+            writable: true,
+            value: jest.fn(),
+        });
+
+        const audioChunksRef = {
+            current: buildAudioChunks(20),
+        };
+        const webmHeaderRef = {
+            current: new Blob(["header"], { type: "audio/webm" }),
+        };
+        const mimeTypeRef = { current: "audio/webm" };
+
+        const { result } = renderHook(() =>
+            useChunkUpload({
+                audioChunksRef,
+                webmHeaderRef,
+                mimeTypeRef,
+                memoId: "memo-disabled",
+                enabled: false,
+            })
+        );
+
+        await act(async () => {
+            jest.advanceTimersByTime(30_000);
+            await flushMicrotasks();
+        });
+
+        expect(global.fetch).not.toHaveBeenCalled();
+        expect(result.current.chunkPruneOffsetRef.current).toBe(0);
+    });
+
     it("prunes uploaded audio while preserving enough buffered chunks to continue from the next true index", async () => {
         Object.defineProperty(global, "fetch", {
             writable: true,
@@ -73,6 +106,54 @@ describe("useChunkUpload retry and pruning behavior", () => {
         expect(uploadBodies[0]?.get("endIndex")).toBe("60");
         expect(uploadBodies[1]?.get("startIndex")).toBe("60");
         expect(uploadBodies[1]?.get("endIndex")).toBe("65");
+    });
+
+    it("includes the header blob in the first uploaded batch", async () => {
+        Object.defineProperty(global, "fetch", {
+            writable: true,
+            value: jest.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({ ok: true }),
+            }),
+        });
+
+        const initialChunks = buildAudioChunks(35);
+        const audioChunksRef = {
+            current: [...initialChunks],
+        };
+        const webmHeaderRef = {
+            current: new Blob(["header"], { type: "audio/webm" }),
+        };
+        const mimeTypeRef = { current: "audio/webm" };
+
+        renderHook(() =>
+            useChunkUpload({
+                audioChunksRef,
+                webmHeaderRef,
+                mimeTypeRef,
+                memoId: "memo-first-batch",
+                enabled: true,
+            })
+        );
+
+        await act(async () => {
+            jest.advanceTimersByTime(30_000);
+            await flushMicrotasks();
+        });
+
+        const fetchMock = global.fetch as jest.Mock;
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+        const file = formData.get("file") as Blob;
+
+        expect(formData.get("startIndex")).toBe("0");
+        expect(formData.get("endIndex")).toBe("35");
+        expect(file.size).toBe(
+            new Blob([webmHeaderRef.current as Blob, ...initialChunks], {
+                type: mimeTypeRef.current,
+            }).size
+        );
     });
 
     it("keeps the full buffer after an interval upload failure and retries the same range on the next interval", async () => {
@@ -200,5 +281,46 @@ describe("useChunkUpload retry and pruning behavior", () => {
         const finalBody = fetchMock.mock.calls[2]?.[1]?.body as FormData;
         expect(finalBody.get("startIndex")).toBe("0");
         expect(finalBody.get("endIndex")).toBe("12");
+    });
+
+    it("does not issue a second upload when flushRemainingChunks runs after everything is already uploaded", async () => {
+        Object.defineProperty(global, "fetch", {
+            writable: true,
+            value: jest.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({ ok: true }),
+            }),
+        });
+
+        const audioChunksRef = {
+            current: buildAudioChunks(35),
+        };
+        const webmHeaderRef = {
+            current: new Blob(["header"], { type: "audio/webm" }),
+        };
+        const mimeTypeRef = { current: "audio/webm" };
+
+        const { result } = renderHook(() =>
+            useChunkUpload({
+                audioChunksRef,
+                webmHeaderRef,
+                mimeTypeRef,
+                memoId: "memo-up-to-date",
+                enabled: true,
+            })
+        );
+
+        await act(async () => {
+            jest.advanceTimersByTime(30_000);
+            await flushMicrotasks();
+        });
+
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            await result.current.flushRemainingChunks();
+        });
+
+        expect(global.fetch).toHaveBeenCalledTimes(1);
     });
 });

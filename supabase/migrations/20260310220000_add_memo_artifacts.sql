@@ -51,7 +51,7 @@ as $$
     from public.job_runs
     where entity_id = p_memo_id
       and entity_type = 'memo'
-      and status = 'queued'
+      and status = 'pending'
     order by created_at
     limit 1
     for update skip locked

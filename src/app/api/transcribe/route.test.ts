@@ -600,4 +600,38 @@ describe("POST /api/transcribe", () => {
         expect(json.error).toBe("Audio file too large for storage");
         expect(json.detail).toContain("spend cap");
     });
+
+    it("returns 500 for small Supabase socket-close uploads instead of misclassifying them as size-cap failures", async () => {
+        const uploadFailure = Object.assign(new Error("fetch failed"), {
+            name: "StorageUnknownError",
+            __isStorageError: true,
+            namespace: "storage",
+            status: undefined,
+            statusCode: undefined,
+            originalError: Object.assign(new TypeError("fetch failed"), {
+                cause: Object.assign(new Error("other side closed"), {
+                    code: "UND_ERR_SOCKET",
+                    socket: {
+                        bytesWritten: 8_459_147,
+                        bytesRead: 16_650,
+                    },
+                }),
+            }),
+        });
+        (uploadAudio as jest.Mock).mockRejectedValue(uploadFailure);
+
+        const req = {
+            formData: async () => makeAudioFormData({
+                name: "memo_1773518258609.webm",
+                type: "audio/webm;codecs=opus",
+                size: 8_426_525,
+            }),
+        } as unknown as NextRequest;
+
+        const res = await POST(req);
+        const json = await res.json();
+
+        expect(res.status).toBe(500);
+        expect(json.error).toBe("Failed to upload file to Supabase");
+    });
 });

@@ -11,6 +11,7 @@ import { runPendingMemoJobs } from "@/lib/memo-jobs";
 
 const MAX_AUDIO_UPLOAD_BYTES = 75 * 1024 * 1024;
 const MAX_AUDIO_UPLOAD_MB = Math.round(MAX_AUDIO_UPLOAD_BYTES / (1024 * 1024));
+const MIN_SUPABASE_SOCKET_SIZE_CAP_BYTES = 50 * 1024 * 1024;
 const TRANSCRIBE_MODEL = "nvidia/parakeet-rnnt-1.1b";
 const PROVISIONAL_MEMO_TITLE = "Voice Memo";
 
@@ -173,12 +174,21 @@ function isLikelySupabaseSocketSizeCapError(
     if (causeCode !== "UND_ERR_SOCKET") return false;
 
     const closedByPeer = (causeMessage ?? "").toLowerCase().includes("other side closed");
+    const plausiblyAtSupabaseCap = fileSizeBytes >= MIN_SUPABASE_SOCKET_SIZE_CAP_BYTES;
     const nearFullWrite =
         typeof socketBytesWritten === "number" &&
         fileSizeBytes > 0 &&
         socketBytesWritten >= Math.floor(fileSizeBytes * 0.95);
 
-    return closedByPeer && nearFullWrite;
+    return closedByPeer && plausiblyAtSupabaseCap && nearFullWrite;
+}
+
+function isMissingClaimPendingMemoJobError(error: unknown): boolean {
+    const errorRecord = asRecord(error);
+    const code = pickString(errorRecord, "code");
+    const message = readErrorMessage(error);
+
+    return code === "PGRST202" && message.includes("claim_pending_memo_job");
 }
 
 export const LOG = (step: string, msg: string, data?: unknown) => {
@@ -676,6 +686,21 @@ export async function updateMemoFinal(
         if (finalSegmentsPersisted) {
             try {
                 await runPendingMemoJobs(memoId, supabaseAdmin);
+            } catch (jobError) {
+                if (isMissingClaimPendingMemoJobError(jobError)) {
+                    console.warn(
+                        "[transcribe/db] runPendingMemoJobs skipped: claim_pending_memo_job not in schema.",
+                        { memoId },
+                    );
+                } else {
+                    ERR("db", "runPendingMemoJobs failed before final artifact upgrade", {
+                        memoId,
+                        error: readErrorMessage(jobError) || String(jobError),
+                    });
+                }
+            }
+
+            try {
                 await compactFinalChunks(memoId, userId, supabaseAdmin);
                 await generateFinalArtifacts(memoId, userId, supabaseAdmin);
                 await supersedeMemoArtifacts(memoId, "live", undefined, supabaseAdmin);

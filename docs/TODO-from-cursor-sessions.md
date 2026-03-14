@@ -55,6 +55,12 @@ Synthesized from recent agent transcripts. Grouped by: **completed**, **in progr
 - **What:** `feat/bearer-token-transcribe-live` (or similar) was kept local; production was confirmed to deploy from `main` only, so bearer-token work was not deployed.
 - **Do:** If you still want bearer auth for live transcribe or share flows, merge or re-implement on a new branch and deploy when ready.
 
+### 4. Production observability → reproduce → fix → notify (planned)
+
+- **What:** Automated pipeline: view production logs, periodically identify errors, create failing tests to reproduce them, run an agent to attempt fixes, and send a notification (e.g. SMS) when there’s a failure and a solution is being worked on.
+- **Docs:** [docs/production-observability-agent-loop.md](production-observability-agent-loop.md).
+- **Do:** Choose first piece (log aggregation + repro, or “notify on new error”); implement pipeline (Vercel + Supabase + GitHub Actions + notification channel).
+
 ---
 
 ## Optional follow-ups (from code reviews)

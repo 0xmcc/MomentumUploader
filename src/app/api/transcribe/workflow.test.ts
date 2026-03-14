@@ -373,6 +373,83 @@ describe("transcribe workflow legacy transcript_status fallback", () => {
         );
     });
 
+    it("continues final compaction and artifact generation when claim_pending_memo_job is missing from schema cache", async () => {
+        const consoleWarnSpy = jest.spyOn(console, "warn").mockImplementation(() => { });
+        const missingFunctionError = Object.assign(
+            new Error("Could not find the function public.claim_pending_memo_job(p_memo_id) in the schema cache"),
+            {
+                code: "PGRST202",
+                details:
+                    "Searched for the function public.claim_pending_memo_job with parameter p_memo_id or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache.",
+            }
+        );
+        (runPendingMemoJobs as jest.Mock).mockRejectedValue(missingFunctionError);
+        (compactFinalChunks as jest.Mock).mockResolvedValue({
+            chunkCount: 1,
+            latestChunkIndex: 0,
+        });
+        (generateFinalArtifacts as jest.Mock).mockResolvedValue(undefined);
+        (supersedeMemoArtifacts as jest.Mock).mockResolvedValue(undefined);
+
+        const finalizeMemoUpdate = jest.fn(() =>
+            makeLegacyUpdateChain({
+                data: null,
+                error: null,
+            })
+        );
+        const deleteSegments = jest.fn(() => ({
+            eq: jest.fn(() => ({
+                eq: jest.fn().mockResolvedValue({ data: null, error: null }),
+            })),
+        }));
+        const insertSegments = jest.fn().mockResolvedValue({ data: null, error: null });
+
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "memo_transcript_segments") {
+                return {
+                    delete: deleteSegments,
+                    insert: insertSegments,
+                };
+            }
+
+            return {
+                update: finalizeMemoUpdate,
+            };
+        });
+
+        const response = await updateMemoFinal(
+            "memo-1",
+            "final transcript",
+            [
+                {
+                    id: "0",
+                    startMs: 0,
+                    endMs: 1000,
+                    text: "final transcript",
+                },
+            ],
+            "https://example.com/audio.webm",
+            "user-1",
+            Date.now()
+        );
+
+        expect(response.status).toBe(200);
+        expect(compactFinalChunks).toHaveBeenCalledWith("memo-1", "user-1", supabaseAdmin);
+        expect(generateFinalArtifacts).toHaveBeenCalledWith("memo-1", "user-1", supabaseAdmin);
+        expect(supersedeMemoArtifacts).toHaveBeenCalledWith(
+            "memo-1",
+            "live",
+            undefined,
+            supabaseAdmin
+        );
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+            "[transcribe/db] runPendingMemoJobs skipped: claim_pending_memo_job not in schema.",
+            { memoId: "memo-1" }
+        );
+
+        consoleWarnSpy.mockRestore();
+    });
+
     it("promotes persisted live segments to final segments before final compaction", async () => {
         const liveRows = [
             {

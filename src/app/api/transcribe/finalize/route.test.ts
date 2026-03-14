@@ -193,4 +193,72 @@ describe("POST /api/transcribe/finalize", () => {
         expect(uploadAudio).not.toHaveBeenCalled();
         expect(updateMemoFinal).not.toHaveBeenCalled();
     });
+
+    it("transcribes the uploaded audio when no provisional transcript is provided", async () => {
+        const originalApiKey = process.env.NVIDIA_API_KEY;
+        process.env.NVIDIA_API_KEY = "nvidia-test-key";
+
+        try {
+            const req = {
+                json: async () => ({
+                    memoId: "memo-1",
+                    totalChunks: 30,
+                }),
+            } as unknown as NextRequest;
+
+            const res = await POST(req);
+            const json = await res.json();
+
+            expect(res.status).toBe(200);
+            expect(json).toEqual({
+                success: true,
+                id: "memo-1",
+                text: "final text",
+                url: "https://example.com/audio/finalized.webm",
+                transcriptStatus: "complete",
+            });
+            expect(transcribeUploadedAudio).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    memoId: "memo-1",
+                    provisionalTranscript: null,
+                    fileName: expect.stringContaining("memo-1.webm"),
+                    audioBuffer: Buffer.from("header-and-chunks-0-14chunks-15-29"),
+                    uploadContentType: "audio/webm",
+                    fileUrl: "https://example.com/audio/finalized.webm",
+                }),
+                "nvidia-test-key"
+            );
+            expect(updateMemoFinal).toHaveBeenCalledWith(
+                "memo-1",
+                "transcribed text",
+                [],
+                "https://example.com/audio/finalized.webm",
+                "user-1",
+                expect.any(Number)
+            );
+            expect(promoteLiveSegmentsToFinal).not.toHaveBeenCalled();
+        } finally {
+            process.env.NVIDIA_API_KEY = originalApiKey;
+        }
+    });
+
+    it("returns 409 when uploaded chunks end at a different total than the finalize request", async () => {
+        const req = {
+            json: async () => ({
+                memoId: "memo-1",
+                totalChunks: 25,
+            }),
+        } as unknown as NextRequest;
+
+        const res = await POST(req);
+        const json = await res.json();
+
+        expect(res.status).toBe(409);
+        expect(json).toEqual({
+            error: "Chunk upload ended at 30, expected 25.",
+        });
+        expect(uploadAudio).not.toHaveBeenCalled();
+        expect(transcribeUploadedAudio).not.toHaveBeenCalled();
+        expect(updateMemoFinal).not.toHaveBeenCalled();
+    });
 });

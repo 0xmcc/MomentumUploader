@@ -34,7 +34,19 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         return NextResponse.json({ error: "Memo not found" }, { status: 404, headers: CORS });
     }
 
-    await runPendingMemoJobs(memoId, supabaseAdmin);
+    try {
+        await runPendingMemoJobs(memoId, supabaseAdmin);
+    } catch (jobError) {
+        const err = jobError as { code?: string; message?: string };
+        if (err?.code === "PGRST202") {
+            console.warn(
+                "[segments/live] runPendingMemoJobs skipped: claim_pending_memo_job not in schema.",
+                { memoId },
+            );
+        } else {
+            console.error("[segments/live] runPendingMemoJobs failed", { memoId, error: err });
+        }
+    }
 
     let body: { segments?: LiveLockedSegment[] };
     try {
@@ -63,6 +75,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         });
 
     if (upsertError) {
+        console.error("[segments/live] memo_transcript_segments upsert failed", {
+            memoId,
+            userId,
+            segmentCount: rows.length,
+            error: upsertError.message,
+            code: upsertError.code,
+            details: upsertError.details,
+        });
         return NextResponse.json(
             { error: upsertError.message ?? "Failed to persist live segments" },
             { status: 500, headers: CORS },
@@ -76,14 +96,29 @@ export async function PATCH(req: NextRequest, { params }: Params) {
             job_type: "memo_chunk_compact_live",
             entity_type: "memo",
             entity_id: memoId,
-            status: "queued",
+            status: "pending",
         });
 
     if (jobError) {
-        return NextResponse.json(
-            { error: jobError.message ?? "Failed to queue memo job" },
-            { status: 500, headers: CORS },
-        );
+        const isCheckConstraint = jobError.code === "23514";
+        if (isCheckConstraint) {
+            console.warn("[segments/live] job_runs insert skipped: status check constraint (e.g. 'queued' not allowed).", {
+                memoId,
+                code: jobError.code,
+            });
+        } else {
+            console.error("[segments/live] job_runs insert failed", {
+                memoId,
+                userId,
+                error: jobError.message,
+                code: jobError.code,
+                details: jobError.details,
+            });
+            return NextResponse.json(
+                { error: jobError.message ?? "Failed to queue memo job" },
+                { status: 500, headers: CORS },
+            );
+        }
     }
 
     return NextResponse.json({ ok: true }, { headers: CORS });

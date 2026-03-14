@@ -249,6 +249,171 @@ describe("AudioRecorder pipeline coverage", () => {
         });
     });
 
+    it("uploads a short recording during capture and flushes the remaining chunks on stop", async () => {
+        const memoId = "memo-short-recording";
+        const onUploadComplete = jest.fn<(payload: UploadCompletePayload) => void>();
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+            if (url === "/api/memos/live") {
+                return {
+                    ok: true,
+                    json: async () => ({ memoId }),
+                };
+            }
+
+            if (url === `/api/memos/${memoId}/share`) {
+                return {
+                    ok: true,
+                    json: async () => ({ shareUrl: `https://example.com/s/${memoId}` }),
+                };
+            }
+
+            if (url === "/api/transcribe/live") {
+                return {
+                    ok: true,
+                    json: async () => ({ text: "partial transcript" }),
+                };
+            }
+
+            if (url === "/api/transcribe/upload-chunks") {
+                return {
+                    ok: true,
+                    json: async () => ({ ok: true }),
+                };
+            }
+
+            if (url === "/api/transcribe/finalize") {
+                return {
+                    ok: true,
+                    json: async () => ({
+                        id: memoId,
+                        success: true,
+                        text: "final transcript",
+                        transcriptStatus: "complete",
+                    }),
+                };
+            }
+
+            return {
+                ok: true,
+                json: async () => ({}),
+            };
+        });
+
+        render(<AudioRecorder onUploadComplete={onUploadComplete} />);
+
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => {
+            await flushMicrotasks(3);
+        });
+
+        await act(async () => {
+            jest.advanceTimersByTime(10_000);
+            await flushMicrotasks(4);
+        });
+
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+
+        await waitFor(() => {
+            expect(finalizeCalls(global.fetch as jest.Mock)).toHaveLength(1);
+        });
+
+        const fetchMock = global.fetch as jest.Mock;
+        const chunkCalls = uploadCalls(fetchMock);
+        const finalizeBody = JSON.parse(
+            String(finalizeCalls(fetchMock)[0]?.[1]?.body)
+        ) as {
+            memoId: string;
+            totalChunks: number;
+            provisionalTranscript: string;
+        };
+        const firstUploadedBatch = chunkCalls[0]?.[1]?.body as FormData;
+        const secondUploadedBatch = chunkCalls[1]?.[1]?.body as FormData;
+        const firstUploadedEndIndex = Number(firstUploadedBatch.get("endIndex"));
+        const finalUploadedEndIndex = Number(secondUploadedBatch.get("endIndex"));
+
+        expect(chunkCalls).toHaveLength(2);
+        expect(directTranscribeCalls(fetchMock)).toHaveLength(0);
+        expect(firstUploadedBatch.get("startIndex")).toBe("0");
+        expect(firstUploadedEndIndex).toBeGreaterThanOrEqual(3);
+        expect(secondUploadedBatch.get("startIndex")).toBe(String(firstUploadedEndIndex));
+        expect(finalizeBody).toEqual({
+            memoId,
+            totalChunks: finalUploadedEndIndex,
+            provisionalTranscript: "partial transcript",
+        });
+
+        await waitFor(() => {
+            expect(onUploadComplete).toHaveBeenCalledWith({
+                id: memoId,
+                success: true,
+                text: "final transcript",
+                transcriptStatus: "complete",
+                durationSeconds: 10,
+            });
+        });
+    });
+
+    it("calls upload-chunks after memos/live resolves late (first upload via 15s timer or readiness poll)", async () => {
+        const memoId = "memo-late-live";
+        let resolveLive: (value: { ok: boolean; json: () => Promise<{ memoId: string }> }) => void;
+        const livePromise = new Promise<{ ok: boolean; json: () => Promise<{ memoId: string }> }>((resolve) => {
+            resolveLive = resolve;
+        });
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+            if (url === "/api/memos/live") {
+                return livePromise;
+            }
+            if (url === `/api/memos/${memoId}/share`) {
+                return { ok: true, json: async () => ({ shareUrl: `https://example.com/s/${memoId}` }) };
+            }
+            if (url === "/api/transcribe/live") {
+                return { ok: true, json: async () => ({ text: "partial" }) };
+            }
+            if (url === "/api/transcribe/upload-chunks") {
+                return { ok: true, json: async () => ({ ok: true }) };
+            }
+            if (url === "/api/transcribe/finalize") {
+                return {
+                    ok: true,
+                    json: async () => ({ id: memoId, success: true, text: "final", transcriptStatus: "complete" }),
+                };
+            }
+            return { ok: true, json: async () => ({}) };
+        });
+
+        render(<AudioRecorder />);
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => {
+            jest.advanceTimersByTime(12_000);
+        });
+        resolveLive!({
+            ok: true,
+            json: async () => ({ memoId }),
+        });
+        await act(async () => {
+            await flushMicrotasks(12);
+        });
+        await waitFor(() => {
+            expect(screen.getByTitle(/open live share page/i)).toHaveAttribute(
+                "href",
+                expect.stringContaining(memoId)
+            );
+        });
+        await act(async () => {
+            jest.advanceTimersByTime(15_000);
+        });
+        await act(async () => {
+            await flushMicrotasks(12);
+        });
+
+        const fetchMock = global.fetch as jest.Mock;
+        expect(uploadCalls(fetchMock).length).toBeGreaterThanOrEqual(1);
+    });
+
     it("falls back to a single transcribe POST when recording stops before the live memo id exists", async () => {
         const pendingLiveMemo = new Promise<never>(() => {});
 

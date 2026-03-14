@@ -1,7 +1,9 @@
 import { useEffect, useRef, type MutableRefObject } from "react";
 
 const CHUNK_UPLOAD_INTERVAL_MS = 30_000;
-const MIN_CHUNKS_TO_UPLOAD = 10;
+const FIRST_UPLOAD_DELAY_MS = 15_000;
+const READINESS_POLL_MS = 2_000; // Poll so we upload as soon as 3+ chunks exist, not only after 15s
+const MIN_CHUNKS_TO_UPLOAD = 3;
 const PRUNE_SAFETY_BUFFER = 30;
 const FLUSH_MAX_RETRIES = 3;
 const FLUSH_RETRY_DELAYS_MS = [500, 1000, 2000] as const;
@@ -39,6 +41,7 @@ export function useChunkUpload({
     const chunkPruneOffsetRef = externalChunkPruneOffsetRef ?? internalChunkPruneOffsetRef;
     const lastUploadedIndexRef = useRef(0);
     const uploadIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const readinessIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const inFlightUploadRef = useRef<Promise<void> | null>(null);
     const enabledRef = useRef(enabled);
     const memoIdRef = useRef(memoId);
@@ -55,6 +58,13 @@ export function useChunkUpload({
         if (uploadIntervalRef.current) {
             clearInterval(uploadIntervalRef.current);
             uploadIntervalRef.current = null;
+        }
+    };
+
+    const clearReadinessInterval = () => {
+        if (readinessIntervalRef.current) {
+            clearInterval(readinessIntervalRef.current);
+            readinessIntervalRef.current = null;
         }
     };
 
@@ -117,14 +127,14 @@ export function useChunkUpload({
 
     useEffect(() => {
         clearUploadInterval();
+        clearReadinessInterval();
 
         if (!enabled || !memoId) {
             return;
         }
 
-        uploadIntervalRef.current = setInterval(() => {
+        const runUpload = () => {
             if (inFlightUploadRef.current) return;
-
             inFlightUploadRef.current = uploadPendingChunks(MIN_CHUNKS_TO_UPLOAD, true)
                 .catch((error) => {
                     console.warn("[chunk-upload]", error);
@@ -132,9 +142,25 @@ export function useChunkUpload({
                 .finally(() => {
                     inFlightUploadRef.current = null;
                 });
-        }, CHUNK_UPLOAD_INTERVAL_MS);
+        };
 
-        return clearUploadInterval;
+        const firstUploadTimer = setTimeout(runUpload, FIRST_UPLOAD_DELAY_MS);
+        uploadIntervalRef.current = setInterval(runUpload, CHUNK_UPLOAD_INTERVAL_MS);
+
+        readinessIntervalRef.current = setInterval(() => {
+            if (inFlightUploadRef.current) return;
+            const totalChunks = audioChunksRef.current.length + chunkPruneOffsetRef.current;
+            const newChunkCount = totalChunks - lastUploadedIndexRef.current;
+            if (newChunkCount < MIN_CHUNKS_TO_UPLOAD) return;
+            clearReadinessInterval();
+            runUpload();
+        }, READINESS_POLL_MS);
+
+        return () => {
+            clearTimeout(firstUploadTimer);
+            clearUploadInterval();
+            clearReadinessInterval();
+        };
     }, [enabled, memoId]);
 
     const flushRemainingChunks = async () => {
@@ -161,6 +187,7 @@ export function useChunkUpload({
 
     const resetChunkUpload = () => {
         clearUploadInterval();
+        clearReadinessInterval();
         lastUploadedIndexRef.current = 0;
         chunkPruneOffsetRef.current = 0;
         inFlightUploadRef.current = null;

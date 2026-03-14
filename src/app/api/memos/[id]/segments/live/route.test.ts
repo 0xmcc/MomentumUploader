@@ -136,7 +136,112 @@ describe("PATCH /api/memos/:id/segments/live", () => {
             job_type: "memo_chunk_compact_live",
             entity_type: "memo",
             entity_id: "memo-1",
-            status: "queued",
+            status: "pending",
         });
+    });
+
+    it("still persists segments and returns 200 when runPendingMemoJobs fails with PGRST202 (function not in schema)", async () => {
+        (resolveMemoUserId as jest.Mock).mockResolvedValue("user-1");
+        const pgError = Object.assign(new Error("Could not find the function public.claim_pending_memo_job(p_memo_id) in the schema cache"), {
+            code: "PGRST202",
+            details: "Searched for the function public.claim_pending_memo_job with parameter p_memo_id or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache.",
+        });
+        (runPendingMemoJobs as jest.Mock).mockRejectedValue(pgError);
+
+        const memoSingle = jest.fn().mockResolvedValue({
+            data: { id: "memo-1" },
+            error: null,
+        });
+        const memoEqUser = jest.fn(() => ({ single: memoSingle }));
+        const memoEqId = jest.fn(() => ({ eq: memoEqUser }));
+        const memoSelect = jest.fn(() => ({ eq: memoEqId }));
+
+        const upsert = jest.fn().mockResolvedValue({ data: null, error: null });
+        const insert = jest.fn().mockResolvedValue({ data: null, error: null });
+
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "memos") {
+                return { select: memoSelect };
+            }
+            if (table === "memo_transcript_segments") {
+                return { upsert };
+            }
+            if (table === "job_runs") {
+                return { insert };
+            }
+            throw new Error(`Unexpected table: ${table}`);
+        });
+
+        const response = await PATCH(makeRequest({
+            segments: [{ startIndex: 0, endIndex: 15, text: "segment despite missing RPC" }],
+        }), {
+            params: Promise.resolve({ id: "memo-1" }),
+        });
+        const body = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(body.ok).toBe(true);
+        expect(upsert).toHaveBeenCalledWith(
+            [
+                {
+                    memo_id: "memo-1",
+                    user_id: "user-1",
+                    segment_index: 0,
+                    start_ms: 0,
+                    end_ms: 15000,
+                    text: "segment despite missing RPC",
+                    source: "live",
+                },
+            ],
+            { onConflict: "memo_id,segment_index,source" }
+        );
+        expect(insert).toHaveBeenCalledWith({
+            user_id: "user-1",
+            job_type: "memo_chunk_compact_live",
+            entity_type: "memo",
+            entity_id: "memo-1",
+            status: "pending",
+        });
+    });
+
+    it("still returns 200 when job_runs insert fails with 23514 (status check constraint)", async () => {
+        (resolveMemoUserId as jest.Mock).mockResolvedValue("user-1");
+        (runPendingMemoJobs as jest.Mock).mockResolvedValue(undefined);
+
+        const memoSingle = jest.fn().mockResolvedValue({
+            data: { id: "memo-1" },
+            error: null,
+        });
+        const memoEqUser = jest.fn(() => ({ single: memoSingle }));
+        const memoEqId = jest.fn(() => ({ eq: memoEqUser }));
+        const memoSelect = jest.fn(() => ({ eq: memoEqId }));
+
+        const upsert = jest.fn().mockResolvedValue({ data: null, error: null });
+        const insert = jest.fn().mockResolvedValue({
+            data: null,
+            error: {
+                message: 'new row for relation "job_runs" violates check constraint "job_runs_status_check"',
+                code: "23514",
+            },
+        });
+
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "memos") return { select: memoSelect };
+            if (table === "memo_transcript_segments") return { upsert };
+            if (table === "job_runs") return { insert };
+            throw new Error(`Unexpected table: ${table}`);
+        });
+
+        const response = await PATCH(makeRequest({
+            segments: [{ startIndex: 0, endIndex: 15, text: "segment" }],
+        }), {
+            params: Promise.resolve({ id: "memo-1" }),
+        });
+        const body = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(body.ok).toBe(true);
+        expect(upsert).toHaveBeenCalled();
+        expect(insert).toHaveBeenCalled();
     });
 });

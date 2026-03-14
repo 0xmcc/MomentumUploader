@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "capture:chunk-upload": "node scripts/capture-chunk-upload-network.mjs",
     "dev": "NODE_OPTIONS='--dns-result-order=ipv4first' next dev",
     "build": "NODE_OPTIONS='--dns-result-order=ipv4first' next build",
     "start": "NODE_OPTIONS='--dns-result-order=ipv4first' next start",
@@ -40,6 +41,7 @@
     "jest": "^30.2.0",
     "jest-environment-jsdom": "^30.2.0",
     "jsdom": "^28.1.0",
+    "playwright": "^1.49.0",
     "tailwindcss": "^4",
     "ts-jest": "^29.4.6",
     "typescript": "^5",
