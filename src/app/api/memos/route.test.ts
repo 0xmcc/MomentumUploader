@@ -10,11 +10,7 @@ jest.mock("@clerk/nextjs/server", () => ({
     auth: jest.fn(),
 }));
 
-jest.mock("@/lib/supabase", () => ({
-    supabaseAdmin: {
-        from: jest.fn(),
-    },
-}));
+jest.mock("@/lib/supabase");
 
 describe("GET /api/memos", () => {
     beforeEach(() => {

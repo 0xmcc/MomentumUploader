@@ -7,3 +7,4 @@
 - mobile responsiveness
 - credit system + payments for credits
 - require that each voiceover consumes credits that are tied to each user
+- recording duration limit for free tier (upsell); paid tier gets longer or unlimited (see [docs/tiers-and-limits.md](docs/tiers-and-limits.md) and [docs/edge-cases/recording-duration-and-auto-stop.md](docs/edge-cases/recording-duration-and-auto-stop.md))

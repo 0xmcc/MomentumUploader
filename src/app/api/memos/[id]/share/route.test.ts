@@ -9,11 +9,7 @@ jest.mock("@clerk/nextjs/server", () => ({
     auth: jest.fn(),
 }));
 
-jest.mock("@/lib/supabase", () => ({
-    supabaseAdmin: {
-        from: jest.fn(),
-    },
-}));
+jest.mock("@/lib/supabase");
 
 type MockState = {
     currentMemo: Record<string, unknown> | null;
