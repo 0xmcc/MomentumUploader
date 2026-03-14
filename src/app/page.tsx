@@ -56,7 +56,7 @@ export default function Home() {
               <Loader2 size={12} className="animate-spin" />
               <span>
                 {uploadProgressPercent >= 100
-                  ? "Upload complete - transcribing"
+                  ? "Upload complete - finalizing"
                   : `Uploading ${uploadProgressPercent}%`}
               </span>
             </div>

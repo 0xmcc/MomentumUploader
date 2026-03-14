@@ -71,7 +71,7 @@ export default function LiveTranscriptView({
                                 <p className="text-white/20 text-lg italic italic">
                                     {isUploadActive
                                         ? uploadProgressPercent >= 100
-                                            ? "Upload complete. Transcribing..."
+                                            ? "Upload complete. Finalizing..."
                                             : `Uploading... ${uploadProgressPercent}%`
                                         : recordingTime < 1
                                             ? "Start speaking..."
