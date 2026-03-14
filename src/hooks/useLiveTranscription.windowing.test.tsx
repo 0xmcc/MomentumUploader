@@ -1,0 +1,145 @@
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { useLiveTranscription } from "./useLiveTranscription";
+
+jest.mock("@/lib/memo-ui", () => ({
+    copyToClipboard: jest.fn(async () => true),
+}));
+
+function buildChunkRefs() {
+    return {
+        audioChunksRef: {
+            current: Array.from(
+                { length: 40 },
+                (_, index) => new Blob([`chunk-${10 + index}`], { type: "audio/webm" })
+            ),
+        },
+        mimeTypeRef: { current: "audio/webm" },
+        webmHeaderRef: {
+            current: new Blob(["header"], { type: "audio/webm" }),
+        },
+        chunkPruneOffsetRef: { current: 10 },
+    };
+}
+
+describe("useLiveTranscription pruned window math", () => {
+    afterEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it("finalizes the next live segment using true chunk indices after earlier audio has been pruned", async () => {
+        const memoId = "memo-window-prune";
+        const patchSegments: Array<{
+            segments: Array<{ startIndex: number; endIndex: number; text: string }>;
+        }> = [];
+        let liveCallCount = 0;
+
+        Object.defineProperty(global, "fetch", {
+            writable: true,
+            value: jest.fn(async (url: string, init?: RequestInit) => {
+                if (url === "/api/memos/live") {
+                    return {
+                        ok: true,
+                        json: async () => ({ memoId }),
+                    };
+                }
+
+                if (url === `/api/memos/${memoId}/share`) {
+                    return {
+                        ok: true,
+                        json: async () => ({ shareUrl: `https://example.com/s/${memoId}` }),
+                    };
+                }
+
+                if (url === `/api/memos/${memoId}` && init?.method === "PATCH") {
+                    return {
+                        ok: true,
+                        json: async () => ({ ok: true }),
+                    };
+                }
+
+                if (url === `/api/memos/${memoId}/segments/live` && init?.method === "PATCH") {
+                    const body = JSON.parse(String(init.body ?? "{}")) as {
+                        segments?: Array<{ startIndex: number; endIndex: number; text: string }>;
+                    };
+                    patchSegments.push({
+                        segments: body.segments ?? [],
+                    });
+                    return {
+                        ok: true,
+                        json: async () => ({ ok: true }),
+                    };
+                }
+
+                if (url === "/api/transcribe/live") {
+                    liveCallCount += 1;
+                    if (liveCallCount === 1) {
+                        return {
+                            ok: true,
+                            json: async () => ({ text: "locked segment alpha" }),
+                        };
+                    }
+                    if (liveCallCount === 2) {
+                        return {
+                            ok: true,
+                            json: async () => ({ text: "locked segment beta" }),
+                        };
+                    }
+                    return {
+                        ok: true,
+                        json: async () => ({ text: "tail after prune" }),
+                    };
+                }
+
+                return {
+                    ok: true,
+                    json: async () => ({}),
+                };
+            }),
+        });
+
+        const refs = buildChunkRefs();
+        const { result, unmount } = renderHook(() => useLiveTranscription(refs));
+
+        act(() => {
+            result.current.beginRecordingSession();
+        });
+
+        await waitFor(() => {
+            expect(result.current.liveMemoId).toBe(memoId);
+        });
+
+        act(() => {
+            result.current.runLiveTick();
+        });
+
+        await waitFor(() => {
+            expect(patchSegments).toHaveLength(2);
+        });
+
+        expect(patchSegments).toEqual([
+            {
+                segments: [
+                    {
+                        startIndex: 0,
+                        endIndex: 15,
+                        text: "locked segment alpha",
+                    },
+                ],
+            },
+            {
+                segments: [
+                    {
+                        startIndex: 15,
+                        endIndex: 30,
+                        text: "locked segment beta",
+                    },
+                ],
+            },
+        ]);
+
+        expect(result.current.liveTranscript).toContain("locked segment alpha");
+        expect(result.current.liveTranscript).toContain("locked segment beta");
+
+        unmount();
+    });
+});

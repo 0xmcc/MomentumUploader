@@ -30,18 +30,40 @@ function makeTranscribeResponse(text: string) {
     };
 }
 
-function buildChunkRefs(chunkCount = 30) {
+function buildChunkRefs(
+    options:
+        | number
+        | {
+            chunkCount?: number;
+            startIndex?: number;
+            pruneOffset?: number;
+        } = 30
+) {
+    const normalized =
+        typeof options === "number"
+            ? { chunkCount: options, startIndex: 0, pruneOffset: 0 }
+            : {
+                chunkCount: options.chunkCount ?? 30,
+                startIndex: options.startIndex ?? 0,
+                pruneOffset: options.pruneOffset ?? 0,
+            };
+
     return {
         audioChunksRef: {
             current: Array.from(
-                { length: chunkCount },
-                () => new Blob(["audio"], { type: "audio/webm" })
+                { length: normalized.chunkCount },
+                (_, index) =>
+                    new Blob(
+                        [`chunk-${normalized.startIndex + index}`],
+                        { type: "audio/webm" }
+                    )
             ),
         },
         mimeTypeRef: { current: "audio/webm" },
         webmHeaderRef: {
-            current: new Blob(["headr"], { type: "audio/webm" }),
+            current: new Blob(["header"], { type: "audio/webm" }),
         },
+        chunkPruneOffsetRef: { current: normalized.pruneOffset },
     };
 }
 
@@ -522,6 +544,105 @@ describe("useLiveTranscription finalization fallback", () => {
             url === `/api/memos/${memoId}` &&
             (init as RequestInit | undefined)?.method === "PATCH"
         )).toBe(false);
+
+        unmount();
+    });
+
+    it("runFinalTailTick still requests the remaining true tail after earlier chunks were pruned from memory", async () => {
+        const memoId = `memo-live-${Math.random().toString(36).slice(2, 10)}`;
+        let liveCallCount = 0;
+
+        Object.defineProperty(global, "fetch", {
+            writable: true,
+            value: jest.fn(async (url: string, init?: RequestInit) => {
+                if (url === "/api/memos/live") {
+                    return {
+                        ok: true,
+                        json: async () => ({ memoId }),
+                    };
+                }
+
+                if (url === `/api/memos/${memoId}/share`) {
+                    return {
+                        ok: true,
+                        json: async () => ({ shareUrl: `https://example.com/s/${memoId}` }),
+                    };
+                }
+
+                if (url === `/api/memos/${memoId}` && init?.method === "PATCH") {
+                    return {
+                        ok: true,
+                        json: async () => ({ ok: true }),
+                    };
+                }
+
+                if (url === `/api/memos/${memoId}/segments/live`) {
+                    return {
+                        ok: true,
+                        json: async () => ({ ok: true }),
+                    };
+                }
+
+                if (url === "/api/transcribe/live") {
+                    liveCallCount += 1;
+
+                    if (liveCallCount === 1) {
+                        return makeTranscribeResponse("locked segment alpha");
+                    }
+                    if (liveCallCount === 2) {
+                        return makeTranscribeResponse("locked segment beta");
+                    }
+                    if (liveCallCount === 3) {
+                        return makeTranscribeResponse("draft tail before stop");
+                    }
+                    return makeTranscribeResponse("final tail after prune");
+                }
+
+                return {
+                    ok: true,
+                    json: async () => ({}),
+                };
+            }),
+        });
+
+        const refs = buildChunkRefs({ chunkCount: 50 });
+        const { result, unmount } = renderHook(() => useLiveTranscription(refs));
+
+        act(() => {
+            result.current.beginRecordingSession();
+        });
+
+        await waitFor(() => {
+            expect(result.current.liveMemoId).toBe(memoId);
+        });
+
+        act(() => {
+            result.current.runLiveTick();
+        });
+
+        await waitFor(() => {
+            expect(result.current.liveTranscript).toBe(
+                "locked segment alpha locked segment beta draft tail before stop"
+            );
+        });
+
+        refs.audioChunksRef.current = refs.audioChunksRef.current.slice(20);
+        refs.chunkPruneOffsetRef.current = 20;
+
+        act(() => {
+            result.current.endRecordingSession();
+        });
+
+        let finalTranscript = "";
+        await act(async () => {
+            finalTranscript = await result.current.runFinalTailTick();
+            await flushMicrotasks();
+        });
+
+        expect(finalTranscript).toBe(
+            "locked segment alpha locked segment beta final tail after prune"
+        );
+        expect(liveCallCount).toBe(4);
 
         unmount();
     });

@@ -7,6 +7,7 @@ import {
     resolveUploadMimeType,
 } from "@/lib/audio-upload";
 import { useAudioRecording } from "@/hooks/useAudioRecording";
+import { useChunkUpload } from "@/hooks/useChunkUpload";
 import { useLiveTranscription } from "@/hooks/useLiveTranscription";
 import LiveTranscriptView from "@/components/audio-recorder/LiveTranscriptView";
 import RecorderHeader from "@/components/audio-recorder/RecorderHeader";
@@ -43,8 +44,11 @@ export default function AudioRecorder({
 }) {
     const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const chunkPruneOffsetRef = useRef(0);
+    const liveMemoIdRef = useRef<string | null>(null);
     const { playbackTheme } = useTheme();
     const isUploadActive = isUploading || isUploadInProgress;
+    const chunkUploadEnabled = !onAudioInput;
 
     const recording = useAudioRecording({
         onRecordingStarted: handleRecordingStarted,
@@ -56,9 +60,24 @@ export default function AudioRecorder({
         audioChunksRef: recording.audioChunksRef,
         mimeTypeRef: recording.mimeTypeRef,
         webmHeaderRef: recording.webmHeaderRef,
+        chunkPruneOffsetRef,
     });
 
+    const chunkUpload = useChunkUpload({
+        audioChunksRef: recording.audioChunksRef,
+        webmHeaderRef: recording.webmHeaderRef,
+        mimeTypeRef: recording.mimeTypeRef,
+        memoId: liveTranscription.liveMemoId,
+        enabled: chunkUploadEnabled,
+        chunkPruneOffsetRef,
+    });
+
+    useEffect(() => {
+        liveMemoIdRef.current = liveTranscription.liveMemoId;
+    }, [liveTranscription.liveMemoId]);
+
     function handleRecordingStarted() {
+        chunkUpload.resetChunkUpload();
         liveTranscription.beginRecordingSession();
     }
 
@@ -71,7 +90,7 @@ export default function AudioRecorder({
         durationSeconds,
         mimeType,
     }: AudioInputPayload) {
-        const memoId = liveTranscription.liveMemoId;
+        const memoId = liveMemoIdRef.current;
         const provisionalTranscript = (await liveTranscription.runFinalTailTick()) || undefined;
         if (onAudioInput) {
             onAudioInput({
@@ -84,7 +103,12 @@ export default function AudioRecorder({
             return;
         }
 
-        void handleUpload(blob, mimeType, undefined, memoId, provisionalTranscript);
+        if (!memoId) {
+            void handleUpload(blob, mimeType, undefined, null, provisionalTranscript);
+            return;
+        }
+
+        void handleFinalize(memoId, durationSeconds, provisionalTranscript);
     }
 
     useEffect(() => {
@@ -132,9 +156,47 @@ export default function AudioRecorder({
             const data = (await response.json()) as Omit<UploadCompletePayload, "durationSeconds">;
             recording.resetRecording();
             liveTranscription.resetLiveSession();
+            chunkUpload.resetChunkUpload();
             onUploadComplete?.({ ...data, durationSeconds: recording.recordingTimeRef.current });
         } catch (error) {
             console.error("Upload error:", error);
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    const handleFinalize = async (
+        memoId: string,
+        durationSeconds: number,
+        provisionalTranscript?: string,
+    ) => {
+        setIsUploading(true);
+
+        try {
+            await chunkUpload.flushRemainingChunks();
+            const totalChunks =
+                recording.audioChunksRef.current.length + chunkUpload.chunkPruneOffsetRef.current;
+            const response = await fetch("/api/transcribe/finalize", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    memoId,
+                    totalChunks,
+                    provisionalTranscript,
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error("Finalize failed");
+            }
+
+            const data = (await response.json()) as Omit<UploadCompletePayload, "durationSeconds">;
+            recording.resetRecording();
+            liveTranscription.resetLiveSession();
+            chunkUpload.resetChunkUpload();
+            onUploadComplete?.({ ...data, durationSeconds });
+        } catch (error) {
+            console.error("Finalize error:", error);
         } finally {
             setIsUploading(false);
         }

@@ -75,6 +75,7 @@ type UseLiveTranscriptionOptions = {
     audioChunksRef: MutableRefObject<Blob[]>;
     mimeTypeRef: MutableRefObject<string>;
     webmHeaderRef: MutableRefObject<Blob | null>;
+    chunkPruneOffsetRef: MutableRefObject<number>;
 };
 
 type UseLiveTranscriptionResult = {
@@ -128,6 +129,7 @@ export function useLiveTranscription({
     audioChunksRef,
     mimeTypeRef,
     webmHeaderRef,
+    chunkPruneOffsetRef,
 }: UseLiveTranscriptionOptions): UseLiveTranscriptionResult {
     const [canonicalTranscriptState, setCanonicalTranscriptState] = useState<CanonicalTranscriptState>({
         lockedSegments: [],
@@ -381,26 +383,30 @@ export function useLiveTranscription({
         abortRef.current = controller;
 
         const chunks = audioChunksRef.current;
+        const pruneOffset = chunkPruneOffsetRef.current;
+        const trueTotal = chunks.length + pruneOffset;
         const header = webmHeaderRef.current;
         const locked = lockedSegmentsRef.current;
         const finalizedEnd = locked.length > 0 ? locked[locked.length - 1].endIndex : 0;
-        const pendingCount = chunks.length - finalizedEnd;
+        const pendingCount = trueTotal - finalizedEnd;
         const willFinalize = !forceTailRefresh && pendingCount >= SEGMENT_CHUNK_COUNT * 2;
         const requestStart = finalizedEnd;
         const requestEnd = willFinalize
             ? finalizedEnd + SEGMENT_CHUNK_COUNT
-            : Math.min(chunks.length, finalizedEnd + LIVE_TAIL_CHUNK_COUNT);
+            : Math.min(trueTotal, finalizedEnd + LIVE_TAIL_CHUNK_COUNT);
+        const arrayStart = Math.max(0, requestStart - pruneOffset);
+        const arrayEnd = Math.max(arrayStart, requestEnd - pruneOffset);
 
         const blobParts = header
-            ? [header, ...chunks.slice(requestStart, requestEnd)]
-            : [...chunks.slice(requestStart, requestEnd)];
+            ? [header, ...chunks.slice(arrayStart, arrayEnd)]
+            : [...chunks.slice(arrayStart, arrayEnd)];
         const snapshot = new Blob(blobParts, { type: mimeTypeRef.current });
-        const snapshotAudioChunkCount = requestEnd - requestStart;
+        const snapshotAudioChunkCount = arrayEnd - arrayStart;
 
         updateLiveDebug({
             tabVisibility: getDocumentVisibilityState(),
             windowMode: willFinalize ? "segment_finalization" : "tail_update",
-            bufferedChunkCount: chunks.length,
+            bufferedChunkCount: trueTotal,
             snapshotAudioChunkCount,
             snapshotBlobCount: blobParts.length,
             snapshotByteSize: snapshot.size,
@@ -471,7 +477,10 @@ export function useLiveTranscription({
                 if (!willFinalize) return;
 
                 const afterEnd = lockedSegmentsRef.current.at(-1)?.endIndex ?? 0;
-                const remaining = audioChunksRef.current.length - afterEnd;
+                const remaining =
+                    audioChunksRef.current.length +
+                    chunkPruneOffsetRef.current -
+                    afterEnd;
                 catchupBurstCountRef.current += 1;
 
                 const canDrainMore =
@@ -489,18 +498,20 @@ export function useLiveTranscription({
 
     const runFinalTailTick = async (): Promise<string> => {
         const chunks = audioChunksRef.current;
+        const pruneOffset = chunkPruneOffsetRef.current;
         const locked = lockedSegmentsRef.current;
         const startIndex = locked.at(-1)?.endIndex ?? 0;
-        const endIndex = chunks.length;
+        const trueTotal = chunks.length + pruneOffset;
 
-        if (endIndex <= startIndex) {
+        if (trueTotal <= startIndex) {
             return buildCanonicalTranscript(lockedSegmentsRef.current, tailTextRef.current);
         }
 
         const header = webmHeaderRef.current;
+        const arrayStart = Math.max(0, startIndex - pruneOffset);
         const blobParts = header
-            ? [header, ...chunks.slice(startIndex, endIndex)]
-            : chunks.slice(startIndex, endIndex);
+            ? [header, ...chunks.slice(arrayStart)]
+            : chunks.slice(arrayStart);
         const snapshot = new Blob(blobParts, { type: mimeTypeRef.current });
 
         const controller = new AbortController();

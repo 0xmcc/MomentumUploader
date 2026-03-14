@@ -1,5 +1,5 @@
 import React from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import AudioRecorder from "./AudioRecorder";
 
 jest.mock("framer-motion", () => {
@@ -153,38 +153,121 @@ describe("AudioRecorder live transcript cadence", () => {
         expect(screen.getByText(/open live page/i)).toBeInTheDocument();
     });
 
-    it("should auto-upload upon stopping", async () => {
+    it("flushes pending chunks and finalizes the memo upon stopping", async () => {
         global.URL.createObjectURL = jest.fn(() => "blob:http://localhost/test");
+        const memoId = "memo-stop-finalize";
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+            if (url === "/api/memos/live") {
+                return {
+                    ok: true,
+                    json: async () => ({ memoId }),
+                };
+            }
+
+            if (url === `/api/memos/${memoId}/share`) {
+                return {
+                    ok: true,
+                    json: async () => ({ shareUrl: "https://example.com/s/finalize" }),
+                };
+            }
+
+            if (url === `/api/memos/${memoId}` && init?.method === "PATCH") {
+                return {
+                    ok: true,
+                    json: async () => ({ ok: true }),
+                };
+            }
+
+            if (url === "/api/transcribe/live") {
+                return {
+                    ok: true,
+                    json: async () => ({ text: "partial transcript" }),
+                };
+            }
+
+            if (url === "/api/transcribe/upload-chunks") {
+                return {
+                    ok: true,
+                    json: async () => ({ ok: true }),
+                };
+            }
+
+            if (url === "/api/transcribe/finalize") {
+                return {
+                    ok: true,
+                    json: async () => ({
+                        id: memoId,
+                        success: true,
+                        text: "final transcript",
+                        transcriptStatus: "complete",
+                    }),
+                };
+            }
+
+            return {
+                ok: true,
+                json: async () => ({}),
+            };
+        });
 
         render(<AudioRecorder />);
 
-        // Start recording
         fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
 
         await act(async () => {
-            await Promise.resolve();
+            await flushMicrotasks(2);
         });
+        expect(await screen.findByText(/open live page/i)).toBeInTheDocument();
 
-        // Simulate recording time
         await act(async () => {
             jest.advanceTimersByTime(2000);
         });
 
-        // Stop recording
-        const stopButton = screen.getByRole("button", { name: /stop recording/i });
-        fireEvent.click(stopButton);
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
 
         await act(async () => {
-            await Promise.resolve();
+            await flushMicrotasks(4);
         });
 
-        // Verify that the upload fetch WAS called
         const fetchMock = global.fetch as jest.Mock;
-        const uploadCalls = fetchMock.mock.calls.filter(
-            ([url]: [unknown]) => url === "/api/transcribe"
+
+        await waitFor(() => {
+            expect(
+                fetchMock.mock.calls.filter(
+                    ([url]: [unknown]) => url === "/api/transcribe/upload-chunks"
+                ).length
+            ).toBeGreaterThanOrEqual(1);
+            expect(
+                fetchMock.mock.calls.filter(
+                    ([url]: [unknown]) => url === "/api/transcribe/finalize"
+                )
+            ).toHaveLength(1);
+            expect(
+                fetchMock.mock.calls.filter(
+                    ([url]: [unknown]) => url === "/api/transcribe"
+                )
+            ).toHaveLength(0);
+        });
+
+        const chunkUploadCalls = fetchMock.mock.calls.filter(
+            ([url]: [unknown]) => url === "/api/transcribe/upload-chunks"
+        );
+        const finalizeCalls = fetchMock.mock.calls.filter(
+            ([url]: [unknown]) => url === "/api/transcribe/finalize"
         );
 
-        expect(uploadCalls.length).toBe(1);
+        const chunkUploadBody = chunkUploadCalls[0]?.[1]?.body as FormData;
+        expect(chunkUploadBody.get("memoId")).toBe(memoId);
+        expect(chunkUploadBody.get("startIndex")).toBe("0");
+        expect(chunkUploadBody.get("endIndex")).toBe("2");
+        expect(chunkUploadBody.get("file")).toBeInstanceOf(Blob);
+
+        expect(JSON.parse(String(finalizeCalls[0]?.[1]?.body))).toEqual({
+            memoId,
+            totalChunks: 2,
+            provisionalTranscript: "partial transcript",
+        });
     });
 
     it("calls onAudioInput and does not auto-upload when callback is provided", async () => {
@@ -217,7 +300,10 @@ describe("AudioRecorder live transcript cadence", () => {
 
         const fetchMock = global.fetch as jest.Mock;
         const uploadCalls = fetchMock.mock.calls.filter(
-            ([url]: [unknown]) => url === "/api/transcribe"
+            ([url]: [unknown]) =>
+                url === "/api/transcribe" ||
+                url === "/api/transcribe/upload-chunks" ||
+                url === "/api/transcribe/finalize"
         );
         expect(uploadCalls.length).toBe(0);
     });
