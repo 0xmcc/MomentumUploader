@@ -50,6 +50,8 @@ Recommended baseline:
   - Trigger the normal upload flow.
   - Show a clear, user-facing message explaining that the recording was stopped at the limit and they can start a new memo to continue.
 
+**Tier-based duration (product):** Max recording duration may be applied only to **free** accounts as an incentive to upgrade; **paid** users get a higher limit or no limit. Same auto-stop + message behaviour, with the limit (and copy, e.g. “Upgrade to record longer”) derived from user tier. See [tiers-and-limits.md](../tiers-and-limits.md).
+
 Additional options (future iterations):
 
 - Allow a user setting for shorter limits (e.g. 15/30/60 min) while keeping a hard upper bound.

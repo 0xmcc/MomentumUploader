@@ -10,6 +10,8 @@ Each file should answer three questions for a specific edge case:
 
 Documents here are **implementation-agnostic** by default: they describe user-facing behaviour and invariants, and may optionally link to tests or code.
 
+See also: [Tiers and limits](../tiers-and-limits.md) (voiceover credits, free vs paid; recording duration as free-tier incentive).
+
 ## Current Edge Cases
 
 - [Recording duration and auto-stop](./recording-duration-and-auto-stop.md)

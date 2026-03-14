@@ -16,19 +16,7 @@ import {
 } from "@/lib/memo-artifacts";
 import { runPendingMemoJobs } from "@/lib/memo-jobs";
 
-jest.mock("@/lib/supabase", () => ({
-    supabaseAdmin: {
-        from: jest.fn(),
-    },
-    supabase: {
-        storage: {
-            from: jest.fn(() => ({
-                getPublicUrl: jest.fn(() => ({ data: { publicUrl: "https://example.com/audio.webm" } })),
-            })),
-        },
-    },
-    uploadAudio: jest.fn(),
-}));
+jest.mock("@/lib/supabase");
 
 jest.mock("@/lib/memo-chunks", () => ({
     compactFinalChunks: jest.fn(),

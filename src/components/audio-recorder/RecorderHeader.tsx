@@ -42,7 +42,7 @@ export default function RecorderHeader({
                         ? formatTime(recordingTime)
                         : isUploadActive
                             ? uploadProgressPercent >= 100
-                                ? "Upload complete. Transcribing with NVIDIA..."
+                                ? "Upload complete. Finalizing..."
                                 : `Uploading file... ${uploadProgressPercent}%`
                             : "Ready to record"}
                 </p>

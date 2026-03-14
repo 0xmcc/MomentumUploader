@@ -6,11 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { resolveMemoUserId } from "@/lib/memo-api-auth";
 import { runPendingMemoJobs } from "@/lib/memo-jobs";
 
-jest.mock("@/lib/supabase", () => ({
-    supabaseAdmin: {
-        from: jest.fn(),
-    },
-}));
+jest.mock("@/lib/supabase");
 
 jest.mock("@/lib/memo-api-auth", () => ({
     resolveMemoUserId: jest.fn(),

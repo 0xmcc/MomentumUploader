@@ -5,12 +5,7 @@ import {
 } from "./desktop-token-claims";
 import { supabaseAdmin } from "./supabase";
 
-jest.mock("./supabase", () => ({
-    supabaseAdmin: {
-        from: jest.fn(),
-        rpc: jest.fn(),
-    },
-}));
+jest.mock("./supabase");
 
 const mockFrom = supabaseAdmin.from as jest.Mock;
 const mockRpc = supabaseAdmin.rpc as jest.Mock;
