@@ -1,25 +1,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { useLiveTranscription } from "./useLiveTranscription";
+import { buildChunkRefs } from "./useLiveTranscription.test-helpers";
 
 jest.mock("@/lib/memo-ui", () => ({
     copyToClipboard: jest.fn(async () => true),
 }));
-
-function buildChunkRefs() {
-    return {
-        audioChunksRef: {
-            current: Array.from(
-                { length: 40 },
-                (_, index) => new Blob([`chunk-${10 + index}`], { type: "audio/webm" })
-            ),
-        },
-        mimeTypeRef: { current: "audio/webm" },
-        webmHeaderRef: {
-            current: new Blob(["header"], { type: "audio/webm" }),
-        },
-        chunkPruneOffsetRef: { current: 10 },
-    };
-}
 
 describe("useLiveTranscription pruned window math", () => {
     afterEach(() => {
@@ -97,7 +82,7 @@ describe("useLiveTranscription pruned window math", () => {
             }),
         });
 
-        const refs = buildChunkRefs();
+        const refs = buildChunkRefs({ chunkCount: 40, startIndex: 10, pruneOffset: 10 });
         const { result, unmount } = renderHook(() => useLiveTranscription(refs));
 
         act(() => {
@@ -205,7 +190,7 @@ describe("useLiveTranscription pruned window math", () => {
             }),
         });
 
-        const refs = buildChunkRefs();
+        const refs = buildChunkRefs({ chunkCount: 40, startIndex: 10, pruneOffset: 10 });
         const sliceSpy = jest.spyOn(refs.audioChunksRef.current, "slice");
         const { result } = renderHook(() => useLiveTranscription(refs));
 

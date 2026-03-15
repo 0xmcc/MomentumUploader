@@ -230,6 +230,64 @@ describe("useChunkUpload", () => {
         expect(formData.get("endIndex")).toBe("14");
     });
 
+    it("bootstraps the first upload promptly when memoId arrives late and chunks are already trickling in", async () => {
+        const audioChunksRef = { current: [] as Blob[] };
+        const webmHeaderRef = { current: new Blob(["header"], { type: "audio/webm" }) };
+        const mimeTypeRef = { current: "audio/webm" };
+        const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+        Object.defineProperty(global, "fetch", { writable: true, value: fetchMock });
+
+        const { rerender } = renderHook(
+            ({ memoId }) =>
+                useChunkUpload({
+                    audioChunksRef,
+                    webmHeaderRef,
+                    mimeTypeRef,
+                    memoId,
+                    enabled: true,
+                }),
+            { initialProps: { memoId: null as string | null } }
+        );
+
+        rerender({ memoId: "memo-growing-after-live-id" });
+
+        await act(async () => {
+            jest.advanceTimersByTime(1_500);
+            audioChunksRef.current.push(
+                new Blob(["chunk-0"], { type: "audio/webm" }),
+                new Blob(["chunk-1"], { type: "audio/webm" })
+            );
+            await Promise.resolve();
+        });
+
+        expect(fetchMock).not.toHaveBeenCalled();
+
+        await act(async () => {
+            jest.advanceTimersByTime(700);
+            audioChunksRef.current.push(
+                new Blob(["chunk-2"], { type: "audio/webm" }),
+                new Blob(["chunk-3"], { type: "audio/webm" })
+            );
+            await Promise.resolve();
+        });
+
+        await act(async () => {
+            jest.advanceTimersByTime(300);
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(fetchMock).toHaveBeenCalledWith(
+            "/api/transcribe/upload-chunks",
+            expect.objectContaining({ method: "POST", body: expect.any(FormData) })
+        );
+
+        const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+        expect(formData.get("memoId")).toBe("memo-growing-after-live-id");
+        expect(formData.get("startIndex")).toBe("0");
+        expect(formData.get("endIndex")).toBe("2");
+    });
+
     it("uploads on a later poll when chunks are appended to the same audioChunksRef after mount", async () => {
         const audioChunksRef = { current: [] as Blob[] };
         const webmHeaderRef = { current: new Blob(["header"], { type: "audio/webm" }) };

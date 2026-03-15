@@ -2,8 +2,9 @@ import { useEffect, useRef, type MutableRefObject } from "react";
 
 const CHUNK_UPLOAD_INTERVAL_MS = 30_000;
 const FIRST_UPLOAD_DELAY_MS = 15_000;
-const READINESS_POLL_MS = 2_000; // Poll so we upload as soon as 3+ chunks exist, not only after 15s
+const READINESS_POLL_MS = 500; // Poll frequently so late memo IDs still trigger upload as soon as the buffer is ready
 const MIN_CHUNKS_TO_UPLOAD = 3;
+const INITIAL_CHUNKS_TO_UPLOAD = 2;
 const PRUNE_SAFETY_BUFFER = 30;
 const FLUSH_MAX_RETRIES = 3;
 const FLUSH_RETRY_DELAYS_MS = [500, 1000, 2000] as const;
@@ -44,6 +45,7 @@ export function useChunkUpload({
     const internalChunkPruneOffsetRef = useRef(0);
     const chunkPruneOffsetRef = externalChunkPruneOffsetRef ?? internalChunkPruneOffsetRef;
     const lastUploadedIndexRef = useRef(0);
+    const firstUploadTimerRef = useRef<NodeJS.Timeout | null>(null);
     const uploadIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const readinessIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const inFlightUploadRef = useRef<Promise<void> | null>(null);
@@ -52,6 +54,7 @@ export function useChunkUpload({
     const mimeTypeSourceRef = useRef(mimeTypeRef);
     const enabledRef = useRef(enabled);
     const memoIdRef = useRef(memoId);
+    const lateMemoIdBootstrapRef = useRef(false);
 
     useEffect(() => {
         audioChunksSourceRef.current = audioChunksRef;
@@ -70,6 +73,7 @@ export function useChunkUpload({
     }, [enabled]);
 
     useEffect(() => {
+        lateMemoIdBootstrapRef.current = memoIdRef.current == null && memoId != null;
         memoIdRef.current = memoId;
     }, [memoId]);
 
@@ -80,12 +84,24 @@ export function useChunkUpload({
         }
     };
 
+    const clearFirstUploadTimer = () => {
+        if (firstUploadTimerRef.current) {
+            clearTimeout(firstUploadTimerRef.current);
+            firstUploadTimerRef.current = null;
+        }
+    };
+
     const clearReadinessInterval = () => {
         if (readinessIntervalRef.current) {
             clearInterval(readinessIntervalRef.current);
             readinessIntervalRef.current = null;
         }
     };
+
+    const getMinimumChunkCount = () =>
+        lastUploadedIndexRef.current === 0 && lateMemoIdBootstrapRef.current
+            ? INITIAL_CHUNKS_TO_UPLOAD
+            : MIN_CHUNKS_TO_UPLOAD;
 
     const uploadChunkRange = async (startIndex: number, endIndex: number) => {
         const nextMemoId = memoIdRef.current;
@@ -162,6 +178,7 @@ export function useChunkUpload({
         }
 
         lastUploadedIndexRef.current = endIndex;
+        lateMemoIdBootstrapRef.current = false;
     };
 
     const pruneUploadedChunks = () => {
@@ -215,6 +232,7 @@ export function useChunkUpload({
     };
 
     useEffect(() => {
+        clearFirstUploadTimer();
         clearUploadInterval();
         clearReadinessInterval();
 
@@ -255,7 +273,7 @@ export function useChunkUpload({
 
         const runUpload = () => {
             if (inFlightUploadRef.current) return;
-            inFlightUploadRef.current = uploadPendingChunks(MIN_CHUNKS_TO_UPLOAD, true)
+            inFlightUploadRef.current = uploadPendingChunks(getMinimumChunkCount(), true)
                 .catch((error) => {
                     console.warn("[chunk-upload]", error);
                 })
@@ -264,13 +282,14 @@ export function useChunkUpload({
                 });
         };
 
-        const firstUploadTimer = setTimeout(runUpload, FIRST_UPLOAD_DELAY_MS);
+        firstUploadTimerRef.current = setTimeout(runUpload, FIRST_UPLOAD_DELAY_MS);
         uploadIntervalRef.current = setInterval(runUpload, CHUNK_UPLOAD_INTERVAL_MS);
 
         readinessIntervalRef.current = setInterval(() => {
             const totalChunks =
                 audioChunksSourceRef.current.current.length + chunkPruneOffsetRef.current;
             const newChunkCount = totalChunks - lastUploadedIndexRef.current;
+            const minimumChunkCount = getMinimumChunkCount();
             if (inFlightUploadRef.current) {
                 logChunkUpload("readinessPoll:skip", {
                     reason: "in-flight",
@@ -281,12 +300,12 @@ export function useChunkUpload({
                 return;
             }
 
-            if (newChunkCount < MIN_CHUNKS_TO_UPLOAD) {
+            if (newChunkCount < minimumChunkCount) {
                 logChunkUpload("readinessPoll:skip", {
                     reason: "below-minimum",
                     totalChunks,
                     newChunkCount,
-                    minimumChunkCount: MIN_CHUNKS_TO_UPLOAD,
+                    minimumChunkCount,
                     lastUploadedIndex: lastUploadedIndexRef.current,
                 });
                 return;
@@ -295,7 +314,7 @@ export function useChunkUpload({
             logChunkUpload("readinessPoll:runUpload", {
                 totalChunks,
                 newChunkCount,
-                minimumChunkCount: MIN_CHUNKS_TO_UPLOAD,
+                minimumChunkCount,
                 lastUploadedIndex: lastUploadedIndexRef.current,
             });
             clearReadinessInterval();
@@ -303,7 +322,7 @@ export function useChunkUpload({
         }, READINESS_POLL_MS);
 
         return () => {
-            clearTimeout(firstUploadTimer);
+            clearFirstUploadTimer();
             clearUploadInterval();
             clearReadinessInterval();
         };
@@ -311,6 +330,10 @@ export function useChunkUpload({
 
     const flushRemainingChunks = async () => {
         if (!enabledRef.current || !memoIdRef.current) return;
+
+        clearFirstUploadTimer();
+        clearUploadInterval();
+        clearReadinessInterval();
 
         try {
             await inFlightUploadRef.current;
@@ -332,6 +355,7 @@ export function useChunkUpload({
     };
 
     const resetChunkUpload = () => {
+        clearFirstUploadTimer();
         clearUploadInterval();
         clearReadinessInterval();
         lastUploadedIndexRef.current = 0;

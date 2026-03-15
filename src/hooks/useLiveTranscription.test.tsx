@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { copyToClipboard } from "@/lib/memo-ui";
 import { useLiveTranscription } from "./useLiveTranscription";
+import { buildChunkRefs } from "./useLiveTranscription.test-helpers";
 
 jest.mock("@/lib/memo-ui", () => ({
     copyToClipboard: jest.fn(async () => true),
@@ -28,43 +29,6 @@ function makeTranscribeResponse(text: string) {
     return {
         ok: true,
         json: async () => ({ text }),
-    };
-}
-
-function buildChunkRefs(
-    options:
-        | number
-        | {
-            chunkCount?: number;
-            startIndex?: number;
-            pruneOffset?: number;
-        } = 30
-) {
-    const normalized =
-        typeof options === "number"
-            ? { chunkCount: options, startIndex: 0, pruneOffset: 0 }
-            : {
-                chunkCount: options.chunkCount ?? 30,
-                startIndex: options.startIndex ?? 0,
-                pruneOffset: options.pruneOffset ?? 0,
-            };
-
-    return {
-        audioChunksRef: {
-            current: Array.from(
-                { length: normalized.chunkCount },
-                (_, index) =>
-                    new Blob(
-                        [`chunk-${normalized.startIndex + index}`],
-                        { type: "audio/webm" }
-                    )
-            ),
-        },
-        mimeTypeRef: { current: "audio/webm" },
-        webmHeaderRef: {
-            current: new Blob(["header"], { type: "audio/webm" }),
-        },
-        chunkPruneOffsetRef: { current: normalized.pruneOffset },
     };
 }
 
