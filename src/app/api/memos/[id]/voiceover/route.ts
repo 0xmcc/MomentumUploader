@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -19,12 +20,33 @@ type MemoAudioRow = {
   audio_url: string | null;
 };
 
+type MemoVoiceoverRow = {
+  id: string;
+  memo_id: string;
+  user_id: string;
+  voice_id: string;
+  audio_url: string | null;
+  storage_path: string | null;
+  content_type: string | null;
+  status: "processing" | "ready";
+};
+
 const AUDIO_FETCH_TIMEOUT_MS = 10_000;
 const ELEVENLABS_TIMEOUT_MS = 30_000;
+const VOICEOVER_WAIT_TIMEOUT_MS = 35_000;
+const VOICEOVER_POLL_INTERVAL_MS = 300;
+const VOICEOVER_STORAGE_BUCKET = "voice-memos";
+const VOICEOVER_STORAGE_PREFIX = "voiceovers";
 
 type ElevenLabsErrorDetail = {
   code: string | null;
   message: string | null;
+};
+
+type PostgresError = {
+  code?: string;
+  message?: string;
+  statusCode?: number;
 };
 
 function isAbortError(error: unknown): boolean {
@@ -33,6 +55,95 @@ function isAbortError(error: unknown): boolean {
   }
 
   return error.name === "AbortError";
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  const candidate = error as PostgresError | null;
+  return candidate?.code === "23505";
+}
+
+function isStorageConflict(error: unknown): boolean {
+  const candidate = error as PostgresError | null;
+  if (candidate?.statusCode === 409) return true;
+  const message = candidate?.message;
+  return typeof message === "string" && message.toLowerCase().includes("already exists");
+}
+
+function shouldBypassPersistence(error: unknown): boolean {
+  const candidate = error as PostgresError | null;
+  if (!candidate) return false;
+  if (candidate.code === "42P01" || candidate.code === "42703") return true;
+  const message = typeof candidate.message === "string" ? candidate.message.toLowerCase() : "";
+  return message.includes("memo_voiceovers") && (message.includes("does not exist") || message.includes("column"));
+}
+
+function buildStoragePath(userId: string, memoId: string, voiceId: string): string {
+  return `${VOICEOVER_STORAGE_PREFIX}/${userId}/${memoId}/${voiceId}.mp3`;
+}
+
+function getStoragePublicUrl(storagePath: string): string {
+  const { data } = supabaseAdmin.storage.from(VOICEOVER_STORAGE_BUCKET).getPublicUrl(storagePath);
+  return data.publicUrl;
+}
+
+async function findVoiceoverRow(
+  memoId: string,
+  voiceId: string,
+  userId: string
+): Promise<MemoVoiceoverRow | null> {
+  const { data, error } = await supabaseAdmin
+    .from("memo_voiceovers")
+    .select("id, memo_id, user_id, voice_id, audio_url, storage_path, content_type, status")
+    .eq("memo_id", memoId)
+    .eq("voice_id", voiceId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as MemoVoiceoverRow;
+}
+
+async function waitForReadyVoiceover(
+  memoId: string,
+  voiceId: string,
+  userId: string
+): Promise<MemoVoiceoverRow | null> {
+  const deadline = Date.now() + VOICEOVER_WAIT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await sleep(VOICEOVER_POLL_INTERVAL_MS);
+    const row = await findVoiceoverRow(memoId, voiceId, userId);
+    if (!row || row.status !== "processing") return row;
+    if (row.status === "ready" && row.audio_url) return row;
+  }
+  return null;
+}
+
+function streamResponse(stream: Response): NextResponse {
+  return new NextResponse(stream.body, {
+    headers: {
+      ...CORS,
+      "Content-Type": stream.headers.get("content-type") ?? "audio/mpeg",
+      "Cache-Control": "public, max-age=31536000, immutable",
+    },
+  });
+}
+
+async function streamPersistedVoiceover(audioUrl: string): Promise<NextResponse> {
+  try {
+    const res = await fetchWithTimeout(audioUrl, {}, AUDIO_FETCH_TIMEOUT_MS);
+    if (!res.ok || !res.body) {
+      return NextResponse.json({ error: "Unable to fetch generated audio" }, { status: 502, headers: CORS });
+    }
+    return streamResponse(res);
+  } catch (error) {
+    if (isAbortError(error)) {
+      return NextResponse.json({ error: "Timed out fetching generated audio" }, { status: 504, headers: CORS });
+    }
+    return NextResponse.json({ error: "Unable to fetch generated audio" }, { status: 502, headers: CORS });
+  }
 }
 
 async function fetchWithTimeout(
@@ -166,10 +277,60 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Memo has no audio" }, { status: 422, headers: CORS });
   }
 
+  const existingVoiceover = await findVoiceoverRow(id, voiceId, userId);
+  if (existingVoiceover?.status === "ready" && existingVoiceover.audio_url) {
+    return streamPersistedVoiceover(existingVoiceover.audio_url);
+  }
+
+  let canPersistVoiceover = true;
+  let processingRowId: string | null = null;
+  const cleanupProcessingRow = async () => {
+    if (processingRowId) {
+      await supabaseAdmin.from("memo_voiceovers").delete().eq("id", processingRowId);
+      processingRowId = null;
+    }
+  };
+
+  const { data: insertedRow, error: insertError } = await supabaseAdmin
+    .from("memo_voiceovers")
+    .insert({ memo_id: id, voice_id: voiceId, user_id: userId, status: "processing" })
+    .select("id, memo_id, user_id, voice_id, audio_url, storage_path, content_type, status")
+    .single();
+
+  if (insertError) {
+    if (!isUniqueViolation(insertError)) {
+      if (!shouldBypassPersistence(insertError)) {
+        return NextResponse.json(
+          { error: "Failed to initialize voiceover generation" },
+          { status: 500, headers: CORS }
+        );
+      }
+      canPersistVoiceover = false;
+      console.warn("[voiceover] Persistence unavailable; continuing without persistence", insertError);
+    }
+    if (canPersistVoiceover) {
+      const conflictedRow = await findVoiceoverRow(id, voiceId, userId);
+      if (conflictedRow?.status === "ready" && conflictedRow.audio_url) {
+        return streamPersistedVoiceover(conflictedRow.audio_url);
+      }
+      const waitedRow = await waitForReadyVoiceover(id, voiceId, userId);
+      if (waitedRow?.audio_url) return streamPersistedVoiceover(waitedRow.audio_url);
+      return NextResponse.json(
+        { error: "Voiceover generation already in progress" },
+        { status: 409, headers: CORS }
+      );
+    }
+  } else {
+    const inserted = insertedRow as MemoVoiceoverRow | null;
+    if (inserted?.id) processingRowId = inserted.id;
+    else canPersistVoiceover = false;
+  }
+
   let memoAudioResponse: Response;
   try {
     memoAudioResponse = await fetchWithTimeout(memoUrl, {}, AUDIO_FETCH_TIMEOUT_MS);
   } catch (error) {
+    await cleanupProcessingRow();
     if (isAbortError(error)) {
       return NextResponse.json(
         { error: "Timed out fetching audio" },
@@ -184,6 +345,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
 
   if (!memoAudioResponse.ok) {
+    await cleanupProcessingRow();
     return NextResponse.json(
       { error: "Unable to fetch source audio" },
       { status: 502, headers: CORS }
@@ -223,13 +385,13 @@ export async function POST(req: NextRequest, { params }: Params) {
       ELEVENLABS_TIMEOUT_MS
     );
   } catch (error) {
+    await cleanupProcessingRow();
     if (isAbortError(error)) {
       return NextResponse.json(
         { error: "ElevenLabs timed out" },
         { status: 504, headers: CORS }
       );
     }
-
     return NextResponse.json(
       { error: "ElevenLabs request failed" },
       { status: 502, headers: CORS }
@@ -237,71 +399,116 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
 
   if (elevenLabsResponse.status === 429) {
+    await cleanupProcessingRow();
     return NextResponse.json(
       { error: "ElevenLabs rate limit — try again shortly" },
       { status: 429, headers: CORS }
     );
   }
-
   if (elevenLabsResponse.status === 422) {
+    await cleanupProcessingRow();
     return NextResponse.json(
       { error: "ElevenLabs validation error (status 422)" },
       { status: 422, headers: CORS }
     );
   }
-
   if (elevenLabsResponse.status === 400) {
+    await cleanupProcessingRow();
     const detail = await readElevenLabsError(elevenLabsResponse);
     return NextResponse.json(
-      {
-        error: formatElevenLabsError("ElevenLabs request rejected", detail),
-      },
+      { error: formatElevenLabsError("ElevenLabs request rejected", detail) },
       { status: 400, headers: CORS }
     );
   }
-
   if (elevenLabsResponse.status === 401) {
+    await cleanupProcessingRow();
     const detail = await readElevenLabsError(elevenLabsResponse);
     return NextResponse.json(
-      {
-        error: formatElevenLabsError("ElevenLabs authentication failed", detail),
-      },
+      { error: formatElevenLabsError("ElevenLabs authentication failed", detail) },
       { status: 401, headers: CORS }
     );
   }
-
   if (elevenLabsResponse.status === 403) {
+    await cleanupProcessingRow();
     const detail = await readElevenLabsError(elevenLabsResponse);
     return NextResponse.json(
-      {
-        error: formatElevenLabsError("ElevenLabs blocked this voice", detail),
-      },
+      { error: formatElevenLabsError("ElevenLabs blocked this voice", detail) },
       { status: 403, headers: CORS }
     );
   }
-
   if (!elevenLabsResponse.ok) {
+    await cleanupProcessingRow();
     return NextResponse.json(
       { error: `ElevenLabs error (status ${elevenLabsResponse.status})` },
       { status: 502, headers: CORS }
     );
   }
-
   if (!elevenLabsResponse.body) {
+    await cleanupProcessingRow();
     return NextResponse.json(
       { error: "ElevenLabs returned no audio" },
       { status: 502, headers: CORS }
     );
   }
 
-  const upstreamContentType =
-    elevenLabsResponse.headers.get("content-type") ?? "application/octet-stream";
+  const elevenLabsBytes = Buffer.from(await elevenLabsResponse.arrayBuffer());
+  if (elevenLabsBytes.byteLength === 0) {
+    await cleanupProcessingRow();
+    return NextResponse.json(
+      { error: "ElevenLabs returned no audio" },
+      { status: 502, headers: CORS }
+    );
+  }
 
-  return new NextResponse(elevenLabsResponse.body, {
-    headers: {
-      ...CORS,
-      "Content-Type": upstreamContentType,
-      "Cache-Control": "no-store",
-    },
-  });
+  const outputContentType =
+    elevenLabsResponse.headers.get("content-type") ?? "audio/mpeg";
+
+  if (!canPersistVoiceover) {
+    return new NextResponse(elevenLabsBytes, {
+      headers: { ...CORS, "Content-Type": outputContentType, "Cache-Control": "no-store" },
+    });
+  }
+
+  const storagePath = buildStoragePath(userId, id, voiceId);
+  const { error: storageError } = await supabaseAdmin.storage
+    .from(VOICEOVER_STORAGE_BUCKET)
+    .upload(storagePath, elevenLabsBytes, {
+      contentType: outputContentType,
+      upsert: false,
+    });
+
+  if (storageError && !isStorageConflict(storageError)) {
+    await cleanupProcessingRow();
+    return NextResponse.json(
+      { error: "Failed to persist generated audio" },
+      { status: 500, headers: CORS }
+    );
+  }
+
+  if (!processingRowId) {
+    return new NextResponse(elevenLabsBytes, {
+      headers: { ...CORS, "Content-Type": outputContentType, "Cache-Control": "no-store" },
+    });
+  }
+
+  const persistedAudioUrl = getStoragePublicUrl(storagePath);
+  const { error: finalizeError } = await supabaseAdmin
+    .from("memo_voiceovers")
+    .update({
+      audio_url: persistedAudioUrl,
+      storage_path: storagePath,
+      content_type: outputContentType,
+      status: "ready",
+    })
+    .eq("id", processingRowId);
+
+  if (finalizeError) {
+    await cleanupProcessingRow();
+    return NextResponse.json(
+      { error: "Failed to save generated voiceover" },
+      { status: 500, headers: CORS }
+    );
+  }
+
+  return streamPersistedVoiceover(persistedAudioUrl);
 }
