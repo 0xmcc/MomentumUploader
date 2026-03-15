@@ -138,6 +138,7 @@ export function MemoDetailView({
   const isFailed = isMemoFailed(memo);
   const isProcessing = isMemoProcessing(memo);
   const statusLabel = isFailed ? "Failed" : isProcessing ? "Processing" : "Ready";
+  const canDownloadFailedRecording = isFailed && !memo.url;
 
   const displayTitle = getMemoTitle(memo);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -348,6 +349,23 @@ export function MemoDetailView({
 
       <div className="flex-1 overflow-y-auto px-8 py-10 relative">
         <div className="max-w-3xl mx-auto">
+          {canDownloadFailedRecording && (
+            <div className="mb-6 rounded-2xl border border-red-500/25 bg-red-500/10 px-5 py-4 text-sm text-red-100">
+              <div className="font-medium text-red-50">Recording couldn't be saved.</div>
+              <div className="mt-1 text-red-100/75">
+                Finalization failed, but the uploaded chunks are still available.
+              </div>
+              <a
+                href={`/api/memos/${memo.id}/download-chunks`}
+                download={`recording-${memo.id}.webm`}
+                className="mt-3 inline-flex items-center gap-2 rounded-full border border-red-200/25 bg-red-950/30 px-3 py-1.5 text-xs font-mono uppercase tracking-wide text-red-50 transition-colors hover:border-red-100/40 hover:bg-red-950/50"
+              >
+                <FileDown size={14} />
+                Download recording
+              </a>
+            </div>
+          )}
+
           <div
             className={`text-lg leading-relaxed whitespace-pre-wrap ${
               isFailed ? "text-red-300/40 italic" : "text-white/80"
