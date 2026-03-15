@@ -81,12 +81,18 @@ describe("Home composition wiring", () => {
         selectedMemoId: null,
       })
     );
-      expect(recorderPanelMock).toHaveBeenCalledWith(
+    const recorderPanelProps = recorderPanelMock.mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(recorderPanelProps).toEqual(
       expect.objectContaining({
         isUploading: false,
+        onUploadComplete: commonHookState.handleUploadComplete,
         showUploadError: false,
       })
     );
+    expect(recorderPanelProps).not.toHaveProperty("onAudioInput");
   });
 
   it("renders memo detail flow when a memo is selected", () => {

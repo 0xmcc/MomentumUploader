@@ -16,7 +16,6 @@ export default function Home() {
 
   const {
     filteredMemos,
-    handleAudioInput,
     handleUploadComplete,
     loading,
     isUploading,
@@ -87,7 +86,6 @@ export default function Home() {
           <RecorderPanel
             isUploading={isUploading}
             uploadProgressPercent={uploadProgressPercent}
-            onAudioInput={handleAudioInput}
             onRetryUpload={retryUpload}
             onUploadComplete={handleUploadComplete}
             showUploadError={showUploadError}

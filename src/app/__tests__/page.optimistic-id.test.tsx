@@ -1,11 +1,13 @@
 import React from "react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import Home from "../page";
-import type { AudioInputPayload } from "@/components/AudioRecorder";
+import type { UploadCompletePayload } from "@/components/AudioRecorder";
 
 const mockOpenSignIn = jest.fn();
 
-let capturedOnAudioInput: ((payload: AudioInputPayload) => void) | undefined;
+let capturedOnUploadComplete:
+    | ((payload: UploadCompletePayload) => void)
+    | undefined;
 
 jest.mock("next/link", () => {
     return {
@@ -51,11 +53,11 @@ jest.mock("@/components/ThemeProvider", () => ({
 jest.mock("@/components/AudioRecorder", () => ({
     __esModule: true,
     default: ({
-        onAudioInput,
+        onUploadComplete,
     }: {
-        onAudioInput?: (payload: AudioInputPayload) => void;
+        onUploadComplete?: (payload: UploadCompletePayload) => void;
     }) => {
-        capturedOnAudioInput = onAudioInput;
+        capturedOnUploadComplete = onUploadComplete;
         return <div data-testid="audio-recorder">AudioRecorder</div>;
     },
 }));
@@ -70,7 +72,7 @@ describe("Home optimistic ID behavior", () => {
     beforeEach(() => {
         jest.useFakeTimers();
         mockOpenSignIn.mockReset();
-        capturedOnAudioInput = undefined;
+        capturedOnUploadComplete = undefined;
         Object.defineProperty(global, "XMLHttpRequest", {
             configurable: true,
             writable: true,
@@ -109,19 +111,6 @@ describe("Home optimistic ID behavior", () => {
                 });
             }
 
-            if (url === "/api/transcribe" && init?.method === "POST") {
-                return Promise.resolve({
-                    ok: true,
-                    json: async () => ({
-                        id: "real-uuid-123",
-                        success: true,
-                        text: transcriptText,
-                        url: "http://x/a.webm",
-                        modelUsed: "nvidia/parakeet-rnnt-1.1b",
-                    }),
-                });
-            }
-
             return Promise.reject(new Error(`Unexpected fetch call: ${url}`));
         });
 
@@ -145,14 +134,18 @@ describe("Home optimistic ID behavior", () => {
         render(<Home />);
 
         await waitFor(() => {
-            expect(capturedOnAudioInput).toBeDefined();
+            expect(capturedOnUploadComplete).toBeDefined();
         });
 
         act(() => {
-            capturedOnAudioInput?.({
-                blob: new Blob(["fake audio"], { type: "audio/webm" }),
+            capturedOnUploadComplete?.({
+                id: "real-uuid-123",
                 durationSeconds: 3,
-                mimeType: "audio/webm",
+                modelUsed: "nvidia/parakeet-rnnt-1.1b",
+                success: true,
+                text: transcriptText,
+                transcriptStatus: "complete",
+                url: "http://x/a.webm",
             });
         });
 
@@ -179,14 +172,18 @@ describe("Home optimistic ID behavior", () => {
         render(<Home />);
 
         await waitFor(() => {
-            expect(capturedOnAudioInput).toBeDefined();
+            expect(capturedOnUploadComplete).toBeDefined();
         });
 
         act(() => {
-            capturedOnAudioInput?.({
-                blob: new Blob(["fake audio"], { type: "audio/webm" }),
+            capturedOnUploadComplete?.({
+                id: "real-uuid-123",
                 durationSeconds: 3,
-                mimeType: "audio/webm",
+                modelUsed: "nvidia/parakeet-rnnt-1.1b",
+                success: true,
+                text: transcriptText,
+                transcriptStatus: "complete",
+                url: "http://x/a.webm",
             });
         });
 

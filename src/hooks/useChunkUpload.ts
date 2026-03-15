@@ -2,8 +2,8 @@ import { useEffect, useRef, type MutableRefObject } from "react";
 
 const CHUNK_UPLOAD_INTERVAL_MS = 30_000;
 const FIRST_UPLOAD_DELAY_MS = 15_000;
-const READINESS_POLL_MS = 2_000; // Poll so we upload as soon as 1+ chunks exist, not only after 15s
-const MIN_CHUNKS_TO_UPLOAD = 1;
+const READINESS_POLL_MS = 2_000; // Poll so we upload as soon as 3+ chunks exist, not only after 15s
+const MIN_CHUNKS_TO_UPLOAD = 3;
 const PRUNE_SAFETY_BUFFER = 30;
 const FLUSH_MAX_RETRIES = 3;
 const FLUSH_RETRY_DELAYS_MS = [500, 1000, 2000] as const;

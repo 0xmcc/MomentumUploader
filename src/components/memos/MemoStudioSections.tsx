@@ -576,7 +576,7 @@ export function PrimaryHeaderControls() {
 type RecorderPanelProps = {
   isUploading: boolean;
   uploadProgressPercent: number;
-  onAudioInput: (payload: AudioInputPayload) => void;
+  onAudioInput?: (payload: AudioInputPayload) => void;
   onRetryUpload: () => void;
   onUploadComplete: (data: UploadCompletePayload) => void;
   showUploadError: boolean;
