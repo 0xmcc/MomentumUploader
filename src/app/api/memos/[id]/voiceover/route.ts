@@ -115,8 +115,9 @@ async function waitForReadyVoiceover(
   while (Date.now() < deadline) {
     await sleep(VOICEOVER_POLL_INTERVAL_MS);
     const row = await findVoiceoverRow(memoId, voiceId, userId);
-    if (!row || row.status !== "processing") return row;
+    if (!row) return null;
     if (row.status === "ready" && row.audio_url) return row;
+    if (row.status !== "processing") return row;
   }
   return null;
 }

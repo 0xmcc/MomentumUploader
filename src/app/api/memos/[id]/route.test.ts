@@ -46,6 +46,76 @@ describe("GET /api/memos/:id", () => {
         expect(idEq).toHaveBeenCalledWith("id", "memo-owned-by-user-b");
         expect(userEq).toHaveBeenCalledWith("user_id", "user_a");
     });
+
+    it("returns final transcript segments for the memo detail view", async () => {
+        (auth as unknown as jest.Mock).mockResolvedValue({ userId: "user_a" });
+
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "memos") {
+                const single = jest.fn().mockResolvedValue({
+                    data: {
+                        id: "memo-1",
+                        title: "Segmented memo",
+                        transcript: "Fallback flat transcript",
+                        audio_url: "https://example.com/memo-1.webm",
+                        duration: 42,
+                        created_at: "2026-03-15T12:00:00.000Z",
+                    },
+                    error: null,
+                });
+                const userEq = jest.fn(() => ({ single }));
+                const idEq = jest.fn(() => ({ eq: userEq }));
+                const select = jest.fn(() => ({ eq: idEq }));
+                return { select };
+            }
+
+            if (table === "memo_transcript_segments") {
+                const order = jest.fn().mockResolvedValue({
+                    data: [
+                        {
+                            segment_index: 0,
+                            start_ms: 0,
+                            end_ms: 1800,
+                            text: "First segment.",
+                        },
+                        {
+                            segment_index: 1,
+                            start_ms: 1800,
+                            end_ms: 4200,
+                            text: "Second segment.",
+                        },
+                    ],
+                    error: null,
+                });
+                const sourceEq = jest.fn(() => ({ order }));
+                const memoEq = jest.fn(() => ({ eq: sourceEq }));
+                const select = jest.fn(() => ({ eq: memoEq }));
+                return { select };
+            }
+
+            throw new Error(`Unexpected table: ${table}`);
+        });
+
+        const req = {} as NextRequest;
+        const res = await GET(req, { params: Promise.resolve({ id: "memo-1" }) });
+        const body = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(body.memo.transcriptSegments).toEqual([
+            {
+                id: "0",
+                startMs: 0,
+                endMs: 1800,
+                text: "First segment.",
+            },
+            {
+                id: "1",
+                startMs: 1800,
+                endMs: 4200,
+                text: "Second segment.",
+            },
+        ]);
+    });
 });
 
 describe("PATCH /api/memos/:id — finalization lock", () => {

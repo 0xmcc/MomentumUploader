@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import type { TranscriptSegment } from "@/lib/transcript";
 
 const CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -34,14 +35,29 @@ export async function GET(_req: NextRequest, { params }: Params) {
         return NextResponse.json({ error: "Memo not found" }, { status: 404, headers: CORS });
     }
 
+    const { data: segRows } = await supabaseAdmin
+        .from("memo_transcript_segments")
+        .select("segment_index, start_ms, end_ms, text")
+        .eq("memo_id", id)
+        .eq("source", "final")
+        .order("segment_index", { ascending: true });
+
+    const transcriptSegments: TranscriptSegment[] = (segRows ?? []).map((row) => ({
+        id: String(row.segment_index),
+        startMs: row.start_ms as number,
+        endMs: row.end_ms as number,
+        text: row.text as string,
+    }));
+
     return NextResponse.json(
         {
             memo: {
                 id: data.id,
                 title: data.title ?? null,
                 transcript: data.transcript ?? "",
+                transcriptSegments,
                 url: data.audio_url ?? null,
-                duration: data.duration ?? null,
+                durationSeconds: data.duration ?? null,
                 wordCount: data.transcript ? data.transcript.split(/\s+/).filter(Boolean).length : 0,
                 createdAt: data.created_at,
                 updatedAt: data.created_at,

@@ -20,6 +20,13 @@ type UseMemosWorkspaceArgs = {
   openSignIn: () => void | Promise<void>;
 };
 
+type MemoDetailResponse = {
+  memo?: Partial<Memo> & {
+    duration?: number | null;
+    durationSeconds?: number | null;
+  };
+};
+
 export function useMemosWorkspace({
   isLoaded,
   isSignedIn,
@@ -41,6 +48,7 @@ export function useMemosWorkspace({
 
   const reconcilingMemoIdsRef = useRef<Set<string>>(new Set());
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectedMemoRequestIdRef = useRef(0);
 
   const fetchMemos = useCallback(async () => {
     try {
@@ -217,6 +225,48 @@ export function useMemosWorkspace({
       setSelectedMemoId(null);
     }
   }, [memos, selectedMemoId]);
+
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn || !selectedMemoId) return;
+
+    const requestId = selectedMemoRequestIdRef.current + 1;
+    selectedMemoRequestIdRef.current = requestId;
+
+    void (async () => {
+      try {
+        const res = await fetch(`/api/memos/${selectedMemoId}`);
+        if (!res.ok) return;
+
+        const json = (await res.json()) as MemoDetailResponse;
+        const detailMemo = json.memo;
+        if (!detailMemo?.id) return;
+        if (selectedMemoRequestIdRef.current !== requestId) return;
+
+        setMemos((prev) =>
+          prev.map((memo) =>
+            memo.id !== selectedMemoId
+              ? memo
+              : {
+                  ...memo,
+                  ...detailMemo,
+                  transcript: detailMemo.transcript ?? memo.transcript,
+                  transcriptSegments:
+                    detailMemo.transcriptSegments ?? memo.transcriptSegments ?? null,
+                  createdAt: detailMemo.createdAt ?? memo.createdAt,
+                  durationSeconds:
+                    detailMemo.durationSeconds ??
+                    detailMemo.duration ??
+                    memo.durationSeconds,
+                  url: detailMemo.url ?? memo.url,
+                  wordCount: detailMemo.wordCount ?? memo.wordCount,
+                }
+          )
+        );
+      } catch (err) {
+        console.error("Failed to fetch memo detail:", err);
+      }
+    })();
+  }, [isLoaded, isSignedIn, selectedMemoId]);
 
   const normalizedQuery = searchQuery.toLowerCase();
   const filteredMemos = memos.filter((memo) =>

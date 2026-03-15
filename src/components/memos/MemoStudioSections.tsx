@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Clock3,
   Cpu,
   Download,
   ExternalLink,
@@ -50,6 +51,8 @@ import {
   isMemoProcessing,
   type Memo,
 } from "@/lib/memo-ui";
+
+const TRANSCRIPT_TIMESTAMPS_STORAGE_KEY = "memo-transcript-show-timestamps";
 
 function MemoListItem({
   memo,
@@ -109,6 +112,48 @@ function AuthControls() {
   );
 }
 
+function MemoTranscript({
+  transcript,
+  transcriptSegments,
+  isFailed,
+  showTimestamps,
+}: Pick<Memo, "transcript" | "transcriptSegments"> & {
+  isFailed: boolean;
+  showTimestamps: boolean;
+}) {
+  const textClassName = isFailed ? "text-red-300/40 italic" : "text-white/80";
+
+  if (transcriptSegments && transcriptSegments.length > 0) {
+    return (
+      <div className={`flex flex-col gap-5 text-lg leading-relaxed ${textClassName}`}>
+        {transcriptSegments.map((segment) => (
+          <div
+            key={segment.id}
+            className={`transcript-segment items-start ${
+              showTimestamps
+                ? "grid grid-cols-[auto_minmax(0,1fr)] gap-x-4"
+                : "block"
+            }`}
+          >
+            {showTimestamps ? (
+              <div className="pt-1 text-xs font-mono uppercase tracking-wide text-white/35">
+                {formatSecs(segment.startMs / 1000)}
+              </div>
+            ) : null}
+            <div>{segment.text}</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`text-lg leading-relaxed whitespace-pre-wrap ${textClassName}`}>
+      {transcript || "No transcript available."}
+    </div>
+  );
+}
+
 export function MemoDetailView({
   memo,
   onTitleSave,
@@ -145,7 +190,15 @@ export function MemoDetailView({
   const [editValue, setEditValue] = useState("");
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [showVoiceoverStudio, setShowVoiceoverStudio] = useState(true);
+  const [showTranscriptTimestamps, setShowTranscriptTimestamps] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    return window.localStorage.getItem(TRANSCRIPT_TIMESTAMPS_STORAGE_KEY) === "true";
+  });
   const inputRef = useRef<HTMLInputElement>(null);
+  const hasTranscriptSegments = Boolean(memo.transcriptSegments?.length);
 
   function startEditing() {
     setEditValue(displayTitle);
@@ -171,6 +224,17 @@ export function MemoDetailView({
     await onTitleRegenerate(memo.id);
     setIsRegenerating(false);
     setIsEditingTitle(false);
+  }
+
+  function handleTranscriptTimestampToggle() {
+    setShowTranscriptTimestamps((current) => {
+      const next = !current;
+      window.localStorage.setItem(
+        TRANSCRIPT_TIMESTAMPS_STORAGE_KEY,
+        next ? "true" : "false"
+      );
+      return next;
+    });
   }
 
   return (
@@ -366,13 +430,30 @@ export function MemoDetailView({
             </div>
           )}
 
-          <div
-            className={`text-lg leading-relaxed whitespace-pre-wrap ${
-              isFailed ? "text-red-300/40 italic" : "text-white/80"
-            }`}
-          >
-            {memo.transcript || "No transcript available."}
-          </div>
+          {hasTranscriptSegments && (
+            <div className="mb-5 flex justify-end">
+              <button
+                type="button"
+                onClick={handleTranscriptTimestampToggle}
+                aria-pressed={showTranscriptTimestamps}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-mono uppercase tracking-wide transition-all ${
+                  showTranscriptTimestamps
+                    ? "border-accent/40 bg-accent/10 text-accent"
+                    : "border-white/10 bg-white/5 text-white/50 hover:border-white/20 hover:text-white/75"
+                }`}
+              >
+                <Clock3 size={13} />
+                {showTranscriptTimestamps ? "Hide timestamps" : "Show timestamps"}
+              </button>
+            </div>
+          )}
+
+          <MemoTranscript
+            transcript={memo.transcript}
+            transcriptSegments={memo.transcriptSegments}
+            isFailed={isFailed}
+            showTimestamps={showTranscriptTimestamps}
+          />
 
           {!isFailed && memo.transcript && memo.url && (
             <div className="mt-10">
