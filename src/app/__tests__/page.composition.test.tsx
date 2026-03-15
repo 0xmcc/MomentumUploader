@@ -134,4 +134,34 @@ describe("Home composition wiring", () => {
       })
     );
   });
+
+  it("replaces the workspace upload banner with a status dot", () => {
+    mockedUseMemosWorkspace.mockReturnValue({
+      filteredMemos: [],
+      handleAudioInput: jest.fn(),
+      handleUploadComplete: jest.fn(),
+      isUploading: true,
+      loading: false,
+      retryUpload: jest.fn(),
+      updateMemoTitle: jest.fn(),
+      regenerateMemoTitle: jest.fn(),
+      searchQuery: "",
+      selectedMemo: null,
+      selectedMemoId: null,
+      setSearchQuery: jest.fn(),
+      setSelectedMemoId: jest.fn(),
+      showUploadError: false,
+      uploadProgressPercent: 42,
+    });
+
+    render(<Home />);
+
+    expect(
+      screen.getByRole("img", { name: "Uploading audio at 42%" })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Upload complete - finalizing")
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Uploading 42%")).not.toBeInTheDocument();
+  });
 });

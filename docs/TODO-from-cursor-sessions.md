@@ -32,30 +32,24 @@ Synthesized from recent agent transcripts. Grouped by: **completed**, **in progr
 - **Skip redundant final Riva transcription** — Provisional transcript path: `runFinalTailTick`, `promoteLiveSegmentsToFinal`, API bypass when `provisionalTranscript` present; tests for bypass vs Riva path; code review: ship.
 - **Supabase test infrastructure cleanup** — Reduced plan shipped: `src/lib/__mocks__/supabase.ts`, env guards in `jest.setup.ts`, test files converted to bare `jest.mock("@/lib/supabase")` (or `./supabase`).
 - **Other environments: desktop_token_claims migration** — Migration applied / working in other environments; "Generate one-time code" works everywhere needed.
+- **Chunked uploads / uploading memos and chunks** — Client uploads batches during recording; finalize at stop (no single giant blob). Server appends chunks to storage and runs transcription on finalize. Long recordings (e.g. 4–6h) no longer hit timeouts/body limits.
 
 ---
 
 ## Still need / in progress
 
-### 1. Chunked uploads / uploading memos and chunks (planned, not implemented)
-
-- **What we discussed:** Avoid a single giant upload at stop; move to **chunked uploads** and **server-side streaming** so long recordings (e.g. 4–6 hours) don't hit timeouts, body-size limits, or tab memory.
-- **Client:** Keep `MediaRecorder` + 1s chunks and `audioChunksRef` for live transcription. **In parallel**, periodically upload **batches** of chunks to the server (e.g. every 10–30s). On stop, send a small **"finalize"** request (no huge blob) so the server knows "you have all the audio for memo X; transcribe it." Optionally **prune** chunks from `audioChunksRef` after they're uploaded and no longer needed for live windows → keeps browser memory bounded.
-- **Server:** For each memo, **append** uploaded audio chunks to durable storage (Supabase Storage); track chunk indices / byte offsets. On finalize, concatenate stored chunks (or stream) and run transcription once.
-- **Ref:** Session `03bb574a` (long recordings, max duration, chunked upload architecture).
-
-### 2. Recording duration limit for free tier (upsell) (planned, not implemented)
+### 1. Recording duration limit for free tier (upsell) (planned, not implemented)
 
 - **What:** No global max duration for everyone. Apply **max recording duration only to free accounts** as an incentive to upgrade; paid users get a higher limit or unlimited. Same auto-stop + message UX; limit and copy derived from user tier.
 - **Docs:** [docs/tiers-and-limits.md](tiers-and-limits.md), [docs/edge-cases/recording-duration-and-auto-stop.md](edge-cases/recording-duration-and-auto-stop.md). Product todos: [todos.md](../todos.md) (credit system + tiers).
 - **Do:** When tier/billing exists: wire tier-based duration cap in `useAudioRecording` (and optionally enforce at upload). Free = e.g. 1h; paid = longer or no cap.
 
-### 3. Bearer token / share auth branch (if still desired)
+### 2. Bearer token / share auth branch (if still desired)
 
 - **What:** `feat/bearer-token-transcribe-live` (or similar) was kept local; production was confirmed to deploy from `main` only, so bearer-token work was not deployed.
 - **Do:** If you still want bearer auth for live transcribe or share flows, merge or re-implement on a new branch and deploy when ready.
 
-### 4. Production observability → reproduce → fix → notify (planned)
+### 3. Production observability → reproduce → fix → notify (planned)
 
 - **What:** Automated pipeline: view production logs, periodically identify errors, create failing tests to reproduce them, run an agent to attempt fixes, and send a notification (e.g. SMS) when there’s a failure and a solution is being worked on.
 - **Docs:** [docs/production-observability-agent-loop.md](production-observability-agent-loop.md).

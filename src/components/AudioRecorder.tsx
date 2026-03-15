@@ -108,6 +108,12 @@ export default function AudioRecorder({
             return;
         }
 
+        onUploadComplete?.({
+            id: memoId,
+            text: provisionalTranscript ?? "",
+            transcriptStatus: "processing",
+            durationSeconds,
+        });
         void handleFinalize(memoId, durationSeconds, provisionalTranscript);
     }
 
@@ -197,6 +203,13 @@ export default function AudioRecorder({
             onUploadComplete?.({ ...data, durationSeconds });
         } catch (error) {
             console.error("Finalize error:", error);
+            onUploadComplete?.({
+                id: memoId,
+                success: false,
+                text: provisionalTranscript ?? "",
+                transcriptStatus: "failed",
+                durationSeconds,
+            });
         } finally {
             setIsUploading(false);
         }
@@ -234,7 +247,6 @@ export default function AudioRecorder({
             <RecorderHeader
                 isRecording={recording.isRecording}
                 isUploadActive={isUploadActive}
-                uploadProgressPercent={uploadProgressPercent}
                 recordingTime={recording.recordingTime}
                 shouldShowLiveShare={shouldShowLiveShare}
                 liveShareState={liveTranscription.liveShareState}

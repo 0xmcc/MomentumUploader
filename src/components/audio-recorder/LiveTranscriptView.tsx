@@ -2,6 +2,7 @@ import { Mic } from "lucide-react";
 import { motion } from "framer-motion";
 import type { MutableRefObject } from "react";
 import LiveTranscriptionDebugPanel from "@/components/audio-recorder/LiveTranscriptionDebugPanel";
+import StatusDot from "@/components/StatusDot";
 import type { LiveTranscriptionDebugState } from "@/hooks/useLiveTranscription";
 
 type LiveTranscriptViewProps = {
@@ -68,15 +69,30 @@ export default function LiveTranscriptView({
                                     )}
                                 </p>
                             ) : (
-                                <p className="text-white/20 text-lg italic italic">
-                                    {isUploadActive
-                                        ? uploadProgressPercent >= 100
-                                            ? "Upload complete. Finalizing..."
-                                            : `Uploading... ${uploadProgressPercent}%`
-                                        : recordingTime < 1
+                                isUploadActive ? (
+                                    <div className="flex items-center gap-3 text-white/20">
+                                        <StatusDot
+                                            tone="processing"
+                                            label={
+                                                uploadProgressPercent >= 100
+                                                    ? "Finalizing memo"
+                                                    : `Uploading audio at ${uploadProgressPercent}%`
+                                            }
+                                            className="h-3 w-3"
+                                        />
+                                        <span className="sr-only">
+                                            {uploadProgressPercent >= 100
+                                                ? "Finalizing memo"
+                                                : `Uploading audio at ${uploadProgressPercent}%`}
+                                        </span>
+                                    </div>
+                                ) : (
+                                    <p className="text-white/20 text-lg italic italic">
+                                        {recordingTime < 1
                                             ? "Start speaking..."
                                             : "Waiting for transcript..."}
-                                </p>
+                                    </p>
+                                )
                             )}
                         </div>
 

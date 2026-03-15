@@ -476,6 +476,122 @@ describe("AudioRecorder pipeline coverage", () => {
         expect(formData.get("provisionalTranscript")).toBe("fallback transcript");
     });
 
+    it("surfaces a provisional processing memo before finalize completes", async () => {
+        const memoId = "memo-background-finalize";
+        const onUploadComplete = jest.fn<(payload: UploadCompletePayload) => void>();
+        let resolveFinalize:
+            | ((value: {
+                ok: boolean;
+                json: () => Promise<{
+                    id: string;
+                    success: boolean;
+                    text: string;
+                    transcriptStatus: "complete";
+                }>;
+            }) => void)
+            | undefined;
+
+        const finalizePromise = new Promise<{
+            ok: boolean;
+            json: () => Promise<{
+                id: string;
+                success: boolean;
+                text: string;
+                transcriptStatus: "complete";
+            }>;
+        }>((resolve) => {
+            resolveFinalize = resolve;
+        });
+
+        (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+            if (url === "/api/memos/live") {
+                return {
+                    ok: true,
+                    json: async () => ({ memoId }),
+                };
+            }
+
+            if (url === `/api/memos/${memoId}/share`) {
+                return {
+                    ok: true,
+                    json: async () => ({ shareUrl: `https://example.com/s/${memoId}` }),
+                };
+            }
+
+            if (url === "/api/transcribe/live") {
+                return {
+                    ok: true,
+                    json: async () => ({ text: "draft transcript" }),
+                };
+            }
+
+            if (url === "/api/transcribe/upload-chunks") {
+                return {
+                    ok: true,
+                    json: async () => ({ ok: true }),
+                };
+            }
+
+            if (url === "/api/transcribe/finalize") {
+                return finalizePromise;
+            }
+
+            return {
+                ok: true,
+                json: async () => ({}),
+            };
+        });
+
+        render(<AudioRecorder onUploadComplete={onUploadComplete} />);
+
+        fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+        await act(async () => {
+            await flushMicrotasks(3);
+        });
+        await act(async () => {
+            jest.advanceTimersByTime(4_000);
+        });
+
+        fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+
+        await waitFor(() => {
+            expect(finalizeCalls(global.fetch as jest.Mock)).toHaveLength(1);
+        });
+
+        await waitFor(() => {
+            expect(onUploadComplete).toHaveBeenCalledWith({
+                id: memoId,
+                text: "draft transcript",
+                transcriptStatus: "processing",
+                durationSeconds: 4,
+            });
+        });
+
+        expect(onUploadComplete).toHaveBeenCalledTimes(1);
+
+        resolveFinalize?.({
+            ok: true,
+            json: async () => ({
+                id: memoId,
+                success: true,
+                text: "final transcript",
+                transcriptStatus: "complete",
+            }),
+        });
+
+        await waitFor(() => {
+            expect(onUploadComplete).toHaveBeenCalledWith({
+                id: memoId,
+                success: true,
+                text: "final transcript",
+                transcriptStatus: "complete",
+                durationSeconds: 4,
+            });
+        });
+        expect(onUploadComplete).toHaveBeenCalledTimes(2);
+    });
+
     it("hands the full recorded blob to onAudioInput without invoking upload or finalize endpoints", async () => {
         const memoId = "memo-external-consumer";
         const onAudioInput = jest.fn<(payload: AudioInputPayload) => void>();

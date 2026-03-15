@@ -4,6 +4,8 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import {
   Check,
+  ChevronDown,
+  ChevronUp,
   Cpu,
   Download,
   ExternalLink,
@@ -27,6 +29,7 @@ import {
   UserButton,
 } from "@clerk/nextjs";
 import AudioRecorder from "@/components/AudioRecorder";
+import StatusDot from "@/components/StatusDot";
 import VoiceoverStudio from "@/components/VoiceoverStudio";
 import type {
   AudioInputPayload,
@@ -134,11 +137,13 @@ export function MemoDetailView({
   } = useMemoPlayback(memo);
   const isFailed = isMemoFailed(memo);
   const isProcessing = isMemoProcessing(memo);
+  const statusLabel = isFailed ? "Failed" : isProcessing ? "Processing" : "Ready";
 
   const displayTitle = getMemoTitle(memo);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editValue, setEditValue] = useState("");
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [showVoiceoverStudio, setShowVoiceoverStudio] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
 
   function startEditing() {
@@ -241,18 +246,11 @@ export function MemoDetailView({
           )}
           <div className="flex items-center gap-2">
             <span className="text-xs text-white/35 font-mono">{formatDate(memo.createdAt)}</span>
-            {isFailed ? (
-              <span className="text-[10px] text-red-400 bg-red-400/10 px-2 py-0.5 rounded-full border border-red-500/20 uppercase tracking-tight">
-                Failed
-              </span>
-            ) : isProcessing ? (
-              <span className="text-[10px] text-yellow-400/80 bg-yellow-400/10 px-2 py-0.5 rounded-full border border-yellow-500/20 uppercase tracking-tight">
-                Processing…
-              </span>
-            ) : (
-              <span className="text-[10px] text-green-400/80 bg-green-400/10 px-2 py-0.5 rounded-full border border-green-500/20 uppercase tracking-tight">
-                Transcribed
-              </span>
+            {(isFailed || isProcessing) && (
+              <StatusDot tone={isFailed ? "failed" : "processing"} label={statusLabel} />
+            )}
+            {isFailed && (
+              <span className="text-[10px] text-red-400 uppercase tracking-tight">Failed</span>
             )}
             {!isFailed && (
               <span className="text-[10px] text-white/30 font-mono uppercase tracking-tight">
@@ -358,7 +356,24 @@ export function MemoDetailView({
             {memo.transcript || "No transcript available."}
           </div>
 
-          {!isFailed && memo.transcript && memo.url && <VoiceoverStudio memo={memo} />}
+          {!isFailed && memo.transcript && memo.url && (
+            <div className="mt-10">
+              <button
+                type="button"
+                onClick={() => setShowVoiceoverStudio((v) => !v)}
+                className="voiceover-studio-toggle flex items-center gap-2 text-white/70 hover:text-white/90 font-semibold text-base transition-colors"
+                aria-expanded={showVoiceoverStudio}
+              >
+                {showVoiceoverStudio ? (
+                  <ChevronUp size={18} className="voiceover-studio-toggle-icon" />
+                ) : (
+                  <ChevronDown size={18} className="voiceover-studio-toggle-icon" />
+                )}
+                Voiceover Studio
+              </button>
+              {showVoiceoverStudio && <VoiceoverStudio memo={memo} />}
+            </div>
+          )}
 
           {memo.url && (
             <div className="mt-12 pt-8 border-t border-white/5 flex items-center justify-between text-[11px] text-white/20 font-mono uppercase tracking-widest">
@@ -376,10 +391,10 @@ export function MemoDetailView({
         </div>
       </div>
 
-      <div className="bg-[#161616] border-t border-white/10 px-8 py-10 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10">
-        <div className="max-w-3xl mx-auto flex flex-col gap-8">
+      <div className="bg-[#161616] border-t border-white/10 px-8 py-5 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10">
+        <div className="max-w-3xl mx-auto flex flex-col gap-4">
           {memo.url && (
-            <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-3">
               <audio
                 ref={audioRef}
                 src={memo.url}
@@ -389,7 +404,7 @@ export function MemoDetailView({
                 onEnded={handleEnded}
               />
 
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-2">
                 <div
                   onClick={handleSeek}
                   className="w-full h-1.5 bg-white/5 rounded-full cursor-pointer relative group overflow-hidden"
@@ -415,10 +430,10 @@ export function MemoDetailView({
                 </div>
               </div>
 
-              <div className="flex items-center justify-center py-4">
+              <div className="flex items-center justify-center">
                 <button
                   onClick={togglePlay}
-                  className="group relative flex items-center justify-center w-24 h-24 rounded-full transition-all duration-300 hover:scale-105 active:scale-95"
+                  className="group relative flex items-center justify-center w-16 h-16 rounded-full transition-all duration-300 hover:scale-105 active:scale-95"
                 >
                   <div
                     className={`absolute inset-0 rounded-full blur-2xl transition-opacity duration-500 ${
@@ -430,13 +445,13 @@ export function MemoDetailView({
 
                   <div className="absolute inset-0 rounded-full bg-[#121212] border border-white/5 shadow-2xl" />
                   <div
-                    className={`absolute inset-1.5 rounded-full border border-white/5 ${
+                    className={`absolute inset-1 rounded-full border border-white/5 ${
                       playbackTheme === "accent" ? "bg-accent/5" : "bg-white/[0.02]"
                     }`}
                   />
 
                   <div
-                    className={`absolute inset-4 rounded-full border transition-colors duration-300 ${
+                    className={`absolute inset-2.5 rounded-full border transition-colors duration-300 ${
                       playbackTheme === "accent"
                         ? "border-accent/20 bg-accent/10"
                         : "border-white/10 bg-white/5"
@@ -451,9 +466,9 @@ export function MemoDetailView({
                     }`}
                   >
                     {isPlaying ? (
-                      <Pause size={32} fill="currentColor" />
+                      <Pause size={18} fill="currentColor" />
                     ) : (
-                      <Play size={32} fill="currentColor" className="translate-x-0.5" />
+                      <Play size={18} fill="currentColor" className="translate-x-0.5" />
                     )}
                   </div>
                 </button>

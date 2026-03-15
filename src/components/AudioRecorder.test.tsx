@@ -344,10 +344,11 @@ describe("AudioRecorder live transcript cadence", () => {
             />
         );
 
-        expect(screen.getByText("Saving...")).toBeInTheDocument();
-        expect(screen.getByRole("progressbar", { name: "Upload in progress" })).toHaveAttribute("aria-valuenow", "42");
-        expect(screen.getByText("Uploading... 42%")).toBeInTheDocument();
-        expect(screen.getByText("42% uploaded")).toBeInTheDocument();
+        expect(screen.getByText("New Recording")).toBeInTheDocument();
+        expect(screen.getByRole("img", { name: "Upload in progress" })).toBeInTheDocument();
+        expect(screen.getByRole("img", { name: "Uploading audio at 42%" })).toBeInTheDocument();
+        expect(screen.queryByText("Saving...")).not.toBeInTheDocument();
+        expect(screen.queryByRole("progressbar", { name: "Upload in progress" })).not.toBeInTheDocument();
         expect(screen.getByRole("button", { name: /start recording/i })).toBeDisabled();
         expect(screen.getByRole("button", { name: /upload mp3\/m4a/i })).toBeDisabled();
     });
