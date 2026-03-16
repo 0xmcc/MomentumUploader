@@ -101,10 +101,17 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
     if (jobError) {
         const isCheckConstraint = jobError.code === "23514";
+        const isDuplicateActiveJob = jobError.code === "23505";
         if (isCheckConstraint) {
             console.warn("[segments/live] job_runs insert skipped: status check constraint (e.g. 'queued' not allowed).", {
                 memoId,
                 code: jobError.code,
+            });
+        } else if (isDuplicateActiveJob) {
+            console.log("[memo-jobs] queued", {
+                memoId,
+                jobType: "memo_chunk_compact_live",
+                duplicate: true,
             });
         } else {
             console.error("[segments/live] job_runs insert failed", {
@@ -119,6 +126,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
                 { status: 500, headers: CORS },
             );
         }
+    } else {
+        console.log("[memo-jobs] queued", {
+            memoId,
+            jobType: "memo_chunk_compact_live",
+        });
     }
 
     return NextResponse.json({ ok: true }, { headers: CORS });

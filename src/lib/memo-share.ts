@@ -9,7 +9,7 @@ type MemoShareState =
 
 type MemoShareRow = Record<string, unknown>;
 
-const MEMO_SHARE_SELECT = "id, title, transcript, audio_url, duration, created_at, share_token, shared_at, share_expires_at, expires_at, revoked_at, is_shareable";
+const MEMO_SHARE_SELECT = "id, title, transcript, transcript_status, audio_url, duration, created_at, share_token, shared_at, share_expires_at, expires_at, revoked_at, is_shareable";
 
 function normalizeTimestamp(raw: unknown): string | null {
     if (raw === null || raw === undefined) {
@@ -77,6 +77,7 @@ function buildMemoPayload(
         sharedAt,
         expiresAt,
         isLiveRecording,
+        transcriptStatus: readString(row.transcript_status),
         transcriptSegments,
     };
 }

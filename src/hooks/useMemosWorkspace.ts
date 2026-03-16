@@ -45,10 +45,13 @@ export function useMemosWorkspace({
   const [activeUploadCount, setActiveUploadCount] = useState(0);
   const [uploadProgressPercent, setUploadProgressPercent] = useState(0);
   const [uploadError, setUploadError] = useState(false);
+  const [selectedMemoDetailRefreshToken, setSelectedMemoDetailRefreshToken] =
+    useState(0);
 
   const reconcilingMemoIdsRef = useRef<Set<string>>(new Set());
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedMemoRequestIdRef = useRef(0);
+  const selectedMemoIdRef = useRef<string | null>(null);
 
   const fetchMemos = useCallback(async () => {
     try {
@@ -113,6 +116,9 @@ export function useMemosWorkspace({
         }
         return [newMemo, ...prev];
       });
+      if (selectedMemoIdRef.current === newMemoId) {
+        setSelectedMemoDetailRefreshToken((current) => current + 1);
+      }
       setSelectedMemoId(newMemoId);
 
       if (reconcileTimerRef.current) {
@@ -136,6 +142,10 @@ export function useMemosWorkspace({
       }
     };
   }, []);
+
+  useEffect(() => {
+    selectedMemoIdRef.current = selectedMemoId;
+  }, [selectedMemoId]);
 
   const clearPendingUpload = useCallback(() => {
     setPendingBlob(null);
@@ -266,7 +276,7 @@ export function useMemosWorkspace({
         console.error("Failed to fetch memo detail:", err);
       }
     })();
-  }, [isLoaded, isSignedIn, selectedMemoId]);
+  }, [isLoaded, isSignedIn, selectedMemoId, selectedMemoDetailRefreshToken]);
 
   const normalizedQuery = searchQuery.toLowerCase();
   const filteredMemos = memos.filter((memo) =>

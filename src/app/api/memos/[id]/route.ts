@@ -15,6 +15,25 @@ export async function OPTIONS() {
 
 type Params = { params: Promise<{ id: string }> };
 
+async function fetchTranscriptSegments(
+    memoId: string,
+    source: "final" | "live"
+): Promise<TranscriptSegment[]> {
+    const { data: segRows } = await supabaseAdmin
+        .from("memo_transcript_segments")
+        .select("segment_index, start_ms, end_ms, text")
+        .eq("memo_id", memoId)
+        .eq("source", source)
+        .order("segment_index", { ascending: true });
+
+    return (segRows ?? []).map((row) => ({
+        id: String(row.segment_index),
+        startMs: row.start_ms as number,
+        endMs: row.end_ms as number,
+        text: row.text as string,
+    }));
+}
+
 /** GET /api/memos/:id */
 export async function GET(_req: NextRequest, { params }: Params) {
     const { userId } = await auth();
@@ -35,19 +54,10 @@ export async function GET(_req: NextRequest, { params }: Params) {
         return NextResponse.json({ error: "Memo not found" }, { status: 404, headers: CORS });
     }
 
-    const { data: segRows } = await supabaseAdmin
-        .from("memo_transcript_segments")
-        .select("segment_index, start_ms, end_ms, text")
-        .eq("memo_id", id)
-        .eq("source", "final")
-        .order("segment_index", { ascending: true });
-
-    const transcriptSegments: TranscriptSegment[] = (segRows ?? []).map((row) => ({
-        id: String(row.segment_index),
-        startMs: row.start_ms as number,
-        endMs: row.end_ms as number,
-        text: row.text as string,
-    }));
+    let transcriptSegments = await fetchTranscriptSegments(id, "final");
+    if (transcriptSegments.length === 0) {
+        transcriptSegments = await fetchTranscriptSegments(id, "live");
+    }
 
     return NextResponse.json(
         {

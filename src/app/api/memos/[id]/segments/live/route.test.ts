@@ -244,4 +244,43 @@ describe("PATCH /api/memos/:id/segments/live", () => {
         expect(upsert).toHaveBeenCalled();
         expect(insert).toHaveBeenCalled();
     });
+
+    it("still returns 200 when a duplicate active compact job already exists", async () => {
+        (resolveMemoUserId as jest.Mock).mockResolvedValue("user-1");
+        (runPendingMemoJobs as jest.Mock).mockResolvedValue(undefined);
+
+        const memoSingle = jest.fn().mockResolvedValue({
+            data: { id: "memo-1" },
+            error: null,
+        });
+        const memoEqUser = jest.fn(() => ({ single: memoSingle }));
+        const memoEqId = jest.fn(() => ({ eq: memoEqUser }));
+        const memoSelect = jest.fn(() => ({ eq: memoEqId }));
+
+        const upsert = jest.fn().mockResolvedValue({ data: null, error: null });
+        const insert = jest.fn().mockResolvedValue({
+            data: null,
+            error: {
+                message: "duplicate key value violates unique constraint",
+                code: "23505",
+            },
+        });
+
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "memos") return { select: memoSelect };
+            if (table === "memo_transcript_segments") return { upsert };
+            if (table === "job_runs") return { insert };
+            throw new Error(`Unexpected table: ${table}`);
+        });
+
+        const response = await PATCH(makeRequest({
+            segments: [{ startIndex: 0, endIndex: 15, text: "segment" }],
+        }), {
+            params: Promise.resolve({ id: "memo-1" }),
+        });
+
+        expect(response.status).toBe(200);
+        expect(upsert).toHaveBeenCalled();
+        expect(insert).toHaveBeenCalled();
+    });
 });

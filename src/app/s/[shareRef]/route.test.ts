@@ -36,8 +36,15 @@ function mockShareLookup(result: { data: SharedMemoRow | null; error: { message:
     const segmentEq1 = jest.fn(() => ({ eq: segmentEq2 }));
     const segmentSelect = jest.fn(() => ({ eq: segmentEq1 }));
 
+    // Artifact chain: .select().eq().eq().eq() → resolves to no ready artifacts by default
+    const artifactEqStatus = jest.fn().mockResolvedValue({ data: [], error: null });
+    const artifactEqSource = jest.fn(() => ({ eq: artifactEqStatus }));
+    const artifactEqMemo = jest.fn(() => ({ eq: artifactEqSource }));
+    const artifactSelect = jest.fn(() => ({ eq: artifactEqMemo }));
+
     (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
         if (table === "memo_transcript_segments") return { select: segmentSelect };
+        if (table === "memo_artifacts") return { select: artifactSelect };
         return { select: memoSelect };
     });
 }
@@ -77,11 +84,21 @@ describe("share route /s/[shareRef]", () => {
                 })),
             })),
         }));
+        const legacyArtifactSelect = jest.fn(() => ({
+            eq: jest.fn(() => ({
+                eq: jest.fn(() => ({
+                    eq: jest.fn().mockResolvedValue({ data: [], error: null }),
+                })),
+            })),
+        }));
 
         let memoSelectCallCount = 0;
         (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
             if (table === "memo_transcript_segments") {
                 return { select: legacySegmentSelect };
+            }
+            if (table === "memo_artifacts") {
+                return { select: legacyArtifactSelect };
             }
 
             return {
@@ -135,6 +152,13 @@ describe("share route /s/[shareRef]", () => {
                 })),
             })),
         }));
+        const artifactSelect = jest.fn(() => ({
+            eq: jest.fn(() => ({
+                eq: jest.fn(() => ({
+                    eq: jest.fn().mockResolvedValue({ data: [], error: null }),
+                })),
+            })),
+        }));
 
         const memoSelect = jest.fn((columns: string) => ({
             eq: jest.fn(() => ({
@@ -155,6 +179,9 @@ describe("share route /s/[shareRef]", () => {
         (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
             if (table === "memo_transcript_segments") {
                 return { select: segmentSelect };
+            }
+            if (table === "memo_artifacts") {
+                return { select: artifactSelect };
             }
 
             return { select: memoSelect };
