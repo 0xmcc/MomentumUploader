@@ -1,4 +1,5 @@
 - delete voice memos
+- (Phase 4 prereq) parallelize per-chunk summaries with Promise.all() in two-pass artifact generation — sequential await on N chunks = ~50-100s for long memos
 - add voiceover playback to shared page
 - show credit cost for each voiceover in VoiceOverStudio
 - allow broader selection of voices

@@ -15,23 +15,82 @@ jest.mock("@/lib/supabase");
 type MockState = {
   memo: Record<string, unknown> | null;
   memoError: { message: string } | null;
+  existingVoiceover?: Record<string, unknown> | null;
 };
 
 function setupSupabaseMock(state: MockState) {
-  const maybeSingle = jest.fn().mockResolvedValue({
+  const memoMaybeSingle = jest.fn().mockResolvedValue({
     data: state.memo,
     error: state.memoError,
   });
 
-  const query = {
+  const memoQuery = {
     eq: jest.fn(),
-    maybeSingle,
+    maybeSingle: memoMaybeSingle,
   };
 
-  query.eq.mockReturnValue(query);
+  memoQuery.eq.mockReturnValue(memoQuery);
 
-  (supabaseAdmin.from as jest.Mock).mockReturnValue({
-    select: jest.fn(() => query),
+  const voiceoverMaybeSingle = jest.fn().mockResolvedValue({
+    data: state.existingVoiceover ?? null,
+    error: null,
+  });
+  const voiceoverQuery = {
+    eq: jest.fn(),
+    maybeSingle: voiceoverMaybeSingle,
+  };
+  voiceoverQuery.eq.mockReturnValue(voiceoverQuery);
+
+  const insertSingle = jest.fn().mockResolvedValue({
+    data: {
+      id: "voiceover-1",
+      memo_id: state.memo?.id ?? "memo-1",
+      user_id: "user_123",
+      voice_id: CURATED_VOICES[0].id,
+      audio_url: null,
+      storage_path: null,
+      content_type: null,
+      status: "processing",
+    },
+    error: null,
+  });
+  const insertSelect = jest.fn(() => ({ single: insertSingle }));
+  const insert = jest.fn(() => ({ select: insertSelect }));
+
+  const updateEq = jest.fn().mockResolvedValue({ error: null });
+  const update = jest.fn(() => ({ eq: updateEq }));
+
+  const deleteEq = jest.fn().mockResolvedValue({ error: null });
+  const deleteFn = jest.fn(() => ({ eq: deleteEq }));
+
+  (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+    if (table === "memos") {
+      return {
+        select: jest.fn(() => memoQuery),
+      };
+    }
+
+    if (table === "memo_voiceovers") {
+      return {
+        select: jest.fn(() => voiceoverQuery),
+        insert,
+        update,
+        delete: deleteFn,
+      };
+    }
+
+    throw new Error(`Unexpected table: ${table}`);
+  });
+
+  Object.assign(supabaseAdmin, {
+    storage: {
+      from: jest.fn(() => ({
+        upload: jest.fn().mockResolvedValue({ error: null }),
+        getPublicUrl: jest.fn(() => ({
+          data: { publicUrl: "https://cdn.example.com/voiceover.mp3" },
+        })),
+      })),
+    },
   });
 }
 
@@ -262,7 +321,13 @@ describe("POST /api/memos/:id/voiceover", () => {
     const fetchMock = global.fetch as jest.Mock;
     fetchMock
       .mockResolvedValueOnce(new Response(new Blob(["input-audio"]), { status: 200 }))
-      .mockResolvedValueOnce(new Response(stream, { status: 200 }));
+      .mockResolvedValueOnce(new Response(new Blob(["generated-mp3"]), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(stream, {
+          status: 200,
+          headers: { "content-type": "application/octet-stream" },
+        })
+      );
 
     const res = await POST(makeRequest(CURATED_VOICES[0].id), {
       params: Promise.resolve({ id: "memo-1" }),
@@ -270,6 +335,7 @@ describe("POST /api/memos/:id/voiceover", () => {
 
     const bodyText = Buffer.from(await res.arrayBuffer()).toString("utf8");
     const elevenLabsCall = fetchMock.mock.calls[1];
+    const persistedAudioCall = fetchMock.mock.calls[2];
     const elevenLabsUrl = elevenLabsCall[0] as string;
     const elevenLabsInit = elevenLabsCall[1] as RequestInit;
     const formData = elevenLabsInit.body as FormData;
@@ -288,6 +354,7 @@ describe("POST /api/memos/:id/voiceover", () => {
     expect(formData.get("model_id")).toBe("eleven_multilingual_sts_v2");
     expect(formData.get("remove_background_noise")).toBe("true");
     expect(formData.get("file_format")).toBe("other");
+    expect(persistedAudioCall[0]).toBe("https://cdn.example.com/voiceover.mp3");
     expect(res.headers.get("Content-Type")).toBe("application/octet-stream");
     expect(bodyText).toBe("mock-mp3");
   });

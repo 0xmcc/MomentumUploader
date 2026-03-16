@@ -6,10 +6,13 @@ import {
     getFileExtensionFromMime,
     resolveUploadMimeType,
 } from "@/lib/audio-upload";
+import { SHOW_ARTIFACTS_IN_UI } from "@/lib/feature-flags";
 import { useAudioRecording } from "@/hooks/useAudioRecording";
+import { useArtifacts } from "@/hooks/useArtifacts";
 import { useChunkUpload } from "@/hooks/useChunkUpload";
 import { useLiveTranscription } from "@/hooks/useLiveTranscription";
 import LiveTranscriptView from "@/components/audio-recorder/LiveTranscriptView";
+import OutlinePanel from "@/components/OutlinePanel";
 import RecorderHeader from "@/components/audio-recorder/RecorderHeader";
 import RecorderControls from "@/components/audio-recorder/RecorderControls";
 
@@ -71,6 +74,7 @@ export default function AudioRecorder({
         enabled: chunkUploadEnabled,
         chunkPruneOffsetRef,
     });
+    const artifacts = useArtifacts(liveTranscription.liveMemoId, recording.isRecording);
 
     useEffect(() => {
         liveMemoIdRef.current = liveTranscription.liveMemoId;
@@ -269,6 +273,7 @@ export default function AudioRecorder({
                 liveDebug={liveTranscription.liveDebug}
                 transcriptScrollRef={liveTranscription.transcriptScrollRef}
             />
+            {SHOW_ARTIFACTS_IN_UI && <OutlinePanel artifacts={artifacts} />}
 
             <RecorderControls
                 isRecording={recording.isRecording}

@@ -57,6 +57,67 @@ Synthesized from recent agent transcripts. Grouped by: **completed**, **in progr
 
 ---
 
+### 4. Artifact UX: human vs agent (from live testing)
+
+**Context:** Current outline and rolling_summary are accurate but feel cold/robotic and are optimized for pipeline use (title gen, RAG). Design: keep one canonical agent-oriented outline and rolling_summary; add human-facing views so the same data isn't forced to serve two audiences.
+
+- **Table of contents (human view of outline)**  
+  - Outline stays the canonical agent artifact (title + summary + provenance per section).  
+  - Human-facing "table of contents" = **view** over outline: one line per topic (titles only), scannable. No new artifact; change **OutlinePanel** (and share page outline section) to render `outline.items` as a compact list (e.g. titles only, optional seek-to-time), not full title+summary cards.
+
+- **Human-readable summary**  
+  - Keep `rolling_summary` for agents (factual, dense).  
+  - Add a **human-facing summary**: same content, different tone — warmer, more personality. Use the **user's name** where appropriate (we have user_id / auth display name), e.g. "Marko was testing the app…" not "The speaker…".  
+  - Implementation: either a second artifact (e.g. `summary_human` or `display_summary`) generated from same chunks (or from agent summary) with a different prompt, or one job that writes both `rolling_summary` and the human summary.  
+  - Share page and memo-detail "summary" UI should show the human summary when present; pipeline keeps using `rolling_summary`.
+
+- **Live structure UX (optional)**  
+  - Consider not showing the Structure panel (or show a calmer placeholder like "Structure will appear when you're done") **during** recording to avoid distraction and "waiting for the update" feeling. Keep generating live outline/summary for agents; show full structure only **after** recording stops (saved memo view). Optional: still feed live artifacts to AI agent context.
+
+- **Threshold (optional)**  
+  - Current 2-chunk minimum for enqueueing live outline/summary means structure appears after ~3–4 min of speech. Lowering to 1 chunk would show structure earlier (~1–2 min) at the cost of a weaker first outline and more frequent updates. Product choice; change in `enqueueOutlineJobIfNeeded` / `enqueueLiveSummaryJobIfNeeded` in `memo-artifacts.ts`.
+
+---
+
+### 5. Long-transcript infrastructure: current state vs original goal
+
+**Assessment:** We now have real V1 infrastructure for long transcripts, but not a fully long-context-safe intelligence layer yet.
+
+- **What is genuinely in place now**
+  - `memo_transcript_segments` is the persisted transcript truth layer for `live` and `final`.
+  - `memo_transcript_chunks` is a real derived chunk layer for analysis.
+  - `memo_artifacts` now stores real generated artifacts, not just planned schema.
+  - `rolling_summary` and `outline` are generated for live/final flows.
+  - Authenticated artifact read API exists at `/api/memos/:id/artifacts?source=live|final`.
+  - Share route reads artifacts server-side and includes them in HTML / Markdown / JSON outputs.
+  - Recorder has `useArtifacts()` + `OutlinePanel`, so there is now a real UI consumption path.
+  - Finalization compacts final chunks and queues/runs final artifact generation.
+
+- **What this means against the original goal**
+  - We are no longer trying to do long-transcript intelligence from one giant transcript blob only.
+  - The app now has the right layered shape: segments -> chunks -> artifacts.
+  - This is enough to call the infrastructure "real", not just planned.
+
+- **What is still blocking the original long-transcript goal**
+  - `rolling_summary` still flattens chunk text and truncates with `.slice(0, 12000)` in `memo-artifacts.ts`, so long memos are not fully covered yet.
+  - Outline generation has provenance validation, but it still is not hierarchical / multi-pass for very long memos.
+  - Title generation is still old-path in `memo-title.ts` and still reads `transcript.slice(0, 3000)` instead of artifact outputs.
+  - Human-facing artifact UI is still gated by `SHOW_ARTIFACTS_IN_UI = false`, so some of the product value is hidden even though the infra exists.
+  - Job execution is still request-driven (`runPendingMemoJobs()` on live/final requests), not a true background worker system.
+
+- **Practical read on current maturity**
+  - Infra for long transcripts: roughly "strong V1" / mostly real.
+  - Product-level long-context intelligence: still incomplete.
+  - Translation: the storage, orchestration, and artifact surfaces are here; the remaining gap is artifact generation strategy and title migration.
+
+- **Highest-leverage next steps**
+  - Remove `.slice(0, N)` truncation from artifact generation and switch summary / outline to hierarchical chunk consumption for long memos.
+  - Migrate title generation onto artifact outputs instead of raw transcript prefix.
+  - Turn artifact UI on once the human-facing UX is ready enough.
+  - Optionally revisit whether request-driven job draining is sufficient or whether this eventually needs a dedicated worker path.
+
+---
+
 ## Optional follow-ups (from code reviews)
 
 - **runFinalTailTick:** Add a unit test (mocked refs + fetch spy) that it calls `/api/transcribe/live` only when there is a tail and does not trigger a PATCH to `/api/memos/:id`.

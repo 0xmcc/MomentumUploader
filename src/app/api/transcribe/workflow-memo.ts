@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { FAILED_TRANSCRIPT } from "@/lib/memo-ui";
 import { compactFinalChunks } from "@/lib/memo-chunks";
-import { generateFinalArtifacts, supersedeMemoArtifacts } from "@/lib/memo-artifacts";
+import { enqueueFinalArtifactsJob } from "@/lib/memo-artifacts";
 import { runPendingMemoJobs } from "@/lib/memo-jobs";
 import { generateMemoTitle } from "@/lib/memo-title";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -339,8 +339,8 @@ export async function updateMemoFinal(
 
             try {
                 await compactFinalChunks(memoId, userId, supabaseAdmin);
-                await generateFinalArtifacts(memoId, userId, supabaseAdmin);
-                await supersedeMemoArtifacts(memoId, "live", undefined, supabaseAdmin);
+                await enqueueFinalArtifactsJob(memoId, userId, supabaseAdmin);
+                await runPendingMemoJobs(memoId, supabaseAdmin);
             } catch (artifactError) {
                 ERR("db", "Final chunk/artifact upgrade failed", {
                     memoId,

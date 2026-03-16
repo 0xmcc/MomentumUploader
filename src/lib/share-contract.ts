@@ -1,3 +1,8 @@
+import {
+  createEmptyArtifactMap,
+  type ArtifactMap,
+} from "@/lib/artifact-types";
+import { SHOW_ARTIFACTS_IN_UI } from "@/lib/feature-flags";
 import type { TranscriptSegment } from "@/lib/transcript";
 
 export type ShareFormat = "html" | "md" | "json";
@@ -19,7 +24,9 @@ export type SharedArtifactPayload = {
   sharedAt: string | null;
   expiresAt: string | null;
   isLiveRecording?: boolean;
+  transcriptStatus?: string | null;
   transcriptSegments?: TranscriptSegment[] | null;
+  artifacts?: ArtifactMap | null;
 };
 
 export type SharedArtifactJson = {
@@ -39,6 +46,7 @@ export type SharedArtifactJson = {
       sharedAt: string | null;
       expiresAt: string | null;
     };
+    artifacts: ArtifactMap;
   };
 };
 
@@ -51,6 +59,45 @@ function escapeHtml(input: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll("\"", "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+type OutlinePayload = {
+  items?: Array<{
+    title?: string;
+    summary?: string;
+  }>;
+};
+
+function resolveArtifacts(payload: SharedArtifactPayload): ArtifactMap {
+  return payload.artifacts ?? createEmptyArtifactMap();
+}
+
+function renderSummaryMarkdown(payload: SharedArtifactPayload): string[] {
+  const summary = resolveArtifacts(payload).rolling_summary?.payload as
+    | { summary?: string }
+    | null;
+
+  if (!summary?.summary) {
+    return [];
+  }
+
+  return ["## Summary", "", summary.summary, ""];
+}
+
+function renderOutlineMarkdown(payload: SharedArtifactPayload): string[] {
+  const outline = resolveArtifacts(payload).outline?.payload as OutlinePayload | null;
+  const items = outline?.items ?? [];
+
+  if (items.length === 0) {
+    return [];
+  }
+
+  return [
+    "## Outline",
+    "",
+    ...items.map((item) => `- **${item.title ?? "Untitled"}**: ${item.summary ?? ""}`.trim()),
+    "",
+  ];
 }
 
 function toSafeFileName(input: string): string {
@@ -104,6 +151,7 @@ export function isValidShareToken(token: string): boolean {
 }
 
 export function buildSharedArtifactJson(payload: SharedArtifactPayload): SharedArtifactJson {
+  const artifacts = resolveArtifacts(payload);
   return {
     artifact: {
       type: payload.artifactType,
@@ -121,6 +169,7 @@ export function buildSharedArtifactJson(payload: SharedArtifactPayload): SharedA
         sharedAt: payload.sharedAt,
         expiresAt: payload.expiresAt,
       },
+      artifacts,
     },
   };
 }
@@ -140,6 +189,8 @@ export function buildSharedArtifactMarkdown(payload: SharedArtifactPayload): str
     "",
     `# ${payload.title}`,
     "",
+    ...renderSummaryMarkdown(payload),
+    ...renderOutlineMarkdown(payload),
     "## Transcript",
     "",
     payload.transcript || "*(no transcript)*",
@@ -166,10 +217,25 @@ function formatMs(ms: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string {
+export type BuildSharedArtifactHtmlOptions = {
+  /** When true, include Summary and Outline panels in HTML. When false (default), omit them (they remain in markdown/JSON for agents). */
+  showArtifactsInUi?: boolean;
+};
+
+export function buildSharedArtifactHtml(
+  payload: SharedArtifactPayload,
+  options?: BuildSharedArtifactHtmlOptions
+): string {
+  const showArtifacts = options?.showArtifactsInUi ?? SHOW_ARTIFACTS_IN_UI;
   const escapedTitle = escapeHtml(payload.title);
   const escapedCanonicalUrl = escapeHtml(payload.canonicalUrl);
   const escapedArtifactType = escapeHtml(payload.artifactType);
+  const artifacts = resolveArtifacts(payload);
+  const summaryPayload = artifacts.rolling_summary?.payload as
+    | { summary?: string }
+    | null;
+  const outlinePayload = artifacts.outline?.payload as OutlinePayload | null;
+  const outlineItems = outlinePayload?.items ?? [];
 
   // Process transcript: default text if empty, escape HTML, then wrap \n\n blocks in <p> tags
   const rawTranscript = payload.transcript || "(no transcript)";
@@ -204,6 +270,20 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
   const liveStatusNotice = isLiveRecording
     ? "<p class=\"live-status\">Live recording in progress. This page refreshes every 3 seconds.</p>"
     : "";
+  const summaryHtml =
+    showArtifacts && summaryPayload?.summary
+      ? `<section class="artifact-panel"><h2>Summary</h2><p>${escapeHtml(summaryPayload.summary)}</p></section>`
+      : "";
+  const outlineHtml =
+    showArtifacts && outlineItems.length > 0
+      ? `<section class="artifact-panel"><h2>Outline</h2><ol>${outlineItems
+          .map((item) =>
+            `<li><strong>${escapeHtml(item.title ?? "Untitled")}</strong><p>${escapeHtml(
+              item.summary ?? ""
+            )}</p></li>`
+          )
+          .join("")}</ol></section>`
+      : "";
 
   return `<!doctype html>
 <html lang="en">
@@ -241,6 +321,23 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
     }
     h1 { margin: 0 0 .35rem; font-size: clamp(1.5rem, 4vw, 2.15rem); }
     h2 { margin-top: 1.25rem; margin-bottom: .5rem; font-size: 1.1rem; }
+    .artifact-panel {
+      margin-top: 1rem;
+      padding: 1rem 1.1rem;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(251, 146, 60, 0.14);
+    }
+    .artifact-panel ol {
+      margin: 0;
+      padding-left: 1.1rem;
+    }
+    .artifact-panel li + li {
+      margin-top: .9rem;
+    }
+    .artifact-panel p {
+      margin: .3rem 0 0;
+    }
     .transcript-header {
       margin-top: 1.25rem;
       margin-bottom: .5rem;
@@ -524,6 +621,8 @@ export function buildSharedArtifactHtml(payload: SharedArtifactPayload): string 
       <h1>${escapedTitle}</h1>
       <p class="meta">Shared ${escapedArtifactType} • canonical URL: <a href="${escapedCanonicalUrl}" style="color:#fdba74">${escapedCanonicalUrl}</a></p>
       ${liveStatusNotice}
+      ${summaryHtml}
+      ${outlineHtml}
       
       <div class="transcript-sticky-container">
         ${payload.mediaUrl ? `<audio class="share-audio" controls preload="metadata" src="${escapedAudioUrl}"></audio>` : ""}

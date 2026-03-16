@@ -241,6 +241,212 @@ describe("useMemosWorkspace", () => {
     });
   });
 
+  it("hydrates the selected memo with transcript segments from the detail endpoint", async () => {
+    const mockFetch = jest.fn(
+      async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+            ? input.toString()
+            : input.url;
+
+        if (url === "/api/memos") {
+          return {
+            ok: true,
+            json: async () => ({
+              memos: [
+                {
+                  id: "existing-1",
+                  title: "Existing memo",
+                  transcript: "Fallback flat transcript",
+                  createdAt: "2026-03-15T12:00:00.000Z",
+                  wordCount: 3,
+                  success: true,
+                },
+              ],
+            }),
+          };
+        }
+
+        if (url === "/api/memos/existing-1") {
+          return {
+            ok: true,
+            json: async () => ({
+              memo: {
+                id: "existing-1",
+                title: "Existing memo",
+                transcript: "Fallback flat transcript",
+                createdAt: "2026-03-15T12:00:00.000Z",
+                wordCount: 3,
+                transcriptSegments: [
+                  {
+                    id: "0",
+                    startMs: 0,
+                    endMs: 1800,
+                    text: "First segment.",
+                  },
+                  {
+                    id: "1",
+                    startMs: 1800,
+                    endMs: 4200,
+                    text: "Second segment.",
+                  },
+                ],
+              },
+            }),
+          };
+        }
+
+        throw new Error(`Unexpected fetch call: ${url}`);
+      }
+    );
+    Object.defineProperty(global, "fetch", { writable: true, value: mockFetch });
+
+    const { result } = renderHook(() =>
+      useMemosWorkspace({
+        isLoaded: true,
+        isSignedIn: true,
+        openSignIn: jest.fn(),
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.setSelectedMemoId("existing-1");
+    });
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith("/api/memos/existing-1");
+    });
+
+    await waitFor(() => {
+      const selectedMemo = result.current.selectedMemo as
+        | ({ transcriptSegments?: Array<{ text: string }> } & Record<string, unknown>)
+        | null;
+      expect(selectedMemo?.transcriptSegments).toHaveLength(2);
+      expect(selectedMemo?.transcriptSegments?.[0]?.text).toBe("First segment.");
+    });
+  });
+
+  it("rehydrates a newly recorded memo when final transcript segments arrive after the first detail fetch", async () => {
+    let detailFetchCount = 0;
+    const mockFetch = jest.fn(
+      async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+            ? input.toString()
+            : input.url;
+
+        if (url === "/api/memos") {
+          return {
+            ok: true,
+            json: async () => ({ memos: [] }),
+          };
+        }
+
+        if (url === "/api/memos/recorded-1") {
+          detailFetchCount += 1;
+
+          return {
+            ok: true,
+            json: async () => ({
+              memo: {
+                id: "recorded-1",
+                title: "Recorded memo",
+                transcript: "First segment. Second segment.",
+                transcriptStatus: "complete",
+                createdAt: "2026-03-15T12:00:00.000Z",
+                wordCount: 4,
+                transcriptSegments:
+                  detailFetchCount === 1
+                    ? []
+                    : [
+                        {
+                          id: "0",
+                          startMs: 0,
+                          endMs: 1800,
+                          text: "First segment.",
+                        },
+                        {
+                          id: "1",
+                          startMs: 1800,
+                          endMs: 4200,
+                          text: "Second segment.",
+                        },
+                      ],
+              },
+            }),
+          };
+        }
+
+        throw new Error(`Unexpected fetch call: ${url}`);
+      }
+    );
+    Object.defineProperty(global, "fetch", { writable: true, value: mockFetch });
+
+    const { result } = renderHook(() =>
+      useMemosWorkspace({
+        isLoaded: true,
+        isSignedIn: true,
+        openSignIn: jest.fn(),
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.handleUploadComplete({
+        id: "recorded-1",
+        success: true,
+        text: "First segment. Second segment.",
+        transcriptStatus: "processing",
+        durationSeconds: 4,
+      });
+    });
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith("/api/memos/recorded-1");
+    });
+
+    await waitFor(() => {
+      expect(
+        (result.current.selectedMemo as { transcriptSegments?: unknown[] } | null)
+          ?.transcriptSegments
+      ).toEqual([]);
+    });
+
+    act(() => {
+      result.current.handleUploadComplete({
+        id: "recorded-1",
+        success: true,
+        text: "First segment. Second segment.",
+        transcriptStatus: "complete",
+        durationSeconds: 4,
+      });
+    });
+
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      const selectedMemo = result.current.selectedMemo as
+        | ({ transcriptSegments?: Array<{ text: string }> } & Record<string, unknown>)
+        | null;
+      expect(selectedMemo?.transcriptSegments).toHaveLength(2);
+      expect(selectedMemo?.transcriptSegments?.[1]?.text).toBe("Second segment.");
+    });
+  });
+
   it("tracks upload progress percentage while a file is uploading", async () => {
     let resolveTranscribe: (() => void) | null = null;
     const transcribePending = new Promise<void>((resolve) => {

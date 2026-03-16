@@ -14,8 +14,7 @@ import {
     compactFinalChunks,
 } from "@/lib/memo-chunks";
 import {
-    generateFinalArtifacts,
-    supersedeMemoArtifacts,
+    enqueueFinalArtifactsJob,
 } from "@/lib/memo-artifacts";
 import { runPendingMemoJobs } from "@/lib/memo-jobs";
 
@@ -40,8 +39,7 @@ jest.mock("@/lib/memo-chunks", () => ({
 }));
 
 jest.mock("@/lib/memo-artifacts", () => ({
-    generateFinalArtifacts: jest.fn(),
-    supersedeMemoArtifacts: jest.fn(),
+    enqueueFinalArtifactsJob: jest.fn(),
 }));
 
 jest.mock("@/lib/memo-jobs", () => ({
@@ -442,8 +440,7 @@ describe("transcribe workflow legacy transcript_status fallback", () => {
             chunkCount: 1,
             latestChunkIndex: 0,
         });
-        (generateFinalArtifacts as jest.Mock).mockResolvedValue(undefined);
-        (supersedeMemoArtifacts as jest.Mock).mockResolvedValue(undefined);
+        (enqueueFinalArtifactsJob as jest.Mock).mockResolvedValue(undefined);
 
         const finalizeMemoUpdate = jest.fn(() =>
             makeLegacyUpdateChain({
@@ -489,13 +486,8 @@ describe("transcribe workflow legacy transcript_status fallback", () => {
 
         expect(response.status).toBe(200);
         expect(compactFinalChunks).toHaveBeenCalledWith("memo-1", "user-1", supabaseAdmin);
-        expect(generateFinalArtifacts).toHaveBeenCalledWith("memo-1", "user-1", supabaseAdmin);
-        expect(supersedeMemoArtifacts).toHaveBeenCalledWith(
-            "memo-1",
-            "live",
-            undefined,
-            supabaseAdmin
-        );
+        expect(enqueueFinalArtifactsJob).toHaveBeenCalledWith("memo-1", "user-1", supabaseAdmin);
+        expect(runPendingMemoJobs).toHaveBeenCalledTimes(2);
     });
 
     it("continues final compaction and artifact generation when claim_pending_memo_job is missing from schema cache", async () => {
@@ -513,8 +505,7 @@ describe("transcribe workflow legacy transcript_status fallback", () => {
             chunkCount: 1,
             latestChunkIndex: 0,
         });
-        (generateFinalArtifacts as jest.Mock).mockResolvedValue(undefined);
-        (supersedeMemoArtifacts as jest.Mock).mockResolvedValue(undefined);
+        (enqueueFinalArtifactsJob as jest.Mock).mockResolvedValue(undefined);
 
         const finalizeMemoUpdate = jest.fn(() =>
             makeLegacyUpdateChain({
@@ -560,13 +551,8 @@ describe("transcribe workflow legacy transcript_status fallback", () => {
 
         expect(response.status).toBe(200);
         expect(compactFinalChunks).toHaveBeenCalledWith("memo-1", "user-1", supabaseAdmin);
-        expect(generateFinalArtifacts).toHaveBeenCalledWith("memo-1", "user-1", supabaseAdmin);
-        expect(supersedeMemoArtifacts).toHaveBeenCalledWith(
-            "memo-1",
-            "live",
-            undefined,
-            supabaseAdmin
-        );
+        expect(enqueueFinalArtifactsJob).toHaveBeenCalledWith("memo-1", "user-1", supabaseAdmin);
+        expect(runPendingMemoJobs).toHaveBeenCalledTimes(2);
         expect(consoleWarnSpy).toHaveBeenCalledWith(
             "[transcribe/db] runPendingMemoJobs skipped: claim_pending_memo_job not in schema.",
             { memoId: "memo-1" }

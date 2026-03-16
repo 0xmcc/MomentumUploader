@@ -48,6 +48,106 @@ describe("share-contract", () => {
         expect(json.artifact.shareToken).toBe("abc123token");
         expect(json.artifact.canonicalUrl).toBe("https://example.com/s/abc123token");
         expect(json.artifact.transcript).toBe("Today we finished the uploader and fixed retries.");
+        expect(json.artifact.artifacts.rolling_summary).toBeNull();
+    });
+
+    it("renders summary and outline in markdown for agents when artifacts are present", () => {
+        const payload: SharedArtifactPayload = {
+            ...basePayload,
+            artifacts: {
+                rolling_summary: {
+                    payload: { summary: "Short summary" },
+                    basedOnChunkStart: 0,
+                    basedOnChunkEnd: 2,
+                    version: 1,
+                    updatedAt: "2026-03-15T10:00:00.000Z",
+                },
+                outline: {
+                    payload: {
+                        items: [{ title: "Intro", summary: "Starts the memo." }],
+                    },
+                    basedOnChunkStart: 0,
+                    basedOnChunkEnd: 2,
+                    version: 1,
+                    updatedAt: "2026-03-15T10:00:00.000Z",
+                },
+                title_candidates: null,
+                title: null,
+                key_topics: null,
+                action_items: null,
+            },
+        };
+
+        const markdown = buildSharedArtifactMarkdown(payload);
+
+        expect(markdown.indexOf("## Summary")).toBeLessThan(markdown.indexOf("## Transcript"));
+        expect(markdown.indexOf("## Outline")).toBeLessThan(markdown.indexOf("## Transcript"));
+    });
+
+    it("omits summary and outline from HTML by default (hidden from human-facing share UI)", () => {
+        const payload: SharedArtifactPayload = {
+            ...basePayload,
+            artifacts: {
+                rolling_summary: {
+                    payload: { summary: "Short summary" },
+                    basedOnChunkStart: 0,
+                    basedOnChunkEnd: 2,
+                    version: 1,
+                    updatedAt: "2026-03-15T10:00:00.000Z",
+                },
+                outline: {
+                    payload: {
+                        items: [{ title: "Intro", summary: "Starts the memo." }],
+                    },
+                    basedOnChunkStart: 0,
+                    basedOnChunkEnd: 2,
+                    version: 1,
+                    updatedAt: "2026-03-15T10:00:00.000Z",
+                },
+                title_candidates: null,
+                title: null,
+                key_topics: null,
+                action_items: null,
+            },
+        };
+
+        const html = buildSharedArtifactHtml(payload);
+
+        expect(html).not.toContain("<h2>Summary</h2>");
+        expect(html).not.toContain("<h2>Outline</h2>");
+    });
+
+    it("includes summary and outline in HTML when showArtifactsInUi is true", () => {
+        const payload: SharedArtifactPayload = {
+            ...basePayload,
+            artifacts: {
+                rolling_summary: {
+                    payload: { summary: "Short summary" },
+                    basedOnChunkStart: 0,
+                    basedOnChunkEnd: 2,
+                    version: 1,
+                    updatedAt: "2026-03-15T10:00:00.000Z",
+                },
+                outline: {
+                    payload: {
+                        items: [{ title: "Intro", summary: "Starts the memo." }],
+                    },
+                    basedOnChunkStart: 0,
+                    basedOnChunkEnd: 2,
+                    version: 1,
+                    updatedAt: "2026-03-15T10:00:00.000Z",
+                },
+                title_candidates: null,
+                title: null,
+                key_topics: null,
+                action_items: null,
+            },
+        };
+
+        const html = buildSharedArtifactHtml(payload, { showArtifactsInUi: true });
+
+        expect(html).toContain("<h2>Summary</h2>");
+        expect(html).toContain("<h2>Outline</h2>");
     });
 
     it("renders transcript export controls in the shared html page", () => {

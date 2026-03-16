@@ -1,10 +1,17 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { compactLiveChunks } from "@/lib/memo-chunks";
-import { generateLiveRollingSummary } from "@/lib/memo-artifacts";
+import {
+    enqueueLiveSummaryJobIfNeeded,
+    enqueueOutlineJobIfNeeded,
+    executeFinalArtifacts,
+    executeLiveSummary,
+    executeOutline,
+} from "@/lib/memo-artifacts";
 
 type JobRunRow = {
     id: number;
     user_id: string;
+    entity_id: string;
     job_type: string;
 };
 
@@ -59,13 +66,55 @@ export async function runPendingMemoJobs(
         if (!job) return;
 
         try {
+            console.log("[memo-jobs] started", {
+                memoId,
+                jobType: job.job_type,
+                jobId: job.id,
+            });
+
             switch (job.job_type) {
                 case "memo_chunk_compact_live": {
                     const compacted = await compactLiveChunks(memoId, job.user_id, supabase);
                     if (compacted.latestChunkIndex >= 0) {
-                        await generateLiveRollingSummary(memoId, job.user_id, supabase);
+                        await enqueueLiveSummaryJobIfNeeded(memoId, job.user_id, supabase);
+                        await enqueueOutlineJobIfNeeded(memoId, job.user_id, supabase);
                     }
                     await finishJobRun(job.id, "succeeded", compacted, supabase);
+                    console.log("[memo-jobs] succeeded", {
+                        memoId,
+                        jobType: job.job_type,
+                        jobId: job.id,
+                    });
+                    break;
+                }
+                case "memo_summary_live": {
+                    await executeLiveSummary(job.entity_id, job.user_id, supabase);
+                    await finishJobRun(job.id, "succeeded", {}, supabase);
+                    console.log("[memo-jobs] succeeded", {
+                        memoId,
+                        jobType: job.job_type,
+                        jobId: job.id,
+                    });
+                    break;
+                }
+                case "memo_outline_live": {
+                    await executeOutline(job.entity_id, "live", supabase);
+                    await finishJobRun(job.id, "succeeded", {}, supabase);
+                    console.log("[memo-jobs] succeeded", {
+                        memoId,
+                        jobType: job.job_type,
+                        jobId: job.id,
+                    });
+                    break;
+                }
+                case "memo_artifact_final": {
+                    await executeFinalArtifacts(job.entity_id, job.user_id, supabase);
+                    await finishJobRun(job.id, "succeeded", {}, supabase);
+                    console.log("[memo-jobs] succeeded", {
+                        memoId,
+                        jobType: job.job_type,
+                        jobId: job.id,
+                    });
                     break;
                 }
                 default:
@@ -78,6 +127,12 @@ export async function runPendingMemoJobs(
                 { error: error instanceof Error ? error.message : String(error) },
                 supabase,
             );
+            console.log("[memo-jobs] failed", {
+                memoId,
+                jobType: job.job_type,
+                jobId: job.id,
+                error: error instanceof Error ? error.message : String(error),
+            });
         }
     }
 }

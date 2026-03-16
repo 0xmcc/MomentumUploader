@@ -46,6 +46,236 @@ describe("GET /api/memos/:id", () => {
         expect(idEq).toHaveBeenCalledWith("id", "memo-owned-by-user-b");
         expect(userEq).toHaveBeenCalledWith("user_id", "user_a");
     });
+
+    it("returns final transcript segments for the memo detail view", async () => {
+        (auth as unknown as jest.Mock).mockResolvedValue({ userId: "user_a" });
+
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "memos") {
+                const single = jest.fn().mockResolvedValue({
+                    data: {
+                        id: "memo-1",
+                        title: "Segmented memo",
+                        transcript: "Fallback flat transcript",
+                        audio_url: "https://example.com/memo-1.webm",
+                        duration: 42,
+                        created_at: "2026-03-15T12:00:00.000Z",
+                    },
+                    error: null,
+                });
+                const userEq = jest.fn(() => ({ single }));
+                const idEq = jest.fn(() => ({ eq: userEq }));
+                const select = jest.fn(() => ({ eq: idEq }));
+                return { select };
+            }
+
+            if (table === "memo_transcript_segments") {
+                const order = jest.fn().mockResolvedValue({
+                    data: [
+                        {
+                            segment_index: 0,
+                            start_ms: 0,
+                            end_ms: 1800,
+                            text: "First segment.",
+                        },
+                        {
+                            segment_index: 1,
+                            start_ms: 1800,
+                            end_ms: 4200,
+                            text: "Second segment.",
+                        },
+                    ],
+                    error: null,
+                });
+                const sourceEq = jest.fn(() => ({ order }));
+                const memoEq = jest.fn(() => ({ eq: sourceEq }));
+                const select = jest.fn(() => ({ eq: memoEq }));
+                return { select };
+            }
+
+            throw new Error(`Unexpected table: ${table}`);
+        });
+
+        const req = {} as NextRequest;
+        const res = await GET(req, { params: Promise.resolve({ id: "memo-1" }) });
+        const body = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(body.memo.transcriptSegments).toEqual([
+            {
+                id: "0",
+                startMs: 0,
+                endMs: 1800,
+                text: "First segment.",
+            },
+            {
+                id: "1",
+                startMs: 1800,
+                endMs: 4200,
+                text: "Second segment.",
+            },
+        ]);
+    });
+
+    it("falls back to live transcript segments when no final segments exist yet", async () => {
+        (auth as unknown as jest.Mock).mockResolvedValue({ userId: "user_a" });
+
+        const segmentSelect = jest.fn(() => ({
+            eq: jest.fn((column: string, value: string) => {
+                expect(column).toBe("memo_id");
+                expect(value).toBe("memo-1");
+
+                return {
+                    eq: jest.fn((sourceColumn: string, sourceValue: string) => {
+                        expect(sourceColumn).toBe("source");
+
+                        return {
+                            order: jest.fn().mockResolvedValue({
+                                data:
+                                    sourceValue === "final"
+                                        ? []
+                                        : [
+                                            {
+                                                segment_index: 0,
+                                                start_ms: 0,
+                                                end_ms: 1800,
+                                                text: "Live first segment.",
+                                            },
+                                            {
+                                                segment_index: 1,
+                                                start_ms: 1800,
+                                                end_ms: 4200,
+                                                text: "Live second segment.",
+                                            },
+                                        ],
+                                error: null,
+                            }),
+                        };
+                    }),
+                };
+            }),
+        }));
+
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "memos") {
+                const single = jest.fn().mockResolvedValue({
+                    data: {
+                        id: "memo-1",
+                        title: "Segmented memo",
+                        transcript: "Fallback flat transcript",
+                        audio_url: "https://example.com/memo-1.webm",
+                        duration: 42,
+                        created_at: "2026-03-15T12:00:00.000Z",
+                    },
+                    error: null,
+                });
+                const userEq = jest.fn(() => ({ single }));
+                const idEq = jest.fn(() => ({ eq: userEq }));
+                const select = jest.fn(() => ({ eq: idEq }));
+                return { select };
+            }
+
+            if (table === "memo_transcript_segments") {
+                return { select: segmentSelect };
+            }
+
+            throw new Error(`Unexpected table: ${table}`);
+        });
+
+        const req = {} as NextRequest;
+        const res = await GET(req, { params: Promise.resolve({ id: "memo-1" }) });
+        const body = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(body.memo.transcriptSegments).toEqual([
+            {
+                id: "0",
+                startMs: 0,
+                endMs: 1800,
+                text: "Live first segment.",
+            },
+            {
+                id: "1",
+                startMs: 1800,
+                endMs: 4200,
+                text: "Live second segment.",
+            },
+        ]);
+    });
+
+    it("returns live transcript segments for completed memos when final rows are missing", async () => {
+        (auth as unknown as jest.Mock).mockResolvedValue({ userId: "user_a" });
+
+        const segmentSelect = jest.fn(() => ({
+            eq: jest.fn((column: string, value: string) => {
+                expect(column).toBe("memo_id");
+                expect(value).toBe("memo-legacy");
+
+                return {
+                    eq: jest.fn((sourceColumn: string, sourceValue: string) => {
+                        expect(sourceColumn).toBe("source");
+
+                        return {
+                            order: jest.fn().mockResolvedValue({
+                                data:
+                                    sourceValue === "final"
+                                        ? []
+                                        : [
+                                            {
+                                                segment_index: 0,
+                                                start_ms: 12000,
+                                                end_ms: 16500,
+                                                text: "Recovered live segment.",
+                                            },
+                                        ],
+                                error: null,
+                            }),
+                        };
+                    }),
+                };
+            }),
+        }));
+
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "memos") {
+                const single = jest.fn().mockResolvedValue({
+                    data: {
+                        id: "memo-legacy",
+                        title: "Older memo",
+                        transcript: "Recovered live-only transcript",
+                        audio_url: "https://example.com/memo-legacy.webm",
+                        duration: 61,
+                        created_at: "2026-03-14T12:00:00.000Z",
+                    },
+                    error: null,
+                });
+                const userEq = jest.fn(() => ({ single }));
+                const idEq = jest.fn(() => ({ eq: userEq }));
+                const select = jest.fn(() => ({ eq: idEq }));
+                return { select };
+            }
+
+            if (table === "memo_transcript_segments") {
+                return { select: segmentSelect };
+            }
+
+            throw new Error(`Unexpected table: ${table}`);
+        });
+
+        const req = {} as NextRequest;
+        const res = await GET(req, { params: Promise.resolve({ id: "memo-legacy" }) });
+        const body = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(body.memo.transcriptSegments).toEqual([
+            {
+                id: "0",
+                startMs: 12000,
+                endMs: 16500,
+                text: "Recovered live segment.",
+            },
+        ]);
+    });
 });
 
 describe("PATCH /api/memos/:id — finalization lock", () => {

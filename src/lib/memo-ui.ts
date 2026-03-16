@@ -1,9 +1,12 @@
+import type { TranscriptSegment } from "@/lib/transcript";
+
 export type TranscriptStatus = "processing" | "complete" | "failed";
 
 export type Memo = {
   id: string;
   title?: string | null;
   transcript: string;
+  transcriptSegments?: TranscriptSegment[] | null;
   transcriptStatus?: TranscriptStatus;
   createdAt: string;
   url?: string;
