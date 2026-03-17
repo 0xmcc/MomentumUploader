@@ -23,7 +23,37 @@ describe("useMemoPlayback", () => {
     jest.useRealTimers();
   });
 
-  it("shares successfully and resets share state after timeout", async () => {
+  it("copies the memo transcript without depending on share-link generation and resets share state after timeout", async () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(global.navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    const mockFetch = jest.fn();
+    Object.defineProperty(global, "fetch", { writable: true, value: mockFetch });
+
+    const { result } = renderHook(() => useMemoPlayback(memo));
+
+    await act(async () => {
+      await result.current.handleShare();
+    });
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(writeText).toHaveBeenCalledWith("hello world");
+    expect(result.current.shareState).toBe("copied");
+    expect(result.current.shareLabel).toBe("Copied");
+    expect(result.current.lastShareUrl).toBeNull();
+
+    act(() => {
+      jest.advanceTimersByTime(SHARE_STATE_RESET_MS);
+    });
+
+    expect(result.current.shareState).toBe("idle");
+    expect(result.current.shareLabel).toBe("Copy");
+  });
+
+  it("creates and copies a memo share link without copying the transcript", async () => {
     const writeText = jest.fn().mockResolvedValue(undefined);
     Object.defineProperty(global.navigator, "clipboard", {
       configurable: true,
@@ -39,23 +69,23 @@ describe("useMemoPlayback", () => {
     const { result } = renderHook(() => useMemoPlayback(memo));
 
     await act(async () => {
-      await result.current.handleShare();
+      await result.current.handleShareLink();
     });
 
     expect(mockFetch).toHaveBeenCalledWith("/api/memos/memo-1/share", {
       method: "POST",
     });
     expect(writeText).toHaveBeenCalledWith("https://example.com/s/abc123");
-    expect(result.current.shareState).toBe("copied");
-    expect(result.current.shareLabel).toBe("Copied");
+    expect(result.current.shareLinkState).toBe("copied");
+    expect(result.current.shareLinkLabel).toBe("Link copied");
     expect(result.current.lastShareUrl).toBe("https://example.com/s/abc123");
 
     act(() => {
       jest.advanceTimersByTime(SHARE_STATE_RESET_MS);
     });
 
-    expect(result.current.shareState).toBe("idle");
-    expect(result.current.shareLabel).toBe("Share");
+    expect(result.current.shareLinkState).toBe("idle");
+    expect(result.current.shareLinkLabel).toBe("Share link");
   });
 
   it("manages play/pause, seeking, and progress updates", async () => {

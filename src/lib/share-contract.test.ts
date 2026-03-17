@@ -1,4 +1,5 @@
 import { createEmptyArtifactMap } from "@/lib/artifact-types";
+import { DEFAULT_THEME, THEMES } from "@/lib/themes";
 import { act } from "@testing-library/react";
 import type { ResolvedMemoShare } from "@/lib/share-domain";
 import {
@@ -86,7 +87,23 @@ async function loadSharePageScript(
     });
 }
 
+const emptyDiscussionResponse = {
+    ok: true,
+    json: async () => ({
+        messages: [],
+        isOwner: false,
+        isAuthenticated: false,
+    }),
+};
+
 describe("share-contract", () => {
+    afterEach(() => {
+        window.localStorage.clear();
+        window.history.replaceState({}, "", "/");
+        document.documentElement.removeAttribute("data-share-theme");
+        document.documentElement.removeAttribute("style");
+    });
+
     it("parses canonical and machine share refs deterministically", () => {
         expect(parseShareRef("abc123token")).toEqual({ shareToken: "abc123token", pathFormat: "html" });
         expect(parseShareRef("abc123token.md")).toEqual({ shareToken: "abc123token", pathFormat: "md" });
@@ -290,6 +307,64 @@ describe("share-contract", () => {
         expect(commentsRootIndex).toBeLessThan(articleCloseIndex);
     });
 
+    it("styles the canonical url link from the active theme instead of a hardcoded share color", () => {
+        const html = buildSharedArtifactHtml(basePayload);
+
+        expect(html).toContain("p.meta a {");
+        expect(html).toContain("color: var(--accent);");
+        expect(html).toContain(
+            `<a href="${basePayload.canonicalUrl}">${basePayload.canonicalUrl}</a>`
+        );
+        expect(html).not.toContain(`style="color:#fdba74"`);
+    });
+
+    it("applies the saved memo theme from localStorage to the share page", async () => {
+        const blueTheme = THEMES.find((theme) => theme.id === "blue");
+        const html = buildSharedArtifactHtml(basePayload);
+        const fetchMock = jest.fn().mockResolvedValue(emptyDiscussionResponse);
+
+        expect(blueTheme).toBeDefined();
+        window.localStorage.setItem("sonic-theme", "blue");
+
+        await loadSharePageScript(html, fetchMock);
+
+        expect(document.documentElement.dataset.shareTheme).toBe("blue");
+        expect(document.documentElement.style.getPropertyValue("--background")).toBe(
+            blueTheme?.vars.background
+        );
+        expect(document.documentElement.style.getPropertyValue("--accent")).toBe(
+            blueTheme?.vars.accent
+        );
+    });
+
+    it("does not persist a theme into app storage when the share page falls back to the default theme", async () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        const fetchMock = jest.fn().mockResolvedValue(emptyDiscussionResponse);
+
+        await loadSharePageScript(html, fetchMock);
+
+        expect(document.documentElement.dataset.shareTheme).toBe(DEFAULT_THEME.id);
+        expect(window.localStorage.getItem("sonic-theme")).toBeNull();
+    });
+
+    it("lets a theme query override share-page presentation without overwriting the saved app theme", async () => {
+        const emeraldTheme = THEMES.find((theme) => theme.id === "emerald");
+        const html = buildSharedArtifactHtml(basePayload);
+        const fetchMock = jest.fn().mockResolvedValue(emptyDiscussionResponse);
+
+        expect(emeraldTheme).toBeDefined();
+        window.localStorage.setItem("sonic-theme", DEFAULT_THEME.id);
+        window.history.replaceState({}, "", "/s/abc123token?theme=emerald");
+
+        await loadSharePageScript(html, fetchMock);
+
+        expect(document.documentElement.dataset.shareTheme).toBe("emerald");
+        expect(document.documentElement.style.getPropertyValue("--background")).toBe(
+            emeraldTheme?.vars.background
+        );
+        expect(window.localStorage.getItem("sonic-theme")).toBe(DEFAULT_THEME.id);
+    });
+
     it("renders the discussion scaffold with separate unauthenticated and owner-only hints", () => {
         const html = buildSharedArtifactHtml(basePayload);
 
@@ -354,6 +429,33 @@ describe("share-contract", () => {
         expect(clickedDownloads).toEqual(["standup-notes-transcript.txt"]);
         expect(createObjectURL).toHaveBeenCalledTimes(1);
         expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock-export");
+    });
+
+    it("copies the transcript text from the share page instead of the canonical url", async () => {
+        const writeText = jest.fn().mockResolvedValue(undefined);
+        const html = buildSharedArtifactHtml(basePayload);
+        const fetchMock = jest.fn().mockResolvedValue(emptyDiscussionResponse);
+
+        await loadSharePageScript(html, fetchMock);
+
+        Object.defineProperty(global.navigator, "clipboard", {
+            configurable: true,
+            value: { writeText },
+        });
+
+        const copyButton = document.getElementById("copy-transcript-btn");
+        expect(copyButton).not.toBeNull();
+
+        copyButton?.dispatchEvent(
+            new MouseEvent("click", { bubbles: true, cancelable: true })
+        );
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        expect(writeText).toHaveBeenCalledWith(basePayload.transcript);
+        expect(writeText).not.toHaveBeenCalledWith(basePayload.canonicalUrl);
     });
 
     it("shows the sign-in hint for unauthenticated non-owners after discussion loads", async () => {
@@ -453,16 +555,92 @@ describe("share-contract", () => {
             expect(html).toContain('id="search-next"');
         });
 
-        it("persists search query to sessionStorage so meta-refresh on live pages does not wipe it", () => {
+        it("persists search query to sessionStorage so live transcript refreshes can restore it", () => {
             const html = buildSharedArtifactHtml({ ...basePayload, isLiveRecording: true });
 
-            // Page must auto-refresh for live recordings
-            expect(html).toContain('http-equiv="refresh"');
-
-            // Search state must survive that refresh via sessionStorage
             expect(html).toContain("sessionStorage.getItem");
             expect(html).toContain("sessionStorage.setItem");
             expect(html).toContain("sessionStorage.removeItem");
+        });
+
+        it("keeps discussion mounted while live polling replaces only the transcript", async () => {
+            jest.useFakeTimers();
+            const html = buildSharedArtifactHtml({
+                ...basePayload,
+                isLiveRecording: true,
+                transcript: "Initial live transcript.",
+            });
+            const discussionFetchUrl = "/api/s/abc123token/discussion";
+            const transcriptFetchUrl = "https://example.com/s/abc123token.json";
+            let transcriptPollCount = 0;
+            const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+                const url = String(input);
+                if (url === discussionFetchUrl) {
+                    return {
+                        ok: true,
+                        json: async () => ({
+                            messages: [
+                                {
+                                    id: "message-1",
+                                    authorName: "Owner",
+                                    content: "Keep this note mounted.",
+                                    anchorStartMs: null,
+                                    createdAt: "2026-03-17T10:00:00.000Z",
+                                },
+                            ],
+                            isOwner: false,
+                            isAuthenticated: true,
+                        }),
+                    };
+                }
+
+                if (url === transcriptFetchUrl) {
+                    transcriptPollCount += 1;
+                    return {
+                        ok: true,
+                        json: async () => ({
+                            artifact: {
+                                ...buildSharedArtifactJson(basePayload).artifact,
+                                transcript:
+                                    transcriptPollCount === 1
+                                        ? "Updated live transcript."
+                                        : "Updated live transcript.",
+                                transcriptSegments: null,
+                            },
+                        }),
+                    };
+                }
+
+                throw new Error(`Unexpected fetch URL: ${url}`);
+            });
+
+            try {
+                await loadSharePageScript(html, fetchMock);
+
+                expect(document.getElementById("transcript-content")?.textContent).toContain(
+                    "Initial live transcript."
+                );
+                expect(document.getElementById("disc-list")?.textContent).toContain(
+                    "Keep this note mounted."
+                );
+
+                await act(async () => {
+                    jest.advanceTimersByTime(3000);
+                    await Promise.resolve();
+                    await Promise.resolve();
+                });
+
+                expect(document.getElementById("transcript-content")?.textContent).toContain(
+                    "Updated live transcript."
+                );
+                expect(document.getElementById("disc-list")?.textContent).toContain(
+                    "Keep this note mounted."
+                );
+                expect(fetchMock.mock.calls.filter(([url]) => String(url) === discussionFetchUrl)).toHaveLength(1);
+                expect(fetchMock.mock.calls.filter(([url]) => String(url) === transcriptFetchUrl)).toHaveLength(1);
+            } finally {
+                jest.useRealTimers();
+            }
         });
 
         it("restores saved query on page load by reading sessionStorage before attaching listeners", () => {
@@ -540,14 +718,18 @@ describe("share-contract", () => {
 
         it("falls back to plain transcript-block rendering when transcriptSegments is null", () => {
             const html = buildSharedArtifactHtml({ ...basePayload, transcriptSegments: null });
-            expect(html).toContain('class="transcript-block"');
-            expect(html).not.toContain('class="ts-btn"');
+            const parsed = new DOMParser().parseFromString(html, "text/html");
+            const transcript = parsed.getElementById("transcript-content");
+            expect(transcript?.querySelector(".transcript-block")).not.toBeNull();
+            expect(transcript?.querySelector(".ts-btn")).toBeNull();
         });
 
         it("falls back to plain transcript-block rendering when transcriptSegments is absent", () => {
             const html = buildSharedArtifactHtml(basePayload);
-            expect(html).toContain('class="transcript-block"');
-            expect(html).not.toContain('class="ts-btn"');
+            const parsed = new DOMParser().parseFromString(html, "text/html");
+            const transcript = parsed.getElementById("transcript-content");
+            expect(transcript?.querySelector(".transcript-block")).not.toBeNull();
+            expect(transcript?.querySelector(".ts-btn")).toBeNull();
         });
 
         it("includes seek and timeupdate JS when segments present", () => {

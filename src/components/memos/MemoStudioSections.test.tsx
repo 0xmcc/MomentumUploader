@@ -57,12 +57,15 @@ jest.mock("@/hooks/useMemoPlayback", () => ({
     handleLoadedMetadata: jest.fn(),
     handleSeek: jest.fn(),
     handleShare: jest.fn(),
+    handleShareLink: jest.fn(),
     handleTimeUpdate: jest.fn(),
     isPlaying: false,
     lastShareUrl: null,
     progress: 0,
     shareLabel: "Share",
     shareState: "idle",
+    shareLinkLabel: "Share link",
+    shareLinkState: "idle",
     togglePlay: jest.fn(),
   })),
 }));
@@ -136,6 +139,8 @@ describe("MemoDetailView", () => {
 
     const hiddenBlocks = container.querySelectorAll(".transcript-segment");
     expect(hiddenBlocks).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /Okay, this is the first thought\./ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /This is the second thought\./ })).toBeNull();
     expect(hiddenBlocks[0]).not.toHaveTextContent("0:00");
     expect(hiddenBlocks[0]).toHaveTextContent("Okay, this is the first thought.");
     expect(hiddenBlocks[1]).not.toHaveTextContent("0:02");
@@ -205,5 +210,23 @@ describe("MemoDetailView", () => {
     expect(detailGrid).not.toBeNull();
     expect(detailGrid).not.toHaveClass("xl:grid-cols-[minmax(0,1fr)_360px]");
     expect(container.querySelector(".xl\\:sticky")).toBeNull();
+  });
+
+  it("shows a dedicated share link button in the memo detail actions", () => {
+    render(
+      <MemoDetailView
+        memo={{
+          id: "memo-share-1",
+          title: "Share Memo",
+          transcript: "Transcript content.",
+          createdAt: "2026-03-16T12:00:00.000Z",
+          wordCount: 2,
+        }}
+      />
+    );
+
+    expect(
+      screen.getByRole("button", { name: /share link/i })
+    ).toBeInTheDocument();
   });
 });

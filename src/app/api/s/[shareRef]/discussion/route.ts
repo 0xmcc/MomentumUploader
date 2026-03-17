@@ -3,6 +3,7 @@ import { createMessageId } from "@/lib/memo-rooms";
 import {
   findMemoDiscussion,
   getOrCreateMemoDiscussion,
+  type MemoDiscussion,
 } from "@/lib/memo-discussion";
 import { resolveMemoShare } from "@/lib/memo-share";
 import { isValidShareToken } from "@/lib/share-access";
@@ -91,10 +92,18 @@ export async function GET(_req: Request, { params }: Params): Promise<Response> 
   const { userId } = await auth();
   const isOwner = userId != null && userId === share.memo.ownerUserId;
   const isAuthenticated = userId != null;
-  const discussion = await findMemoDiscussion(
-    share.memo.memoId,
-    share.memo.ownerUserId
-  );
+  let discussion: MemoDiscussion | null;
+  try {
+    discussion = await findMemoDiscussion(
+      share.memo.memoId,
+      share.memo.ownerUserId
+    );
+  } catch {
+    return Response.json(
+      { error: "Failed to load discussion." },
+      { status: 500 }
+    );
+  }
 
   if (!discussion) {
     return Response.json({

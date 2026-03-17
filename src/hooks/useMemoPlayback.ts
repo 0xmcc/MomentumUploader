@@ -16,9 +16,16 @@ export type ShareState = "idle" | "loading" | "copied" | "error";
 
 function getShareLabel(shareState: ShareState) {
   if (shareState === "copied") return "Copied";
+  if (shareState === "loading") return "Copying...";
+  if (shareState === "error") return "Retry Copy";
+  return "Copy";
+}
+
+function getShareLinkLabel(shareState: ShareState) {
+  if (shareState === "copied") return "Link copied";
   if (shareState === "loading") return "Sharing...";
   if (shareState === "error") return "Retry Share";
-  return "Share";
+  return "Share link";
 }
 
 export function useMemoPlayback(memo: Memo) {
@@ -26,9 +33,11 @@ export function useMemoPlayback(memo: Memo) {
   const [currentTime, setCurrentTime] = useState(0);
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
   const [shareState, setShareState] = useState<ShareState>("idle");
+  const [shareLinkState, setShareLinkState] = useState<ShareState>("idle");
   const [lastShareUrl, setLastShareUrl] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const shareResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shareLinkResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearShareResetTimer = useCallback(() => {
     if (shareResetTimerRef.current) {
@@ -37,15 +46,25 @@ export function useMemoPlayback(memo: Memo) {
     }
   }, []);
 
+  const clearShareLinkResetTimer = useCallback(() => {
+    if (shareLinkResetTimerRef.current) {
+      clearTimeout(shareLinkResetTimerRef.current);
+      shareLinkResetTimerRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     setShareState("idle");
+    setShareLinkState("idle");
     setLastShareUrl(null);
     clearShareResetTimer();
+    clearShareLinkResetTimer();
 
     return () => {
       clearShareResetTimer();
+      clearShareLinkResetTimer();
     };
-  }, [clearShareResetTimer, memo.id]);
+  }, [clearShareLinkResetTimer, clearShareResetTimer, memo.id]);
 
   const togglePlay = useCallback(async () => {
     if (!audioRef.current) return;
@@ -89,22 +108,13 @@ export function useMemoPlayback(memo: Memo) {
 
   const handleShare = useCallback(async () => {
     setShareState("loading");
-    setLastShareUrl(null);
 
     try {
-      const res = await fetch(`/api/memos/${memo.id}/share`, { method: "POST" });
-      const json = await res.json();
-
-      if (!res.ok || !json?.shareUrl) {
-        throw new Error(json?.error || "Unable to generate share link.");
-      }
-
-      const copied = await copyToClipboard(json.shareUrl);
+      const copied = await copyToClipboard(memo.transcript);
       if (!copied) {
         throw new Error("Clipboard unavailable.");
       }
 
-      setLastShareUrl(json.shareUrl);
       setShareState("copied");
       clearShareResetTimer();
       shareResetTimerRef.current = setTimeout(() => {
@@ -112,14 +122,45 @@ export function useMemoPlayback(memo: Memo) {
         shareResetTimerRef.current = null;
       }, SHARE_STATE_RESET_MS);
     } catch (error) {
-      console.error("Failed to copy share link:", error);
+      console.error("Failed to copy transcript:", error);
       setShareState("error");
     }
-  }, [clearShareResetTimer, memo.id]);
+  }, [clearShareResetTimer, memo.transcript]);
+
+  const handleShareLink = useCallback(async () => {
+    setShareLinkState("loading");
+
+    try {
+      const response = await fetch(`/api/memos/${memo.id}/share`, { method: "POST" });
+      const json = await response.json().catch(() => null);
+      const shareUrl = typeof json?.shareUrl === "string" ? json.shareUrl : null;
+
+      if (!response.ok || !shareUrl) {
+        throw new Error(json?.error || "Unable to generate share link.");
+      }
+
+      setLastShareUrl(shareUrl);
+      const copied = await copyToClipboard(shareUrl);
+      if (!copied) {
+        throw new Error("Clipboard unavailable.");
+      }
+
+      setShareLinkState("copied");
+      clearShareLinkResetTimer();
+      shareLinkResetTimerRef.current = setTimeout(() => {
+        setShareLinkState("idle");
+        shareLinkResetTimerRef.current = null;
+      }, SHARE_STATE_RESET_MS);
+    } catch (error) {
+      console.error("Failed to copy share link:", error);
+      setShareLinkState("error");
+    }
+  }, [clearShareLinkResetTimer, memo.id]);
 
   const progress = audioDuration ? (currentTime / audioDuration) * 100 : 0;
   const displayDuration = audioDuration ?? memo.durationSeconds ?? null;
   const shareLabel = getShareLabel(shareState);
+  const shareLinkLabel = getShareLinkLabel(shareLinkState);
 
   return {
     audioRef,
@@ -129,11 +170,14 @@ export function useMemoPlayback(memo: Memo) {
     handleLoadedMetadata,
     handleSeek,
     handleShare,
+    handleShareLink,
     handleTimeUpdate,
     isPlaying,
     lastShareUrl,
     progress,
     shareLabel,
+    shareLinkLabel,
+    shareLinkState,
     shareState,
     togglePlay,
   };

@@ -216,7 +216,7 @@ describe("share route /s/[shareRef]", () => {
         expect(body).toContain("Export");
     });
 
-    it("adds auto-refresh hints for live in-progress shares", async () => {
+    it("renders transcript-only live refresh behavior for in-progress shares", async () => {
         mockShareLookup({
             data: {
                 ...activeMemo,
@@ -233,8 +233,10 @@ describe("share route /s/[shareRef]", () => {
 
         const body = await res.text();
         expect(res.status).toBe(200);
-        expect(body).toContain('http-equiv="refresh" content="3"');
+        expect(body).not.toContain('http-equiv="refresh"');
         expect(body).toContain("Live recording in progress.");
+        expect(body).toContain("setInterval");
+        expect(body).toContain(".json");
     });
 
     it("serves markdown on deterministic .md path", async () => {

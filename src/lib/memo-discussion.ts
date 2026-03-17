@@ -5,23 +5,42 @@ export type MemoDiscussion = {
   ownerParticipantId: string | null;
 };
 
+type SupabaseErrorLike = {
+  code?: string | null;
+};
+
+function isUniqueViolation(error: unknown): error is SupabaseErrorLike {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as SupabaseErrorLike).code === "23505"
+  );
+}
+
 async function findLinkedRoomId(memoId: string): Promise<string | null> {
   const { data, error } = await supabaseAdmin
     .from("memo_room_memos")
-    .select("memo_room_id")
-    .eq("memo_id", memoId);
+    .select("memo_room_id, created_at")
+    .eq("memo_id", memoId)
+    .order("created_at", { ascending: true })
+    .order("memo_room_id", { ascending: true })
+    .limit(2);
 
-  if (error || !data || data.length === 0) {
+  if (error) {
+    throw new Error(`Failed to load memo discussion room for memo ${memoId}`);
+  }
+
+  if (!Array.isArray(data) || data.length === 0) {
     return null;
   }
 
-  for (const link of data) {
-    if (typeof link.memo_room_id === "string" && link.memo_room_id.length > 0) {
-      return link.memo_room_id;
-    }
+  const roomId = data[0]?.memo_room_id;
+  if (typeof roomId !== "string" || roomId.length === 0) {
+    return null;
   }
 
-  return null;
+  return roomId;
 }
 
 async function findOwnerParticipantId(
@@ -42,6 +61,23 @@ async function findOwnerParticipantId(
   }
 
   return data.id;
+}
+
+async function deleteMemoRoom(
+  roomId: string,
+  ownerUserId: string
+): Promise<boolean> {
+  const { error } = await supabaseAdmin
+    .from("memo_rooms")
+    .delete()
+    .eq("id", roomId)
+    .eq("owner_user_id", ownerUserId);
+
+  if (error) {
+    return false;
+  }
+
+  return true;
 }
 
 export async function findMemoDiscussion(
@@ -98,7 +134,18 @@ export async function getOrCreateMemoDiscussion(
       });
 
     if (roomMemoError) {
-      throw new Error("Failed to attach memo discussion room");
+      if (isUniqueViolation(roomMemoError)) {
+        const canonicalDiscussion = await findMemoDiscussion(memoId, ownerUserId);
+        if (!canonicalDiscussion?.roomId) {
+          throw new Error("Failed to resolve canonical memo discussion room");
+        }
+
+        roomId = canonicalDiscussion.roomId;
+        ownerParticipantId = canonicalDiscussion.ownerParticipantId;
+        await deleteMemoRoom(room.id, ownerUserId);
+      } else {
+        throw new Error("Failed to attach memo discussion room");
+      }
     }
   }
 
@@ -117,15 +164,23 @@ export async function getOrCreateMemoDiscussion(
       .select("id")
       .single();
 
-    if (
-      participantError ||
-      !participant ||
-      typeof participant.id !== "string"
-    ) {
-      throw new Error("Failed to seed memo discussion owner");
-    }
+    if (participantError || !participant || typeof participant.id !== "string") {
+      if (isUniqueViolation(participantError)) {
+        const existingParticipantId = await findOwnerParticipantId(
+          roomId,
+          ownerUserId
+        );
+        if (!existingParticipantId) {
+          throw new Error("Failed to seed memo discussion owner");
+        }
 
-    ownerParticipantId = participant.id;
+        ownerParticipantId = existingParticipantId;
+      } else {
+        throw new Error("Failed to seed memo discussion owner");
+      }
+    } else {
+      ownerParticipantId = participant.id;
+    }
   }
 
   return {

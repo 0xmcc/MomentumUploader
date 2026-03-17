@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Palette, Check, Zap } from "lucide-react";
-import { useTheme, THEMES, ThemeId } from "./ThemeProvider";
+import { type ThemeId } from "@/lib/themes";
+import { useTheme, THEMES } from "./ThemeProvider";
 
 export default function ThemeToggle() {
     const { theme, setTheme, playbackTheme, setPlaybackTheme } = useTheme();
@@ -42,8 +43,8 @@ export default function ThemeToggle() {
                 <span
                     className="w-3.5 h-3.5 rounded-full transition-transform duration-150"
                     style={{
-                        background: theme.swatch,
-                        boxShadow: `0 0 8px ${theme.swatch}`,
+                        background: "var(--accent)",
+                        boxShadow: "0 0 8px var(--accent)",
                     }}
                 />
                 <Palette

@@ -4,6 +4,7 @@ import {
 } from "@/lib/artifact-types";
 import { SHOW_ARTIFACTS_IN_UI } from "@/lib/feature-flags";
 import type { ResolvedMemoShare } from "@/lib/share-domain";
+import { DEFAULT_THEME, THEMES } from "@/lib/themes";
 import type { TranscriptSegment } from "@/lib/transcript";
 
 export type ShareFormat = "html" | "md" | "json";
@@ -249,6 +250,30 @@ function formatMs(ms: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+function renderTranscriptContentHtml(payload: SharedArtifactPayload): string {
+  const rawTranscript = payload.transcript || "(no transcript)";
+  const escapedTranscript = escapeHtml(rawTranscript)
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph.length > 0)
+    .map((paragraph) => `<div class="transcript-block">${paragraph}</div>`)
+    .join("\n");
+
+  if (!payload.transcriptSegments?.length) {
+    return `<div class="transcript" id="transcript-content">${escapedTranscript}</div>`;
+  }
+
+  return `<div id="transcript-content" class="transcript">\n${payload.transcriptSegments
+    .map((seg) => {
+      const ts = formatMs(seg.startMs);
+      const escaped = escapeHtml(seg.text);
+      return `  <div class="transcript-segment" id="t-${seg.startMs}" data-start="${seg.startMs}" data-end="${seg.endMs}">` +
+        `<button class="ts-btn" type="button" data-seek="${seg.startMs}">${ts}</button>` +
+        `<span class="seg-text">${escaped}</span></div>`;
+    })
+    .join("\n")}\n</div>`;
+}
+
 export type BuildSharedArtifactHtmlOptions = {
   /** When true, include Summary and Outline panels in HTML. When false (default), omit them (they remain in markdown/JSON for agents). */
   showArtifactsInUi?: boolean;
@@ -269,31 +294,19 @@ export function buildSharedArtifactHtml(
   const outlinePayload = artifacts.outline?.payload as OutlinePayload | null;
   const outlineItems = outlinePayload?.items ?? [];
 
-  // Process transcript: default text if empty, escape HTML, then wrap \n\n blocks in <p> tags
-  const rawTranscript = payload.transcript || "(no transcript)";
-  const escapedTranscript = escapeHtml(rawTranscript)
-    .split(/\n\s*\n/) // split by double newlines or double newlines with whitespace
-    .map(paragraph => paragraph.trim())
-    .filter(paragraph => paragraph.length > 0)
-    .map(paragraph => `<div class="transcript-block">${paragraph}</div>`)
-    .join("\n");
-
-  // Build timestamp-anchored segment list if available; otherwise fall back to plain text.
-  const transcriptContentHtml = payload.transcriptSegments?.length
-    ? `<div id="transcript-content" class="transcript">\n${payload.transcriptSegments.map(seg => {
-        const ts = formatMs(seg.startMs);
-        const escaped = escapeHtml(seg.text);
-        return `  <div class="transcript-segment" id="t-${seg.startMs}" data-start="${seg.startMs}" data-end="${seg.endMs}">` +
-          `<button class="ts-btn" type="button" data-seek="${seg.startMs}">${ts}</button>` +
-          `<span class="seg-text">${escaped}</span></div>`;
-      }).join("\n")}\n</div>`
-    : `<div class="transcript" id="transcript-content">${escapedTranscript}</div>`;
+  const transcriptContentHtml = renderTranscriptContentHtml(payload);
 
   const escapedAudioUrl = escapeHtml(payload.mediaUrl ?? "");
   const encodedCanonical = encodeURI(payload.canonicalUrl);
   const encodedMarkdown = `${encodedCanonical}.md`;
   const encodedJson = `${encodedCanonical}.json`;
   const transcriptFileName = `${toSafeFileName(payload.title)}-transcript.txt`;
+  const serializedThemes = JSON.stringify(
+    THEMES.map((theme) => ({
+      id: theme.id,
+      vars: theme.vars,
+    }))
+  );
   const isLiveRecording = payload.isLiveRecording === true;
   const serializedBootPayload = serializeShareBootPayload({
     shareToken: payload.shareToken,
@@ -302,11 +315,8 @@ export function buildSharedArtifactHtml(
     transcriptFileName,
     mediaUrl: payload.mediaUrl,
   });
-  const liveRefreshMeta = isLiveRecording
-    ? "<meta http-equiv=\"refresh\" content=\"3\" />"
-    : "";
   const liveStatusNotice = isLiveRecording
-    ? "<p class=\"live-status\">Live recording in progress. This page refreshes every 3 seconds.</p>"
+    ? "<p class=\"live-status\">Live recording in progress. Transcript updates automatically every 3 seconds.</p>"
     : "";
   const summaryHtml =
     showArtifacts && summaryPayload?.summary
@@ -328,19 +338,29 @@ export function buildSharedArtifactHtml(
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  ${liveRefreshMeta}
   <title>${escapedTitle} | Shared ${escapedArtifactType}</title>
   <meta name="description" content="Shared ${escapedArtifactType} from MomentumUploader" />
   <link rel="canonical" href="${escapedCanonicalUrl}" />
   <link rel="alternate" type="text/markdown" href="${encodedMarkdown}" />
   <link rel="alternate" type="application/json" href="${encodedJson}" />
   <style>
-    :root { color-scheme: dark; }
+    :root {
+      color-scheme: dark;
+      --background: ${DEFAULT_THEME.vars.background};
+      --foreground: ${DEFAULT_THEME.vars.foreground};
+      --accent: ${DEFAULT_THEME.vars.accent};
+      --accent-hover: ${DEFAULT_THEME.vars.accentHover};
+      --surface: ${DEFAULT_THEME.vars.surface};
+      --border: ${DEFAULT_THEME.vars.border};
+      --theme-glow: ${DEFAULT_THEME.vars.glow};
+      --theme-glass-bg: ${DEFAULT_THEME.vars.glassBg};
+      --theme-neo-blur: ${DEFAULT_THEME.vars.neoBlur};
+    }
     body {
       margin: 0;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
-      background: radial-gradient(circle at 30% 0%, #2a1a06 0%, #0f0902 55%, #0a0601 100%);
-      color: #fff7ed;
+      background: var(--background);
+      color: var(--foreground);
       line-height: 1.55;
       min-height: 100vh;
     }
@@ -350,11 +370,7 @@ export function buildSharedArtifactHtml(
       padding: 2rem 1.25rem 5rem;
     }
     article {
-      background: rgba(30, 16, 5, 0.7);
-      border: 1px solid rgba(251, 146, 60, 0.25);
-      border-radius: 18px;
       padding: 1.25rem;
-      box-shadow: 0 22px 44px rgba(0, 0, 0, 0.34);
       min-height: 80vh;
     }
     h1 { margin: 0 0 .35rem; font-size: clamp(1.5rem, 4vw, 2.15rem); }
@@ -362,9 +378,7 @@ export function buildSharedArtifactHtml(
     .artifact-panel {
       margin-top: 1rem;
       padding: 1rem 1.1rem;
-      border-radius: 14px;
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid rgba(251, 146, 60, 0.14);
+      border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
     }
     .artifact-panel ol {
       margin: 0;
@@ -392,12 +406,17 @@ export function buildSharedArtifactHtml(
     .transcript-header h2 { margin: 0; }
     p.meta {
       margin: 0 0 1rem;
-      color: #fdba74;
+      color: color-mix(in srgb, var(--foreground) 82%, var(--accent) 18%);
       font-size: .92rem;
     }
+    p.meta a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    p.meta a:hover { text-decoration: underline; }
     p.live-status {
       margin: 0 0 1rem;
-      color: #fde68a;
+      color: color-mix(in srgb, var(--foreground) 74%, var(--accent) 26%);
       font-size: .82rem;
       letter-spacing: .02em;
       text-transform: uppercase;
@@ -407,19 +426,14 @@ export function buildSharedArtifactHtml(
       position: sticky;
       top: 0;
       z-index: 10;
-      background: #190e05; /* matches article background to avoid transparency clash */
-      margin: 0 -1.25rem;
-      padding: 0.5rem 1.25rem 1rem;
-      border-bottom: 1px solid rgba(251, 146, 60, 0.15);
-      border-radius: 18px 18px 0 0; /* Match article border radius when it sticks */
+      background: var(--background);
+      padding: 0.5rem 0 1rem;
+      border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
     }
     .transcript {
-      max-width: 65ch;
+      max-width: 60ch;
       margin: 1.5rem auto 0;
-      background: rgba(0, 0, 0, 0.2);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 12px;
-      padding: 1rem 1.75rem;
+      padding: 0;
       height: 60vh;
       overflow-y: auto;
       overflow-wrap: anywhere;
@@ -427,20 +441,20 @@ export function buildSharedArtifactHtml(
       line-height: 1.7;
     }
     .transcript-block {
-      padding: 12px 16px;
-      margin-bottom: 10px;
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid rgba(251, 146, 60, 0.14);
-      border-radius: 8px;
+      padding: 0 0 12px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
       line-height: 1.7;
     }
     .transcript-block:last-child {
       margin-bottom: 0;
+      padding-bottom: 0;
+      border-bottom: 0;
     }
     .export-transcript-btn, .copy-transcript-btn {
-      border: 1px solid rgba(251, 191, 126, 0.35);
-      background: rgba(234, 88, 12, 0.18);
-      color: #ffedd5;
+      border: 1px solid color-mix(in srgb, var(--border) 55%, var(--accent) 45%);
+      background: transparent;
+      color: var(--foreground);
       border-radius: 999px;
       padding: .35rem .72rem;
       font-size: .78rem;
@@ -448,78 +462,67 @@ export function buildSharedArtifactHtml(
       cursor: pointer;
     }
     .export-transcript-btn:hover {
-      background: rgba(234, 88, 12, 0.34);
-      border-color: rgba(251, 191, 126, 0.55);
+      background: color-mix(in srgb, var(--foreground) 6%, transparent);
+      border-color: color-mix(in srgb, var(--border) 35%, var(--accent) 65%);
     }
     .export-transcript-btn:focus-visible, .copy-transcript-btn:focus-visible {
-      outline: 2px solid rgba(251, 191, 126, 0.7);
+      outline: 2px solid color-mix(in srgb, var(--accent) 70%, white 30%);
       outline-offset: 2px;
     }
     .copy-transcript-btn {
-      background: rgba(251, 146, 60, 0.18);
+      background: transparent;
     }
     .copy-transcript-btn:hover {
-      background: rgba(251, 146, 60, 0.34);
+      background: color-mix(in srgb, var(--foreground) 6%, transparent);
     }
     .share-audio {
       width: 100%;
       margin: 1rem 0 .65rem;
-      border-radius: 14px;
-      background:
-        linear-gradient(180deg, rgba(83, 48, 21, 0.36), rgba(39, 24, 12, 0.72)),
-        rgba(26, 16, 8, 0.72);
-      box-shadow:
-        inset 0 1px 0 rgba(255, 213, 167, 0.1),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.24),
-        0 10px 22px rgba(0, 0, 0, 0.24);
-      border: 1px solid rgba(251, 191, 126, 0.18);
-      accent-color: #e5924f;
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--surface) 55%, transparent);
+      border: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+      accent-color: var(--accent);
       overflow: hidden;
     }
     .share-audio::-webkit-media-controls-enclosure {
-      border-radius: 14px;
-      background:
-        linear-gradient(180deg, rgba(84, 49, 24, 0.34), rgba(31, 20, 10, 0.78)),
-        rgba(23, 15, 8, 0.72);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--surface) 55%, transparent);
     }
     .share-audio::-webkit-media-controls-panel {
-      background:
-        radial-gradient(circle at 14% 50%, rgba(255, 169, 92, 0.1), transparent 48%),
-        linear-gradient(180deg, rgba(87, 53, 27, 0.3), rgba(30, 20, 11, 0.82));
-      color: #ffe8d1;
+      background: color-mix(in srgb, var(--surface) 55%, transparent);
+      color: var(--foreground);
       padding-inline: .45rem;
     }
     section[aria-labelledby="transcript-heading"] { margin-top: .15rem; }
     section[aria-labelledby="transcript-heading"] h2 { margin-top: 0; }
     .share-audio::-webkit-media-controls-play-button {
       border-radius: 999px;
-      background-color: rgba(96, 57, 28, 0.72);
-      border: 1px solid rgba(255, 205, 161, 0.24);
-      color: #ffe6ce;
-      box-shadow:
-        inset 0 1px 0 rgba(255, 227, 198, 0.22),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.34),
-        0 1px 2px rgba(0, 0, 0, 0.35);
+      background-color: color-mix(in srgb, var(--foreground) 8%, transparent);
+      border: 1px solid color-mix(in srgb, var(--border) 55%, var(--foreground) 45%);
+      color: var(--foreground);
     }
     .share-audio::-webkit-media-controls-current-time-display,
     .share-audio::-webkit-media-controls-time-remaining-display {
-      color: #ffd7b2;
+      color: color-mix(in srgb, var(--foreground) 80%, var(--accent) 20%);
       text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
     }
     .share-audio::-webkit-media-controls-timeline {
       border-radius: 999px;
       height: .42rem;
       margin-inline: .55rem;
-      background:
-        linear-gradient(90deg, rgba(241, 154, 84, 0.92), rgba(211, 116, 51, 0.85) 45%, rgba(141, 72, 33, 0.64));
-      box-shadow:
-        inset 0 0 0 1px rgba(255, 211, 167, 0.2),
-        inset 0 0 7px rgba(255, 176, 112, 0.35),
-        0 0 0 1px rgba(0, 0, 0, 0.26);
+      background: linear-gradient(
+        90deg,
+        var(--accent),
+        color-mix(in srgb, var(--accent-hover) 75%, var(--surface) 25%)
+      );
     }
     .share-audio::-webkit-media-controls-volume-slider {
       border-radius: 999px;
-      background: linear-gradient(90deg, rgba(217, 129, 63, 0.78), rgba(122, 68, 34, 0.6));
+      background: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--accent) 82%, white 18%),
+        color-mix(in srgb, var(--accent-hover) 75%, var(--surface) 25%)
+      );
     }
     dl {
       margin: 0;
@@ -529,9 +532,9 @@ export function buildSharedArtifactHtml(
       gap: .45rem .8rem;
       font-size: .95rem;
     }
-    dt { color: #fed7aa; }
-    dd { margin: 0; color: #ffedd5; overflow-wrap: anywhere; }
-    dd a { color: #fdba74; text-decoration: none; }
+    dt { color: color-mix(in srgb, var(--foreground) 78%, var(--accent) 22%); }
+    dd { margin: 0; color: var(--foreground); overflow-wrap: anywhere; }
+    dd a { color: var(--accent); text-decoration: none; }
     dd a:hover { text-decoration: underline; }
     .promo {
       position: fixed;
@@ -540,27 +543,27 @@ export function buildSharedArtifactHtml(
       display: flex;
       align-items: center;
       gap: .6rem;
-      background: rgba(17, 17, 17, 0.88);
-      border: 1px solid rgba(251, 146, 60, 0.28);
+      background: var(--theme-glass-bg);
+      border: 1px solid color-mix(in srgb, var(--border) 55%, var(--accent) 45%);
       border-radius: 999px;
       padding: .42rem .42rem .42rem .72rem;
       backdrop-filter: blur(8px);
     }
     .promo small {
-      color: #ffedd5;
+      color: var(--foreground);
       font-size: .75rem;
       letter-spacing: .01em;
     }
     .promo a {
       border-radius: 999px;
       padding: .35rem .7rem;
-      background: #ea580c;
-      color: #fff;
+      background: var(--accent);
+      color: var(--foreground);
       text-decoration: none;
       font-size: .78rem;
       font-weight: 600;
     }
-    .promo a:hover { background: #c2410c; }
+    .promo a:hover { background: var(--accent-hover); }
     .transcript-search-row {
       display: flex;
       align-items: center;
@@ -571,31 +574,33 @@ export function buildSharedArtifactHtml(
     .transcript-search-input {
       flex: 1;
       min-width: 0;
-      background: rgba(0, 0, 0, 0.25);
-      border: 1px solid rgba(251, 191, 126, 0.28);
+      background: transparent;
+      border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
       border-radius: 999px;
       padding: .32rem .8rem;
-      color: #ffedd5;
+      color: var(--foreground);
       font-size: .87rem;
       outline: none;
       font-family: inherit;
     }
-    .transcript-search-input::placeholder { color: rgba(255, 237, 213, 0.38); }
+    .transcript-search-input::placeholder {
+      color: color-mix(in srgb, var(--foreground) 38%, transparent);
+    }
     .transcript-search-input:focus {
-      border-color: rgba(251, 191, 126, 0.6);
-      background: rgba(0, 0, 0, 0.35);
+      border-color: color-mix(in srgb, var(--border) 35%, var(--accent) 65%);
+      background: color-mix(in srgb, var(--foreground) 4%, transparent);
     }
     .search-match-count {
       font-size: .78rem;
-      color: #fdba74;
+      color: var(--accent);
       white-space: nowrap;
       min-width: 4ch;
       text-align: right;
     }
     .search-nav-btn {
-      border: 1px solid rgba(251, 191, 126, 0.3);
-      background: rgba(234, 88, 12, 0.14);
-      color: #ffedd5;
+      border: 1px solid color-mix(in srgb, var(--border) 55%, var(--accent) 45%);
+      background: transparent;
+      color: var(--foreground);
       border-radius: 999px;
       width: 1.7rem;
       height: 1.7rem;
@@ -607,21 +612,23 @@ export function buildSharedArtifactHtml(
       align-items: center;
       justify-content: center;
     }
-    .search-nav-btn:hover { background: rgba(234, 88, 12, 0.3); }
+    .search-nav-btn:hover {
+      background: color-mix(in srgb, var(--foreground) 6%, transparent);
+    }
     .search-nav-btn:disabled { opacity: .35; cursor: default; }
     .search-nav-btn:focus-visible {
-      outline: 2px solid rgba(251, 191, 126, 0.7);
+      outline: 2px solid color-mix(in srgb, var(--accent) 70%, white 30%);
       outline-offset: 2px;
     }
     mark.search-hit {
-      background: rgba(253, 186, 116, 0.38);
-      color: #fff7ed;
+      background: color-mix(in srgb, var(--accent) 34%, transparent);
+      color: var(--foreground);
       border-radius: 2px;
       padding: 0 1px;
     }
     mark.search-hit-active {
-      background: rgba(234, 88, 12, 0.72);
-      color: #fff;
+      background: color-mix(in srgb, var(--accent) 74%, black 26%);
+      color: var(--foreground);
       border-radius: 2px;
       padding: 0 1px;
     }
@@ -629,32 +636,34 @@ export function buildSharedArtifactHtml(
       display: flex;
       gap: .65rem;
       align-items: baseline;
-      padding: .3rem 0;
+      padding: .6rem 0;
       border-radius: 4px;
       transition: background .15s;
     }
     .transcript-segment.active {
-      background: rgba(234, 88, 12, 0.12);
+      background: color-mix(in srgb, var(--accent) 10%, transparent);
     }
     .ts-btn {
       flex-shrink: 0;
       font-family: ui-monospace, monospace;
       font-size: .72rem;
-      color: #fdba74;
-      background: rgba(234, 88, 12, 0.14);
-      border: 1px solid rgba(251, 191, 126, 0.25);
+      color: var(--accent);
+      background: transparent;
+      border: 1px solid color-mix(in srgb, var(--border) 55%, var(--accent) 45%);
       border-radius: 4px;
       padding: 1px 6px;
       cursor: pointer;
       white-space: nowrap;
       line-height: 1.5;
     }
-    .ts-btn:hover { background: rgba(234, 88, 12, 0.3); }
+    .ts-btn:hover {
+      background: color-mix(in srgb, var(--foreground) 6%, transparent);
+    }
     .seg-text { flex: 1; }
     .disc-section {
       margin-top: 3rem;
       padding-top: 2rem;
-      border-top: 1px solid rgba(251, 191, 126, 0.15);
+      border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
     }
     .disc-heading {
       margin: 0 0 1rem;
@@ -666,12 +675,12 @@ export function buildSharedArtifactHtml(
     .disc-loading,
     .disc-empty {
       margin: 0;
-      color: #fed7aa;
+      color: color-mix(in srgb, var(--foreground) 78%, var(--accent) 22%);
       font-size: 0.95rem;
     }
     .disc-msg {
       padding: 1rem 0;
-      border-bottom: 1px solid rgba(251, 191, 126, 0.14);
+      border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
     }
     .disc-msg:last-child {
       border-bottom: 0;
@@ -686,15 +695,15 @@ export function buildSharedArtifactHtml(
       font-size: 0.85rem;
     }
     .disc-author {
-      color: #fff7ed;
+      color: var(--foreground);
       font-weight: 600;
     }
     .disc-time {
-      color: #fdba74;
+      color: var(--accent);
     }
     .disc-content {
       margin: 0;
-      color: #ffedd5;
+      color: var(--foreground);
       white-space: pre-wrap;
     }
     .disc-form {
@@ -705,17 +714,17 @@ export function buildSharedArtifactHtml(
       min-height: 5.5rem;
       resize: vertical;
       box-sizing: border-box;
-      background: rgba(0, 0, 0, 0.25);
-      border: 1px solid rgba(251, 191, 126, 0.28);
+      background: transparent;
+      border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
       border-radius: 14px;
       padding: 0.8rem 0.9rem;
-      color: #ffedd5;
+      color: var(--foreground);
       font: inherit;
     }
     .disc-form textarea:focus {
       outline: none;
-      border-color: rgba(251, 191, 126, 0.6);
-      background: rgba(0, 0, 0, 0.35);
+      border-color: color-mix(in srgb, var(--border) 35%, var(--accent) 65%);
+      background: color-mix(in srgb, var(--foreground) 4%, transparent);
     }
     .disc-form-row {
       margin-top: 0.75rem;
@@ -726,9 +735,9 @@ export function buildSharedArtifactHtml(
     }
     .disc-form button,
     .ts-link {
-      border: 1px solid rgba(251, 191, 126, 0.3);
-      background: rgba(234, 88, 12, 0.16);
-      color: #ffedd5;
+      border: 1px solid color-mix(in srgb, var(--border) 55%, var(--accent) 45%);
+      background: transparent;
+      color: var(--foreground);
       border-radius: 999px;
       padding: 0.35rem 0.75rem;
       font-size: 0.78rem;
@@ -736,7 +745,7 @@ export function buildSharedArtifactHtml(
     }
     .disc-form button:hover,
     .ts-link:hover {
-      background: rgba(234, 88, 12, 0.3);
+      background: color-mix(in srgb, var(--foreground) 6%, transparent);
     }
     .disc-error {
       color: #fca5a5;
@@ -748,7 +757,7 @@ export function buildSharedArtifactHtml(
   <main>
     <article>
       <h1>${escapedTitle}</h1>
-      <p class="meta">Shared ${escapedArtifactType} • canonical URL: <a href="${escapedCanonicalUrl}" style="color:#fdba74">${escapedCanonicalUrl}</a></p>
+      <p class="meta">Shared ${escapedArtifactType} • canonical URL: <a href="${escapedCanonicalUrl}">${escapedCanonicalUrl}</a></p>
       ${liveStatusNotice}
       ${summaryHtml}
       ${outlineHtml}
@@ -811,14 +820,154 @@ export function buildSharedArtifactHtml(
     })();
 
     (() => {
+      const shareThemes = new Map(${serializedThemes}.map((theme) => [theme.id, theme]));
+      const defaultThemeId = ${JSON.stringify(DEFAULT_THEME.id)};
+      const themeStorageKey = "sonic-theme";
+
+      function applyShareTheme(themeId) {
+        const theme = shareThemes.get(themeId) || shareThemes.get(defaultThemeId);
+        if (!theme) return defaultThemeId;
+
+        const root = document.documentElement;
+        root.dataset.shareTheme = theme.id;
+        root.style.setProperty("--background", theme.vars.background);
+        root.style.setProperty("--foreground", theme.vars.foreground);
+        root.style.setProperty("--accent", theme.vars.accent);
+        root.style.setProperty("--accent-hover", theme.vars.accentHover);
+        root.style.setProperty("--surface", theme.vars.surface);
+        root.style.setProperty("--border", theme.vars.border);
+        root.style.setProperty("--theme-glow", theme.vars.glow);
+        root.style.setProperty("--theme-glass-bg", theme.vars.glassBg);
+        root.style.setProperty("--theme-neo-blur", theme.vars.neoBlur);
+
+        return theme.id;
+      }
+
+      function resolveInitialThemeId() {
+        try {
+          const urlTheme = new URL(window.location.href).searchParams.get("theme");
+          if (urlTheme && shareThemes.has(urlTheme)) {
+            return urlTheme;
+          }
+        } catch (_error) {
+          // Ignore malformed URLs in non-browser contexts.
+        }
+
+        try {
+          const savedTheme = window.localStorage.getItem(themeStorageKey);
+          if (savedTheme && shareThemes.has(savedTheme)) {
+            return savedTheme;
+          }
+        } catch (_error) {
+          // Ignore storage access failures.
+        }
+
+        return defaultThemeId;
+      }
+
+      applyShareTheme(resolveInitialThemeId());
+    })();
+
+    (() => {
+      if (!shareBoot) return;
+
+      function escHtml(s) {
+        return String(s)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      function fmtMs(ms) {
+        const totalSec = Math.floor(ms / 1000);
+        const minutes = Math.floor(totalSec / 60);
+        const seconds = totalSec % 60;
+        return minutes + ":" + String(seconds).padStart(2, "0");
+      }
+
+      function renderTranscriptMarkup(artifact) {
+        const transcript = typeof artifact?.transcript === "string" && artifact.transcript
+          ? artifact.transcript
+          : "(no transcript)";
+        const segments = Array.isArray(artifact?.transcriptSegments)
+          ? artifact.transcriptSegments
+          : [];
+
+        if (segments.length > 0) {
+          return '<div id="transcript-content" class="transcript">\\n' + segments.map(function(seg) {
+            return '  <div class="transcript-segment" id="t-' + seg.startMs + '" data-start="' + seg.startMs + '" data-end="' + seg.endMs + '">' +
+              '<button class="ts-btn" type="button" data-seek="' + seg.startMs + '">' + fmtMs(seg.startMs) + "</button>" +
+              '<span class="seg-text">' + escHtml(seg.text || "") + "</span></div>";
+          }).join("\\n") + "\\n</div>";
+        }
+
+        const escapedTranscript = escHtml(transcript)
+          .split(/\\n\\s*\\n/)
+          .map(function(paragraph) { return paragraph.trim(); })
+          .filter(function(paragraph) { return paragraph.length > 0; })
+          .map(function(paragraph) { return '<div class="transcript-block">' + paragraph + "</div>"; })
+          .join("\\n");
+
+        return '<div class="transcript" id="transcript-content">' + escapedTranscript + "</div>";
+      }
+
+      function replaceTranscript(artifact) {
+        const current = document.getElementById("transcript-content");
+        if (!current) return;
+        const nextMarkup = renderTranscriptMarkup(artifact);
+        if (current.outerHTML === nextMarkup) return;
+        current.outerHTML = nextMarkup;
+        document.dispatchEvent(new CustomEvent("share:transcript-updated"));
+      }
+
+      if (!shareBoot.isLiveRecording) return;
+
+      const transcriptUrl = shareBoot.canonicalUrl + ".json";
+      let pollingStopped = false;
+
+      async function pollTranscript() {
+        if (pollingStopped) return;
+
+        try {
+          const response = await fetch(transcriptUrl, { cache: "no-store" });
+          if (!response.ok) {
+            throw new Error("Failed to load live transcript");
+          }
+
+          const json = await response.json();
+          const artifact = json && json.artifact ? json.artifact : null;
+          if (!artifact) return;
+
+          replaceTranscript(artifact);
+
+          if (artifact.isLiveRecording === false || artifact.transcriptStatus === "complete" || artifact.transcriptStatus === "failed") {
+            pollingStopped = true;
+            clearInterval(intervalId);
+          }
+        } catch (_error) {
+          // Leave the current transcript in place and retry on the next tick.
+        }
+      }
+
+      const intervalId = setInterval(function() {
+        void pollTranscript();
+      }, 3000);
+    })();
+
+    (() => {
       const exportButton = document.getElementById("export-transcript-btn");
       const copyButton = document.getElementById("copy-transcript-btn");
-      const transcriptContent = document.getElementById("transcript-content");
       
-      if (!transcriptContent) return;
+      function getTranscriptContent() {
+        return document.getElementById("transcript-content");
+      }
 
       if (exportButton) {
         exportButton.addEventListener("click", () => {
+          const transcriptContent = getTranscriptContent();
+          if (!transcriptContent) return;
           const transcript = transcriptContent.textContent || "";
           const fileName =
             shareBoot && typeof shareBoot.transcriptFileName === "string"
@@ -838,6 +987,8 @@ export function buildSharedArtifactHtml(
 
       if (copyButton) {
         copyButton.addEventListener("click", () => {
+          const transcriptContent = getTranscriptContent();
+          if (!transcriptContent) return;
           // Extract text cleanly — works for both segment cards and plain-text blocks
           const paragraphs = transcriptContent.querySelectorAll(".transcript-block, .seg-text");
           let textToCopy = "";
@@ -1032,14 +1183,20 @@ export function buildSharedArtifactHtml(
       const matchCountEl = document.getElementById("search-match-count");
       const prevBtn = document.getElementById("search-prev");
       const nextBtn = document.getElementById("search-next");
-      const transcriptEl = document.getElementById("transcript-content");
-      if (!searchInput || !matchCountEl || !prevBtn || !nextBtn || !transcriptEl) return;
-
-      const blocks = Array.from(transcriptEl.querySelectorAll(".transcript-block, .seg-text"));
-      const blockTexts = blocks.map(function(b) { return b.textContent || ""; });
-      const originalText = blockTexts.join("\\n\\n");
+      if (!searchInput || !matchCountEl || !prevBtn || !nextBtn) return;
       const SEARCH_KEY = "transcript-search-query";
       let currentIndex = -1;
+
+      function getTranscriptEl() {
+        return document.getElementById("transcript-content");
+      }
+
+      function getBlocks() {
+        const transcriptEl = getTranscriptEl();
+        return transcriptEl
+          ? Array.from(transcriptEl.querySelectorAll(".transcript-block, .seg-text"))
+          : [];
+      }
 
       function escHtml(s) {
         return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -1050,6 +1207,9 @@ export function buildSharedArtifactHtml(
       }
 
       function applySearch(query) {
+        const blocks = getBlocks();
+        const blockTexts = blocks.map(function(b) { return b.textContent || ""; });
+
         if (!query) {
           blocks.forEach(function(b, i) { b.innerHTML = escHtml(blockTexts[i]); });
           matchCountEl.textContent = "";
@@ -1085,6 +1245,11 @@ export function buildSharedArtifactHtml(
       }
 
       function updateActive() {
+        const transcriptEl = getTranscriptEl();
+        if (!transcriptEl) {
+          matchCountEl.textContent = "";
+          return;
+        }
         const marks = transcriptEl.querySelectorAll("mark.search-hit");
         marks.forEach(function(mark, i) {
           if (i === currentIndex) {
@@ -1114,6 +1279,8 @@ export function buildSharedArtifactHtml(
       });
 
       nextBtn.addEventListener("click", function() {
+        const transcriptEl = getTranscriptEl();
+        if (!transcriptEl) return;
         const marks = transcriptEl.querySelectorAll("mark.search-hit");
         if (!marks.length) return;
         currentIndex = (currentIndex + 1) % marks.length;
@@ -1121,6 +1288,8 @@ export function buildSharedArtifactHtml(
       });
 
       prevBtn.addEventListener("click", function() {
+        const transcriptEl = getTranscriptEl();
+        if (!transcriptEl) return;
         const marks = transcriptEl.querySelectorAll("mark.search-hit");
         if (!marks.length) return;
         currentIndex = (currentIndex - 1 + marks.length) % marks.length;
@@ -1128,6 +1297,8 @@ export function buildSharedArtifactHtml(
       });
 
       searchInput.addEventListener("keydown", function(e) {
+        const transcriptEl = getTranscriptEl();
+        if (!transcriptEl) return;
         const marks = transcriptEl.querySelectorAll("mark.search-hit");
         if (e.key !== "Enter" || !marks.length) return;
         if (e.shiftKey) {
@@ -1138,20 +1309,19 @@ export function buildSharedArtifactHtml(
         updateActive();
         e.preventDefault();
       });
+
+      document.addEventListener("share:transcript-updated", function() {
+        applySearch(searchInput.value.trim());
+      });
     })();
 
     (() => {
       // Timestamp anchor: seek audio and highlight the active segment.
       const audio = document.querySelector("audio.share-audio");
-      const transcriptEl = document.getElementById("transcript-content");
-      if (!transcriptEl) return;
-
-      const segments = Array.from(transcriptEl.querySelectorAll(".transcript-segment[data-start]"));
-      if (!segments.length) return;
-
-      // Seek audio on timestamp button click
-      transcriptEl.addEventListener("click", function(e) {
-        const btn = e.target.closest(".ts-btn[data-seek]");
+      document.addEventListener("click", function(e) {
+        const target = e.target;
+        if (!(target instanceof Element)) return;
+        const btn = target.closest("#transcript-content .ts-btn[data-seek]");
         if (!btn || !audio) return;
         const ms = Number(btn.getAttribute("data-seek"));
         audio.currentTime = ms / 1000;
@@ -1161,6 +1331,9 @@ export function buildSharedArtifactHtml(
       // Highlight active segment during playback
       if (audio) {
         audio.addEventListener("timeupdate", function() {
+          const transcriptEl = document.getElementById("transcript-content");
+          if (!transcriptEl) return;
+          const segments = Array.from(transcriptEl.querySelectorAll(".transcript-segment[data-start]"));
           const nowMs = audio.currentTime * 1000;
           segments.forEach(function(seg) {
             const start = Number(seg.getAttribute("data-start"));

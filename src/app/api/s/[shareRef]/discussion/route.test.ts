@@ -139,6 +139,23 @@ describe("share discussion route", () => {
         expect(supabaseAdmin.from).not.toHaveBeenCalled();
     });
 
+    it("returns an intentional 500 when the discussion lookup fails", async () => {
+        (auth as jest.Mock).mockResolvedValue({ userId: "user-owner" });
+        (findMemoDiscussion as jest.Mock).mockRejectedValue(
+            new Error("database unavailable")
+        );
+
+        const res = await GET(
+            new Request("https://example.com/api/s/sharetoken1234/discussion"),
+            { params: Promise.resolve({ shareRef: "sharetoken1234" }) }
+        );
+        const body = await res.json();
+
+        expect(res.status).toBe(500);
+        expect(body).toEqual({ error: "Failed to load discussion." });
+        expect(supabaseAdmin.from).not.toHaveBeenCalled();
+    });
+
     it("matches existing share-token failure semantics", async () => {
         const invalidRes = await GET(
             new Request("https://example.com/api/s/nope!/discussion"),

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveMemoUserId } from "@/lib/memo-api-auth";
-import { getActiveHumanParticipant } from "@/lib/memo-rooms";
+import { findMemoDiscussion, type MemoDiscussion } from "@/lib/memo-discussion";
 import { supabaseAdmin } from "@/lib/supabase";
 
 const CORS = {
@@ -10,35 +10,6 @@ const CORS = {
 };
 
 type Params = { params: Promise<{ id: string }> };
-
-async function resolveAccessibleRoomIdForMemo(
-    memoId: string,
-    userId: string
-): Promise<string | null> {
-    const { data: roomLinks, error: roomLinkError } = await supabaseAdmin
-        .from("memo_room_memos")
-        .select("memo_room_id")
-        .eq("memo_id", memoId);
-
-    if (roomLinkError || !roomLinks || roomLinks.length === 0) {
-        return null;
-    }
-
-    const linkedRoomIds = roomLinks
-        .map((link) =>
-            typeof link.memo_room_id === "string" ? link.memo_room_id : null
-        )
-        .filter((roomId): roomId is string => roomId !== null);
-
-    for (const roomId of linkedRoomIds) {
-        const participant = await getActiveHumanParticipant(roomId, userId);
-        if (participant) {
-            return roomId;
-        }
-    }
-
-    return null;
-}
 
 export async function OPTIONS() {
     return new NextResponse(null, { status: 204, headers: CORS });
@@ -63,11 +34,21 @@ export async function GET(req: NextRequest, { params }: Params) {
         return NextResponse.json({ room: null }, { headers: CORS });
     }
 
-    const accessibleRoomId = await resolveAccessibleRoomIdForMemo(memoId, userId);
+    let discussion: MemoDiscussion | null;
+    try {
+        discussion = await findMemoDiscussion(memoId);
+    } catch {
+        return NextResponse.json(
+            { error: "Failed to load memo room." },
+            { status: 500, headers: CORS }
+        );
+    }
+
+    const roomId = discussion?.roomId ?? null;
 
     return NextResponse.json(
         {
-            room: accessibleRoomId ? { roomId: accessibleRoomId } : null,
+            room: roomId ? { roomId } : null,
         },
         { headers: CORS }
     );

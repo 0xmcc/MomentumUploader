@@ -1,5 +1,5 @@
 import React from "react";
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoRoomPanel } from "./MemoRoomPanel";
 import type { Memo } from "@/lib/memo-ui";
 
@@ -21,9 +21,9 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
-function jsonResponse(body: unknown): Response {
+function jsonResponse(body: unknown, ok = true): Response {
   return {
-    ok: true,
+    ok,
     json: async () => body,
   } as Response;
 }
@@ -80,5 +80,80 @@ describe("MemoRoomPanel", () => {
 
       expect(postCalls).toHaveLength(1);
     });
+  });
+
+  it("does not create a room when room lookup fails with a server error", async () => {
+    (global.fetch as jest.Mock).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url === "/api/memos/memo-1/room") {
+        return Promise.resolve(jsonResponse({ error: "Failed to load memo room." }, false));
+      }
+
+      if (url === "/api/memo-rooms" && init?.method === "POST") {
+        return Promise.resolve(jsonResponse({ room: { id: "room-new" } }));
+      }
+
+      if (url === "/api/memo-rooms/room-new/context") {
+        return Promise.resolve(
+          jsonResponse({
+            room: {
+              id: "room-new",
+              title: "Memo Room Test",
+              description: null,
+              participants: [
+                {
+                  id: "participant-owner",
+                  participantType: "human",
+                  userId: "user-owner",
+                  agentId: null,
+                  role: "owner",
+                  capability: "full_participation",
+                  defaultVisibility: "public",
+                  status: "active",
+                },
+              ],
+            },
+            viewerParticipant: {
+              id: "participant-owner",
+              participantType: "human",
+              userId: "user-owner",
+              agentId: null,
+              role: "owner",
+              capability: "full_participation",
+              defaultVisibility: "public",
+              status: "active",
+            },
+          })
+        );
+      }
+
+      if (url === "/api/memo-rooms/room-new/messages") {
+        return Promise.resolve(jsonResponse({ messages: [] }));
+      }
+
+      if (url === "/api/agents") {
+        return Promise.resolve(jsonResponse({ agents: [] }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+
+    render(
+      <MemoRoomPanel
+        memo={memo}
+        selectedAnchorSegments={[]}
+        onClearSelectedAnchors={() => {}}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Failed to load memo room.")).toBeInTheDocument();
+    });
+
+    const postCalls = (global.fetch as jest.Mock).mock.calls.filter(
+      ([url, init]) => url === "/api/memo-rooms" && init?.method === "POST"
+    );
+    expect(postCalls).toHaveLength(0);
   });
 });

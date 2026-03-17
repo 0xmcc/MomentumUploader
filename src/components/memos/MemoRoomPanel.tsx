@@ -68,6 +68,23 @@ async function readJson<T>(res: Response): Promise<T> {
     return (await res.json()) as T;
 }
 
+async function readJsonOrThrow<T>(res: Response, fallbackMessage: string): Promise<T> {
+    const body = await readJson<T & { error?: string }>(res);
+
+    if (!res.ok) {
+        throw new Error(
+            typeof body === "object" &&
+                body !== null &&
+                "error" in body &&
+                typeof body.error === "string"
+                ? body.error
+                : fallbackMessage
+        );
+    }
+
+    return body;
+}
+
 function getTranscriptAnchorPayload(selectedAnchorSegments: TranscriptSegment[]) {
     if (selectedAnchorSegments.length === 0) {
         return {};
@@ -129,7 +146,10 @@ export function MemoRoomPanel({
 
             try {
                 const roomLookupRes = await fetch(`/api/memos/${memo.id}/room`);
-                const roomLookup = await readJson<{ room: { roomId: string } | null }>(roomLookupRes);
+                const roomLookup = await readJsonOrThrow<{ room: { roomId: string } | null }>(
+                    roomLookupRes,
+                    "Failed to load memo room."
+                );
 
                 let resolvedRoomId = roomLookup.room?.roomId ?? null;
                 if (!resolvedRoomId) {
@@ -141,7 +161,10 @@ export function MemoRoomPanel({
                             title: memo.title?.trim() || "Memo Room",
                         }),
                     });
-                    const createRoom = await readJson<{ room?: { id: string } }>(createRoomRes);
+                    const createRoom = await readJsonOrThrow<{ room?: { id: string } }>(
+                        createRoomRes,
+                        "Failed to create memo room"
+                    );
                     resolvedRoomId = createRoom.room?.id ?? null;
                 }
 
