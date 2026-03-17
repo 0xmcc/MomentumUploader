@@ -2,6 +2,26 @@ import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoDetailView } from "./MemoStudioSections";
 
+const mockUseMemoPlayback = jest.fn(() => ({
+  audioRef: { current: null },
+  currentTime: 0,
+  displayDuration: 0,
+  handleEnded: jest.fn(),
+  handleLoadedMetadata: jest.fn(),
+  handleSeek: jest.fn(),
+  handleShare: jest.fn(),
+  handleShareLink: jest.fn(),
+  handleTimeUpdate: jest.fn(),
+  isPlaying: false,
+  lastShareUrl: null,
+  progress: 0,
+  shareLabel: "Share",
+  shareState: "idle",
+  shareLinkLabel: "Share link",
+  shareLinkState: "idle",
+  togglePlay: jest.fn(),
+}));
+
 jest.mock("next/link", () => ({
   __esModule: true,
   default: ({
@@ -49,25 +69,7 @@ jest.mock("@/components/ThemeProvider", () => ({
 }));
 
 jest.mock("@/hooks/useMemoPlayback", () => ({
-  useMemoPlayback: jest.fn(() => ({
-    audioRef: { current: null },
-    currentTime: 0,
-    displayDuration: 0,
-    handleEnded: jest.fn(),
-    handleLoadedMetadata: jest.fn(),
-    handleSeek: jest.fn(),
-    handleShare: jest.fn(),
-    handleShareLink: jest.fn(),
-    handleTimeUpdate: jest.fn(),
-    isPlaying: false,
-    lastShareUrl: null,
-    progress: 0,
-    shareLabel: "Share",
-    shareState: "idle",
-    shareLinkLabel: "Share link",
-    shareLinkState: "idle",
-    togglePlay: jest.fn(),
-  })),
+  useMemoPlayback: (...args: unknown[]) => mockUseMemoPlayback(...args),
 }));
 
 jest.mock("@/components/ThemeToggle", () => ({
@@ -83,6 +85,25 @@ jest.mock("@/components/VoiceoverStudio", () => ({
 describe("MemoDetailView", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    mockUseMemoPlayback.mockReturnValue({
+      audioRef: { current: null },
+      currentTime: 0,
+      displayDuration: 0,
+      handleEnded: jest.fn(),
+      handleLoadedMetadata: jest.fn(),
+      handleSeek: jest.fn(),
+      handleShare: jest.fn(),
+      handleShareLink: jest.fn(),
+      handleTimeUpdate: jest.fn(),
+      isPlaying: false,
+      lastShareUrl: null,
+      progress: 0,
+      shareLabel: "Share",
+      shareState: "idle",
+      shareLinkLabel: "Share link",
+      shareLinkState: "idle",
+      togglePlay: jest.fn(),
+    });
   });
 
   it("shows a download recording escape hatch when the memo failed", () => {
@@ -228,5 +249,52 @@ describe("MemoDetailView", () => {
     expect(
       screen.getByRole("button", { name: /share link/i })
     ).toBeInTheDocument();
+  });
+
+  it("keeps the open share page link to the left of copy when a share url is available", () => {
+    mockUseMemoPlayback.mockReturnValue({
+      audioRef: { current: null },
+      currentTime: 0,
+      displayDuration: 0,
+      handleEnded: jest.fn(),
+      handleLoadedMetadata: jest.fn(),
+      handleSeek: jest.fn(),
+      handleShare: jest.fn(),
+      handleShareLink: jest.fn(),
+      handleTimeUpdate: jest.fn(),
+      isPlaying: false,
+      lastShareUrl: "https://example.com/s/memo-share-2",
+      progress: 0,
+      shareLabel: "Copy",
+      shareState: "idle",
+      shareLinkLabel: "Copied!",
+      shareLinkState: "copied",
+      togglePlay: jest.fn(),
+    });
+
+    render(
+      <MemoDetailView
+        memo={{
+          id: "memo-share-2",
+          title: "Share Memo",
+          transcript: "Transcript content.",
+          createdAt: "2026-03-16T12:00:00.000Z",
+          wordCount: 2,
+        }}
+      />
+    );
+
+    const shareButton = screen.getByRole("button", { name: /copied!/i });
+    const openSharePageLink = screen.getByRole("link", { name: /open share page/i });
+    const copyButton = screen.getByRole("button", { name: /copy/i });
+
+    expect(
+      shareButton.compareDocumentPosition(openSharePageLink) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      openSharePageLink.compareDocumentPosition(copyButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 });

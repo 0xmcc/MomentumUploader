@@ -500,6 +500,41 @@ describe("share-contract", () => {
         );
     });
 
+    it("renders owner notes with the owner's profile name, avatar, and icon instead of the Owner label", async () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        const fetchMock = jest.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                messages: [
+                    {
+                        id: "message-1",
+                        authorName: "Marko Ivanovic",
+                        authorAvatarUrl: "https://img.example.com/marko.png",
+                        authorIsOwner: true,
+                        createdAt: "2026-03-16T12:00:00.000Z",
+                        content: "Checking the shared note styling.",
+                        anchorStartMs: null,
+                    },
+                ],
+                isOwner: false,
+                isAuthenticated: true,
+            }),
+        });
+
+        await loadSharePageScript(html, fetchMock);
+
+        const avatar = document.querySelector(".disc-avatar") as HTMLImageElement;
+        const ownerMark = document.querySelector(".disc-owner-mark") as HTMLElement;
+        const author = document.querySelector(".disc-author") as HTMLElement;
+
+        expect(author.textContent).toContain("Marko Ivanovic");
+        expect(author.textContent).not.toContain("Owner");
+        expect(avatar).not.toBeNull();
+        expect(avatar.src).toBe("https://img.example.com/marko.png");
+        expect(ownerMark).not.toBeNull();
+        expect(ownerMark.getAttribute("aria-label")).toBe("Memo owner");
+    });
+
     it("renders discussion anchors that seek the share audio directly and play it", async () => {
         const html = buildSharedArtifactHtml(basePayload);
         const fetchMock = jest.fn().mockResolvedValue({
@@ -508,7 +543,9 @@ describe("share-contract", () => {
                 messages: [
                     {
                         id: "message-1",
-                        authorName: "Owner",
+                        authorName: "Marko Ivanovic",
+                        authorAvatarUrl: "https://img.example.com/marko.png",
+                        authorIsOwner: true,
                         createdAt: "2026-03-16T12:00:00.000Z",
                         content: "Check this section.",
                         anchorStartMs: 12000,
@@ -536,6 +573,92 @@ describe("share-contract", () => {
         expect(audio.currentTime).toBe(12);
         expect(play).toHaveBeenCalledTimes(1);
         expect((document.getElementById("disc-form") as HTMLElement).style.display).toBe("");
+    });
+
+    it("keeps the composer mounted and shows the posted note immediately after submit", async () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        let discussionReloadRequested = false;
+        let discussionGetCount = 0;
+        let resolveReload: ((value: { ok: true; json: () => Promise<{
+            messages: [];
+            isOwner: true;
+            isAuthenticated: true;
+        }>; }) => void) | null = null;
+        const reloadResponse = new Promise<{
+            ok: true;
+            json: () => Promise<{ messages: []; isOwner: true; isAuthenticated: true }>;
+        }>((resolve) => {
+            resolveReload = resolve;
+        });
+        const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+            const url = String(input);
+
+            if (url !== "/api/s/abc123token/discussion") {
+                throw new Error(`Unexpected fetch URL: ${url}`);
+            }
+
+            if (!init?.method || init.method === "GET") {
+                discussionGetCount += 1;
+                if (discussionGetCount === 1) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: async () => ({
+                            messages: [],
+                            isOwner: true,
+                            isAuthenticated: true,
+                        }),
+                    });
+                }
+
+                discussionReloadRequested = true;
+                return reloadResponse;
+            }
+
+            return Promise.resolve({
+                ok: true,
+                json: async () => ({
+                    message: {
+                        id: "message-1",
+                        memoId: "memo-123",
+                        authorName: "Marko Ivanovic",
+                        authorAvatarUrl: "https://img.example.com/marko.png",
+                        authorIsOwner: true,
+                        content: "This should stay visible.",
+                        anchorStartMs: null,
+                        createdAt: "2026-03-17T10:00:00.000Z",
+                    },
+                }),
+            });
+        });
+
+        await loadSharePageScript(html, fetchMock);
+
+        const form = document.getElementById("disc-form") as HTMLFormElement;
+        const input = document.getElementById("disc-input") as HTMLTextAreaElement;
+        const submitButton = document.getElementById("disc-submit") as HTMLButtonElement;
+        const discussionList = document.getElementById("disc-list") as HTMLElement;
+
+        input.value = "This should stay visible.";
+
+        await act(async () => {
+            form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(discussionReloadRequested).toBe(false);
+        expect(form.style.display).toBe("");
+        expect(submitButton.disabled).toBe(false);
+        expect(discussionList).toHaveTextContent("This should stay visible.");
+
+        resolveReload?.({
+            ok: true,
+            json: async () => ({
+                messages: [],
+                isOwner: true,
+                isAuthenticated: true,
+            }),
+        });
     });
 
     describe("transcript keyword search", () => {
@@ -582,7 +705,9 @@ describe("share-contract", () => {
                             messages: [
                                 {
                                     id: "message-1",
-                                    authorName: "Owner",
+                                    authorName: "Marko Ivanovic",
+                                    authorAvatarUrl: "https://img.example.com/marko.png",
+                                    authorIsOwner: true,
                                     content: "Keep this note mounted.",
                                     anchorStartMs: null,
                                     createdAt: "2026-03-17T10:00:00.000Z",

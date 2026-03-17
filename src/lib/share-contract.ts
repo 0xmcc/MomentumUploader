@@ -694,9 +694,49 @@ export function buildSharedArtifactHtml(
       margin-bottom: 0.45rem;
       font-size: 0.85rem;
     }
+    .disc-author-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      min-width: 0;
+    }
+    .disc-avatar {
+      width: 1.85rem;
+      height: 1.85rem;
+      border-radius: 999px;
+      object-fit: cover;
+      flex-shrink: 0;
+      border: 1px solid color-mix(in srgb, var(--border) 60%, var(--accent) 40%);
+      background: color-mix(in srgb, var(--surface) 85%, var(--accent) 15%);
+    }
+    .disc-avatar-fallback {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--foreground);
+    }
     .disc-author {
       color: var(--foreground);
       font-weight: 600;
+    }
+    .disc-owner-mark {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.1rem;
+      height: 1.1rem;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent) 18%, transparent);
+      color: var(--accent);
+      border: 1px solid color-mix(in srgb, var(--border) 45%, var(--accent) 55%);
+      flex-shrink: 0;
+    }
+    .disc-owner-mark svg {
+      width: 0.7rem;
+      height: 0.7rem;
+      display: block;
     }
     .disc-time {
       color: var(--accent);
@@ -1085,11 +1125,97 @@ export function buildSharedArtifactHtml(
         return minutes + ":" + String(seconds).padStart(2, "0");
       }
 
-      async function loadDiscussion() {
-        form.style.display = "none";
+      function initialForName(name) {
+        const trimmed = (name || "").trim();
+        return trimmed ? trimmed.charAt(0).toUpperCase() : "?";
+      }
+
+      function renderDiscussionAvatar(message) {
+        if (message.authorAvatarUrl) {
+          return '<img class="disc-avatar" src="' + escHtml(message.authorAvatarUrl) + '" alt="" loading="lazy" referrerpolicy="no-referrer" />';
+        }
+
+        return '<span class="disc-avatar disc-avatar-fallback" aria-hidden="true">' + escHtml(initialForName(message.authorName)) + '</span>';
+      }
+
+      function renderOwnerMark(message) {
+        if (!message.authorIsOwner) {
+          return "";
+        }
+
+        return '<span class="disc-owner-mark" aria-label="Memo owner" title="Memo owner">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M3 18h18l-2-9-5 4-2-6-2 6-5-4-2 9Z"></path>' +
+          "</svg>" +
+        "</span>";
+      }
+
+      function renderDiscussionMessage(message) {
+        return '<div class="disc-msg">' +
+          '<div class="disc-meta">' +
+            '<span class="disc-author-row">' +
+              renderDiscussionAvatar(message) +
+              '<span class="disc-author">' + escHtml(message.authorName) + '</span>' +
+              renderOwnerMark(message) +
+            "</span>" +
+            '<span class="disc-time">' + escHtml(fmtRelative(message.createdAt)) + '</span>' +
+            (message.anchorStartMs != null
+              ? '<button class="disc-anchor ts-link" data-t="' + message.anchorStartMs + '">▶ ' + fmtMs(message.anchorStartMs) + '</button>'
+              : "") +
+          "</div>" +
+          '<p class="disc-content">' + escHtml(message.content) + "</p>" +
+        "</div>";
+      }
+
+      function bindDiscussionAnchors(scope) {
+        const audio = document.querySelector("audio.share-audio");
+        scope.querySelectorAll(".disc-anchor").forEach((btn) =>
+          btn.addEventListener("click", () => {
+            if (!audio) return;
+            audio.currentTime = +btn.dataset.t / 1000;
+            audio.play().catch(function() {});
+          })
+        );
+      }
+
+      function renderDiscussion(messages) {
+        discussionList.innerHTML = messages.length === 0
+          ? '<p class="disc-empty">No notes yet.</p>'
+          : messages.map((message) => renderDiscussionMessage(message)).join("");
+
+        bindDiscussionAnchors(discussionList);
+      }
+
+      function appendDiscussionMessage(message) {
+        const emptyState = discussionList.querySelector(".disc-empty");
+        if (emptyState) {
+          discussionList.innerHTML = "";
+        }
+
+        discussionList.insertAdjacentHTML("beforeend", renderDiscussionMessage(message));
+        const appendedMessage = discussionList.lastElementChild;
+        if (appendedMessage) {
+          bindDiscussionAnchors(appendedMessage);
+        }
+      }
+
+      function renderDiscussionAccess(isOwner, isAuthenticated) {
         signInHint.style.display = "none";
         ownerOnlyHint.style.display = "none";
+        form.style.display = isOwner ? "" : "none";
 
+        if (isOwner) {
+          return;
+        }
+
+        if (isAuthenticated) {
+          ownerOnlyHint.style.display = "";
+        } else {
+          signInHint.style.display = "";
+        }
+      }
+
+      async function loadDiscussion() {
         try {
           const res = await fetch("/api/s/" + shareRef + "/discussion");
           if (!res.ok) {
@@ -1097,82 +1223,59 @@ export function buildSharedArtifactHtml(
           }
 
           const { messages, isOwner, isAuthenticated } = await res.json();
-          discussionList.innerHTML = messages.length === 0
-            ? '<p class="disc-empty">No notes yet.</p>'
-            : messages.map((message) => {
-                return '<div class="disc-msg">' +
-                  '<div class="disc-meta">' +
-                    '<span class="disc-author">' + escHtml(message.authorName) + '</span>' +
-                    '<span class="disc-time">' + escHtml(fmtRelative(message.createdAt)) + '</span>' +
-                    (message.anchorStartMs != null
-                      ? '<button class="disc-anchor ts-link" data-t="' + message.anchorStartMs + '">▶ ' + fmtMs(message.anchorStartMs) + '</button>'
-                      : "") +
-                  "</div>" +
-                  '<p class="disc-content">' + escHtml(message.content) + "</p>" +
-                "</div>";
-              }).join("");
+          renderDiscussion(messages);
+          renderDiscussionAccess(isOwner, isAuthenticated);
 
-          const audio = document.querySelector("audio.share-audio");
-          discussionList.querySelectorAll(".disc-anchor").forEach((btn) =>
-            btn.addEventListener("click", () => {
-              if (!audio) return;
-              audio.currentTime = +btn.dataset.t / 1000;
-              audio.play().catch(function() {});
-            })
-          );
-
-          if (isOwner) {
-            form.style.display = "";
-            if (!form._listenerAttached) {
-              form._listenerAttached = true;
-              form.addEventListener("submit", async (event) => {
-                event.preventDefault();
-                const content = discussionInput.value.trim();
-                if (!content) return;
-
-                discussionSubmit.disabled = true;
-                discussionError.style.display = "none";
-
-                try {
-                  const response = await fetch("/api/s/" + shareRef + "/discussion", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ content }),
-                    credentials: "include",
-                  });
-
-                  if (!response.ok) {
-                    let message = "Post failed";
-                    try {
-                      const payload = await response.json();
-                      if (payload && typeof payload.error === "string") {
-                        message = payload.error;
-                      }
-                    } catch (_error) {
-                      // Fall back to the generic message.
-                    }
-
-                    throw new Error(message);
-                  }
-
-                  discussionInput.value = "";
-                  await loadDiscussion();
-                } catch (error) {
-                  discussionError.textContent = error instanceof Error ? error.message : "Post failed";
-                  discussionError.style.display = "";
-                } finally {
-                  discussionSubmit.disabled = false;
-                }
-              });
-            }
-          } else if (isAuthenticated) {
-            ownerOnlyHint.style.display = "";
-          } else {
-            signInHint.style.display = "";
-          }
         } catch (_error) {
           discussionList.innerHTML = '<p class="disc-error">Could not load discussion.</p>';
         }
+      }
+
+      if (!form._listenerAttached) {
+        form._listenerAttached = true;
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const content = discussionInput.value.trim();
+          if (!content) return;
+
+          discussionSubmit.disabled = true;
+          discussionError.style.display = "none";
+
+          try {
+            const response = await fetch("/api/s/" + shareRef + "/discussion", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ content }),
+              credentials: "include",
+            });
+
+            if (!response.ok) {
+              let message = "Post failed";
+              try {
+                const payload = await response.json();
+                if (payload && typeof payload.error === "string") {
+                  message = payload.error;
+                }
+              } catch (_error) {
+                // Fall back to the generic message.
+              }
+
+              throw new Error(message);
+            }
+
+            const payload = await response.json();
+            if (payload && payload.message) {
+              appendDiscussionMessage(payload.message);
+            }
+
+            discussionInput.value = "";
+          } catch (error) {
+            discussionError.textContent = error instanceof Error ? error.message : "Post failed";
+            discussionError.style.display = "";
+          } finally {
+            discussionSubmit.disabled = false;
+          }
+        });
       }
 
       loadDiscussion();

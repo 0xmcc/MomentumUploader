@@ -361,6 +361,17 @@ export function MemoDetailView({
               {shareLinkLabel}
             </span>
           </button>
+          {shareLinkState === "copied" && lastShareUrl && (
+            <a
+              href={lastShareUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] text-emerald-300/90 hover:text-emerald-200 font-mono uppercase tracking-wide transition-colors"
+              title="Open share page in a new tab"
+            >
+              Open share page
+            </a>
+          )}
           <button
             onClick={handleShare}
             title="Copy transcript"
@@ -382,17 +393,6 @@ export function MemoDetailView({
               {shareLabel}
             </span>
           </button>
-          {shareLinkState === "copied" && lastShareUrl && (
-            <a
-              href={lastShareUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[11px] text-emerald-300/90 hover:text-emerald-200 font-mono uppercase tracking-wide transition-colors"
-              title="Open share page in a new tab"
-            >
-              Open share page
-            </a>
-          )}
           {!isFailed && memo.transcript && (
             <button
               onClick={() => exportMarkdown(memo)}

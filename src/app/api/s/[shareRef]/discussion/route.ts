@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { createMessageId } from "@/lib/memo-rooms";
 import {
   findMemoDiscussion,
@@ -29,6 +29,11 @@ type DiscussionMessageRow = {
     | null;
 };
 
+type OwnerIdentity = {
+  displayName: string;
+  avatarUrl: string | null;
+};
+
 function respondShareStatus(status: "not_found" | "revoked" | "expired"): Response {
   if (status === "not_found") {
     return Response.json({ error: "This share link is not available." }, { status: 404 });
@@ -41,13 +46,21 @@ function respondShareStatus(status: "not_found" | "revoked" | "expired"): Respon
   return Response.json({ error: "This share link has expired." }, { status: 410 });
 }
 
-function resolveAuthorName(message: DiscussionMessageRow): string {
-  const author = Array.isArray(message.author_participant)
+function resolveAuthorParticipant(message: DiscussionMessageRow) {
+  return Array.isArray(message.author_participant)
     ? message.author_participant[0] ?? null
     : message.author_participant ?? null;
+}
+
+function isOwnerAuthoredMessage(message: DiscussionMessageRow): boolean {
+  return resolveAuthorParticipant(message)?.role === "owner";
+}
+
+function resolveAuthorName(message: DiscussionMessageRow): string {
+  const author = resolveAuthorParticipant(message);
 
   if (author?.role === "owner") {
-    return "Owner";
+    return "Memo owner";
   }
 
   if (author?.participant_type === "agent") {
@@ -57,11 +70,43 @@ function resolveAuthorName(message: DiscussionMessageRow): string {
   return "Participant";
 }
 
-function serializeDiscussionMessage(message: DiscussionMessageRow) {
+async function resolveOwnerIdentity(ownerUserId: string | null): Promise<OwnerIdentity | null> {
+  if (!ownerUserId) {
+    return null;
+  }
+
+  try {
+    const client = await clerkClient();
+    const owner = await client.users.getUser(ownerUserId);
+    const displayName =
+      owner.fullName?.trim() ||
+      [owner.firstName, owner.lastName].filter(Boolean).join(" ").trim() ||
+      owner.username?.trim() ||
+      "Memo owner";
+
+    return {
+      displayName,
+      avatarUrl: owner.imageUrl ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function serializeDiscussionMessage(
+  message: DiscussionMessageRow,
+  ownerIdentity: OwnerIdentity | null
+) {
+  const ownerAuthored = isOwnerAuthoredMessage(message);
+
   return {
     id: message.id,
     memoId: message.memo_id,
-    authorName: resolveAuthorName(message),
+    authorName: ownerAuthored
+      ? ownerIdentity?.displayName ?? "Memo owner"
+      : resolveAuthorName(message),
+    authorAvatarUrl: ownerAuthored ? ownerIdentity?.avatarUrl ?? null : null,
+    authorIsOwner: ownerAuthored,
     content: message.content,
     anchorStartMs: message.anchor_start_ms,
     createdAt: message.created_at,
@@ -129,10 +174,13 @@ export async function GET(_req: Request, { params }: Params): Promise<Response> 
     );
   }
 
+  const rows = (data ?? []) as DiscussionMessageRow[];
+  const ownerIdentity = rows.some(isOwnerAuthoredMessage)
+    ? await resolveOwnerIdentity(share.memo.ownerUserId)
+    : null;
+
   return Response.json({
-    messages: ((data ?? []) as DiscussionMessageRow[]).map(
-      serializeDiscussionMessage
-    ),
+    messages: rows.map((message) => serializeDiscussionMessage(message, ownerIdentity)),
     isOwner,
     isAuthenticated,
   });
@@ -205,12 +253,16 @@ export async function POST(req: Request, { params }: Params): Promise<Response> 
     return Response.json({ error: "Failed to create message." }, { status: 500 });
   }
 
+  const ownerIdentity = await resolveOwnerIdentity(share.memo.ownerUserId);
+
   return Response.json(
     {
       message: {
         id: data.id,
         memoId: data.memo_id,
-        authorName: "Owner",
+        authorName: ownerIdentity?.displayName ?? "Memo owner",
+        authorAvatarUrl: ownerIdentity?.avatarUrl ?? null,
+        authorIsOwner: true,
         content: data.content,
         anchorStartMs: data.anchor_start_ms,
         createdAt: data.created_at,

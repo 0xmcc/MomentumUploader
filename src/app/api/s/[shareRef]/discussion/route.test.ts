@@ -1,6 +1,6 @@
 /** @jest-environment node */
 
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { GET, POST } from "./route";
 import {
     findMemoDiscussion,
@@ -11,6 +11,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 
 jest.mock("@clerk/nextjs/server", () => ({
     auth: jest.fn(),
+    clerkClient: jest.fn(),
 }));
 
 jest.mock("@/lib/memo-share", () => ({
@@ -49,6 +50,17 @@ describe("share discussion route", () => {
         (resolveMemoShare as jest.Mock).mockResolvedValue({ status: "ok", memo: sharedMemo });
         (auth as jest.Mock).mockResolvedValue({ userId: null });
         (findMemoDiscussion as jest.Mock).mockResolvedValue(null);
+        (clerkClient as jest.Mock).mockResolvedValue({
+            users: {
+                getUser: jest.fn().mockResolvedValue({
+                    firstName: "Marko",
+                    lastName: "Ivanovic",
+                    fullName: "Marko Ivanovic",
+                    username: "marko",
+                    imageUrl: "https://img.example.com/marko.png",
+                }),
+            },
+        });
     });
 
     it("returns public discussion messages for a valid share and reports owner/auth state independently of room existence", async () => {
@@ -107,7 +119,9 @@ describe("share discussion route", () => {
                 {
                     id: "message-1",
                     memoId: "memo-1",
-                    authorName: "Owner",
+                    authorName: "Marko Ivanovic",
+                    authorAvatarUrl: "https://img.example.com/marko.png",
+                    authorIsOwner: true,
                     content: "First public note",
                     anchorStartMs: 12000,
                     createdAt: "2026-03-16T12:10:00.000Z",
@@ -118,6 +132,7 @@ describe("share discussion route", () => {
         });
         expect(roomEq).toHaveBeenCalledWith("memo_room_id", "room-1");
         expect(visibilityEq).toHaveBeenCalledWith("visibility", "public");
+        expect(clerkClient).toHaveBeenCalledTimes(1);
     });
 
     it("returns an empty discussion instead of an error when no room exists", async () => {
@@ -240,7 +255,9 @@ describe("share discussion route", () => {
         );
         expect(body.message).toMatchObject({
             memoId: "memo-1",
-            authorName: "Owner",
+            authorName: "Marko Ivanovic",
+            authorAvatarUrl: "https://img.example.com/marko.png",
+            authorIsOwner: true,
             content: "Hello from the owner",
         });
     });
