@@ -1,6 +1,7 @@
 import { randomBytes } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { isExpired, isRevoked, resolveExpiration } from "@/lib/share-access";
 import { supabaseAdmin } from "@/lib/supabase";
 
 const CORS = {
@@ -11,32 +12,6 @@ const CORS = {
 
 type Params = { params: Promise<{ id: string }> };
 type MemoRow = Record<string, unknown>;
-
-function normalizeTimestamp(raw: unknown): string | null {
-    if (raw === null || raw === undefined) {
-        return null;
-    }
-
-    if (typeof raw === "string") {
-        const parsed = Date.parse(raw);
-        return Number.isNaN(parsed) ? null : new Date(parsed).toISOString();
-    }
-
-    if (typeof raw === "number" && Number.isFinite(raw)) {
-        const ms = raw > 1_000_000_000_000 ? raw : raw * 1000;
-        return new Date(ms).toISOString();
-    }
-
-    return null;
-}
-
-function isExpired(row: MemoRow): boolean {
-    const shareExpiry = normalizeTimestamp(row.share_expires_at);
-    const genericExpiry = normalizeTimestamp(row.expires_at);
-    const expiresAt = shareExpiry ?? genericExpiry;
-    if (!expiresAt) return false;
-    return Date.parse(expiresAt) <= Date.now();
-}
 
 function readShareToken(row: MemoRow): string | null {
     const token = row.share_token;
@@ -101,10 +76,9 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     const row = currentMemo as MemoRow;
     const existingToken = readShareToken(row);
-    const revokedAt = normalizeTimestamp(row.revoked_at);
-    const isShareable = row.is_shareable !== false;
+    const expiresAt = resolveExpiration(row);
 
-    if (existingToken && !revokedAt && isShareable && !isExpired(row)) {
+    if (existingToken && !isRevoked(row) && !isExpired(expiresAt)) {
         return NextResponse.json(
             {
                 memoId: id,

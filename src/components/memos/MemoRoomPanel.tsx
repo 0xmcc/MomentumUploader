@@ -8,7 +8,7 @@ import {
     Users,
     X,
 } from "lucide-react";
-import { startTransition, useEffect, useEffectEvent, useState } from "react";
+import { startTransition, useEffect, useEffectEvent, useRef, useState } from "react";
 import type { Memo } from "@/lib/memo-ui";
 import { formatDate } from "@/lib/memo-ui";
 import type { TranscriptSegment } from "@/lib/transcript";
@@ -116,75 +116,92 @@ export function MemoRoomPanel({
     const [isLoading, setIsLoading] = useState(true);
     const [isPosting, setIsPosting] = useState(false);
     const [isInvoking, setIsInvoking] = useState(false);
+    const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
     const refreshRoom = useEffectEvent(async () => {
-        setIsLoading(true);
-        setError(null);
+        if (refreshInFlightRef.current) {
+            return refreshInFlightRef.current;
+        }
+
+        const refreshPromise = (async () => {
+            setIsLoading(true);
+            setError(null);
+
+            try {
+                const roomLookupRes = await fetch(`/api/memos/${memo.id}/room`);
+                const roomLookup = await readJson<{ room: { roomId: string } | null }>(roomLookupRes);
+
+                let resolvedRoomId = roomLookup.room?.roomId ?? null;
+                if (!resolvedRoomId) {
+                    const createRoomRes = await fetch("/api/memo-rooms", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            memoId: memo.id,
+                            title: memo.title?.trim() || "Memo Room",
+                        }),
+                    });
+                    const createRoom = await readJson<{ room?: { id: string } }>(createRoomRes);
+                    resolvedRoomId = createRoom.room?.id ?? null;
+                }
+
+                if (!resolvedRoomId) {
+                    throw new Error("Unable to resolve memo room");
+                }
+
+                const [contextRes, messagesRes, agentsRes] = await Promise.all([
+                    fetch(`/api/memo-rooms/${resolvedRoomId}/context`),
+                    fetch(`/api/memo-rooms/${resolvedRoomId}/messages`),
+                    fetch("/api/agents"),
+                ]);
+
+                if (!contextRes.ok || !messagesRes.ok || !agentsRes.ok) {
+                    throw new Error("Failed to load memo room");
+                }
+
+                const context = await readJson<RoomContextPayload>(contextRes);
+                const messagePayload = await readJson<{ messages: RoomMessage[] }>(messagesRes);
+                const agentsPayload = await readJson<{ agents: Agent[] }>(agentsRes);
+
+                startTransition(() => {
+                    setRoomId(resolvedRoomId);
+                    setParticipants(context.room.participants);
+                    setViewerParticipant(context.viewerParticipant);
+                    setMessages(messagePayload.messages);
+                    setAgents(agentsPayload.agents.filter((agent) => agent.status === "active"));
+                    setVisibility(
+                        context.viewerParticipant.defaultVisibility === "owner_only"
+                            ? "owner_only"
+                            : "public"
+                    );
+                    setSelectedAgentId((current) => {
+                        if (current) {
+                            return current;
+                        }
+
+                        const firstAgent = agentsPayload.agents.find((agent) => agent.status === "active");
+                        return firstAgent?.id ?? "";
+                    });
+                });
+            } catch (refreshError) {
+                setError(
+                    refreshError instanceof Error
+                        ? refreshError.message
+                        : "Failed to load memo room"
+                );
+            } finally {
+                setIsLoading(false);
+            }
+        })();
+
+        refreshInFlightRef.current = refreshPromise;
 
         try {
-            const roomLookupRes = await fetch(`/api/memos/${memo.id}/room`);
-            const roomLookup = await readJson<{ room: { roomId: string } | null }>(roomLookupRes);
-
-            let resolvedRoomId = roomLookup.room?.roomId ?? null;
-            if (!resolvedRoomId) {
-                const createRoomRes = await fetch("/api/memo-rooms", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        memoId: memo.id,
-                        title: memo.title?.trim() || "Memo Room",
-                    }),
-                });
-                const createRoom = await readJson<{ room?: { id: string } }>(createRoomRes);
-                resolvedRoomId = createRoom.room?.id ?? null;
-            }
-
-            if (!resolvedRoomId) {
-                throw new Error("Unable to resolve memo room");
-            }
-
-            const [contextRes, messagesRes, agentsRes] = await Promise.all([
-                fetch(`/api/memo-rooms/${resolvedRoomId}/context`),
-                fetch(`/api/memo-rooms/${resolvedRoomId}/messages`),
-                fetch("/api/agents"),
-            ]);
-
-            if (!contextRes.ok || !messagesRes.ok || !agentsRes.ok) {
-                throw new Error("Failed to load memo room");
-            }
-
-            const context = await readJson<RoomContextPayload>(contextRes);
-            const messagePayload = await readJson<{ messages: RoomMessage[] }>(messagesRes);
-            const agentsPayload = await readJson<{ agents: Agent[] }>(agentsRes);
-
-            startTransition(() => {
-                setRoomId(resolvedRoomId);
-                setParticipants(context.room.participants);
-                setViewerParticipant(context.viewerParticipant);
-                setMessages(messagePayload.messages);
-                setAgents(agentsPayload.agents.filter((agent) => agent.status === "active"));
-                setVisibility(
-                    context.viewerParticipant.defaultVisibility === "owner_only"
-                        ? "owner_only"
-                        : "public"
-                );
-                setSelectedAgentId((current) => {
-                    if (current) {
-                        return current;
-                    }
-
-                    const firstAgent = agentsPayload.agents.find((agent) => agent.status === "active");
-                    return firstAgent?.id ?? "";
-                });
-            });
-        } catch (refreshError) {
-            setError(
-                refreshError instanceof Error
-                    ? refreshError.message
-                    : "Failed to load memo room"
-            );
+            await refreshPromise;
         } finally {
-            setIsLoading(false);
+            if (refreshInFlightRef.current === refreshPromise) {
+                refreshInFlightRef.current = null;
+            }
         }
     });
 

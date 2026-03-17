@@ -3,6 +3,7 @@ import {
   type ArtifactMap,
 } from "@/lib/artifact-types";
 import { SHOW_ARTIFACTS_IN_UI } from "@/lib/feature-flags";
+import type { ResolvedMemoShare } from "@/lib/share-domain";
 import type { TranscriptSegment } from "@/lib/transcript";
 
 export type ShareFormat = "html" | "md" | "json";
@@ -48,6 +49,14 @@ export type SharedArtifactJson = {
     };
     artifacts: ArtifactMap;
   };
+};
+
+export type ShareBootPayload = {
+  shareToken: string;
+  canonicalUrl: string;
+  isLiveRecording: boolean;
+  transcriptFileName: string;
+  mediaUrl: string | null;
 };
 
 const SUPPORTED_QUERY_FORMATS = new Set<string>(["html", "md", "json"]);
@@ -146,8 +155,31 @@ export function resolveShareFormat(pathFormat: ShareFormat, queryFormat: string 
   return resolved;
 }
 
-export function isValidShareToken(token: string): boolean {
-  return /^[A-Za-z0-9_-]{8,128}$/.test(token);
+export function buildSharePageViewModel(
+  memo: ResolvedMemoShare,
+  canonicalUrl: string,
+  artifacts: ArtifactMap
+): SharedArtifactPayload {
+  return {
+    artifactType: "memo",
+    artifactId: memo.memoId,
+    shareToken: memo.shareToken,
+    canonicalUrl,
+    title: memo.title,
+    transcript: memo.transcript,
+    mediaUrl: memo.mediaUrl,
+    createdAt: memo.createdAt,
+    sharedAt: memo.sharedAt,
+    expiresAt: memo.expiresAt,
+    isLiveRecording: memo.isLiveRecording,
+    transcriptStatus: memo.transcriptStatus,
+    transcriptSegments: memo.transcriptSegments,
+    artifacts,
+  };
+}
+
+export function serializeShareBootPayload(payload: ShareBootPayload): string {
+  return JSON.stringify(payload).replace(/</g, "\\u003c");
 }
 
 export function buildSharedArtifactJson(payload: SharedArtifactPayload): SharedArtifactJson {
@@ -262,8 +294,14 @@ export function buildSharedArtifactHtml(
   const encodedMarkdown = `${encodedCanonical}.md`;
   const encodedJson = `${encodedCanonical}.json`;
   const transcriptFileName = `${toSafeFileName(payload.title)}-transcript.txt`;
-  const escapedTranscriptFileName = escapeHtml(transcriptFileName);
   const isLiveRecording = payload.isLiveRecording === true;
+  const serializedBootPayload = serializeShareBootPayload({
+    shareToken: payload.shareToken,
+    canonicalUrl: payload.canonicalUrl,
+    isLiveRecording,
+    transcriptFileName,
+    mediaUrl: payload.mediaUrl,
+  });
   const liveRefreshMeta = isLiveRecording
     ? "<meta http-equiv=\"refresh\" content=\"3\" />"
     : "";
@@ -631,7 +669,7 @@ export function buildSharedArtifactHtml(
             <h2 id="transcript-heading">Transcript</h2>
             <div class="transcript-header-actions">
               <button type="button" id="copy-transcript-btn" class="copy-transcript-btn">Copy</button>
-              <button type="button" id="export-transcript-btn" class="export-transcript-btn" data-filename="${escapedTranscriptFileName}">Export</button>
+              <button type="button" id="export-transcript-btn" class="export-transcript-btn">Export</button>
             </div>
           </div>
           <div class="transcript-search-row">
@@ -644,7 +682,7 @@ export function buildSharedArtifactHtml(
       </div>
       
       ${transcriptContentHtml}
-      
+      <section id="comments-root"></section>
       
     </article>
   </main>
@@ -652,7 +690,19 @@ export function buildSharedArtifactHtml(
     <small>MomentumUploader</small>
     <a href="/" rel="noopener">Use App</a>
   </header>
+  <script id="share-boot" type="application/json">${serializedBootPayload}</script>
   <script>
+    const shareBoot = (() => {
+      const shareBootEl = document.getElementById("share-boot");
+      if (!shareBootEl || !shareBootEl.textContent) return null;
+
+      try {
+        return JSON.parse(shareBootEl.textContent);
+      } catch (_error) {
+        return null;
+      }
+    })();
+
     (() => {
       const exportButton = document.getElementById("export-transcript-btn");
       const copyButton = document.getElementById("copy-transcript-btn");
@@ -661,18 +711,22 @@ export function buildSharedArtifactHtml(
       if (!transcriptContent) return;
 
       if (exportButton) {
-        const transcript = transcriptContent.textContent || "";
-        const fileName = exportButton.getAttribute("data-filename") || "shared-transcript.txt";
-        const blob = new Blob([transcript], { type: "text/plain;charset=utf-8" });
-        const downloadUrl = URL.createObjectURL(blob);
-        const downloadLink = document.createElement("a");
-        downloadLink.href = downloadUrl;
-        downloadLink.download = fileName;
-        document.body.appendChild(downloadLink);
-        downloadLink.click();
-        downloadLink.remove();
-        URL.revokeObjectURL(downloadUrl);
-      });
+        exportButton.addEventListener("click", () => {
+          const transcript = transcriptContent.textContent || "";
+          const fileName =
+            shareBoot && typeof shareBoot.transcriptFileName === "string"
+              ? shareBoot.transcriptFileName
+              : "shared-transcript.txt";
+          const blob = new Blob([transcript], { type: "text/plain;charset=utf-8" });
+          const downloadUrl = URL.createObjectURL(blob);
+          const downloadLink = document.createElement("a");
+          downloadLink.href = downloadUrl;
+          downloadLink.download = fileName;
+          document.body.appendChild(downloadLink);
+          downloadLink.click();
+          downloadLink.remove();
+          URL.revokeObjectURL(downloadUrl);
+        });
       }
 
       if (copyButton) {
@@ -711,7 +765,7 @@ export function buildSharedArtifactHtml(
 
       const blocks = Array.from(transcriptEl.querySelectorAll(".transcript-block, .seg-text"));
       const blockTexts = blocks.map(function(b) { return b.textContent || ""; });
-      const originalText = blockTexts.join("\n\n");
+      const originalText = blockTexts.join("\\n\\n");
       const SEARCH_KEY = "transcript-search-query";
       let currentIndex = -1;
 

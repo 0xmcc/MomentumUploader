@@ -1,19 +1,25 @@
-import { buildArtifactMap, createEmptyArtifactMap } from "@/lib/artifact-types";
+import {
+    buildArtifactMap,
+    createEmptyArtifactMap,
+    type ArtifactMap,
+} from "@/lib/artifact-types";
 import { resolveMemoShare } from "@/lib/memo-share";
 import {
+    buildSharePageViewModel,
     buildShareErrorHtml,
     buildShareErrorMarkdown,
     buildSharedArtifactHtml,
     buildSharedArtifactJson,
     buildSharedArtifactMarkdown,
-    isValidShareToken,
     parseShareRef,
     resolveShareFormat,
     type ShareFormat,
 } from "@/lib/share-contract";
+import { isValidShareToken } from "@/lib/share-access";
 import { supabaseAdmin } from "@/lib/supabase";
 
 type Params = { params: Promise<{ shareRef: string }> };
+type ArtifactSource = "final" | "live";
 
 const ALLOW = "GET, HEAD, OPTIONS";
 
@@ -49,6 +55,23 @@ function respondError(status: number, format: ShareFormat, message: string): Res
     });
 }
 
+async function fetchArtifactMap(memoId: string, source: ArtifactSource): Promise<ArtifactMap> {
+    const { data: artifactRows } = await supabaseAdmin
+        .from("memo_artifacts")
+        .select(
+            "artifact_type, payload, based_on_chunk_start, based_on_chunk_end, version, updated_at"
+        )
+        .eq("memo_id", memoId)
+        .eq("source", source)
+        .eq("status", "ready");
+
+    if (!artifactRows || artifactRows.length === 0) {
+        return createEmptyArtifactMap();
+    }
+
+    return buildArtifactMap(artifactRows as Parameters<typeof buildArtifactMap>[0]);
+}
+
 export async function GET(req: Request, { params }: Params): Promise<Response> {
     const { shareRef } = await params;
     const url = new URL(req.url);
@@ -77,7 +100,7 @@ export async function GET(req: Request, { params }: Params): Promise<Response> {
         return respondError(404, format, "This share link is not available.");
     }
 
-    const share = await resolveMemoShare(shareToken, canonicalUrl);
+    const share = await resolveMemoShare(shareToken);
     if (share.status !== "ok") {
         if (share.status === "not_found") {
             return respondError(404, format, "This share link is not available.");
@@ -90,35 +113,20 @@ export async function GET(req: Request, { params }: Params): Promise<Response> {
         return respondError(410, format, "This share link has expired.");
     }
 
-    const artifactSource = share.artifact.transcriptStatus === "complete" ? "final" : "live";
-    const { data: artifactRows } = await supabaseAdmin
-        .from("memo_artifacts")
-        .select(
-            "artifact_type, payload, based_on_chunk_start, based_on_chunk_end, version, updated_at"
-        )
-        .eq("memo_id", share.artifact.artifactId)
-        .eq("source", artifactSource)
-        .eq("status", "ready");
-
-    const artifactMap =
-        artifactRows && artifactRows.length > 0
-            ? buildArtifactMap(artifactRows as Parameters<typeof buildArtifactMap>[0])
-            : createEmptyArtifactMap();
-
+    const memo = share.memo;
+    const artifactSource: ArtifactSource = memo.transcriptStatus === "complete" ? "final" : "live";
+    const artifactMap = await fetchArtifactMap(memo.memoId, artifactSource);
     const linkHeader = buildLinkHeader(canonicalUrl);
-    const artifactPayload = {
-        ...share.artifact,
-        artifacts: artifactMap,
-    };
+    const viewModel = buildSharePageViewModel(memo, canonicalUrl, artifactMap);
 
     if (format === "json") {
-        return Response.json(buildSharedArtifactJson(artifactPayload), {
+        return Response.json(buildSharedArtifactJson(viewModel), {
             headers: { Link: linkHeader },
         });
     }
 
     if (format === "md") {
-        return new Response(buildSharedArtifactMarkdown(artifactPayload), {
+        return new Response(buildSharedArtifactMarkdown(viewModel), {
             headers: {
                 "content-type": "text/markdown; charset=utf-8",
                 Link: linkHeader,
@@ -126,7 +134,7 @@ export async function GET(req: Request, { params }: Params): Promise<Response> {
         });
     }
 
-    return new Response(buildSharedArtifactHtml(artifactPayload), {
+    return new Response(buildSharedArtifactHtml(viewModel), {
         headers: {
             "content-type": "text/html; charset=utf-8",
             Link: linkHeader,

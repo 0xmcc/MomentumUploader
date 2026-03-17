@@ -1,9 +1,13 @@
+import { createEmptyArtifactMap } from "@/lib/artifact-types";
+import type { ResolvedMemoShare } from "@/lib/share-domain";
 import {
+    buildSharePageViewModel,
     buildSharedArtifactHtml,
     buildSharedArtifactJson,
     buildSharedArtifactMarkdown,
     parseShareRef,
     resolveShareFormat,
+    serializeShareBootPayload,
     type SharedArtifactPayload,
 } from "@/lib/share-contract";
 
@@ -20,6 +24,35 @@ const basePayload: SharedArtifactPayload = {
     expiresAt: null,
 };
 
+const baseResolvedMemo: ResolvedMemoShare = {
+    memoId: "memo-123",
+    shareToken: "abc123token",
+    title: "Standup Notes",
+    transcript: "Today we finished the uploader and fixed retries.",
+    transcriptStatus: "complete",
+    transcriptSegments: null,
+    mediaUrl: "https://cdn.example.com/audio.webm",
+    createdAt: "2026-02-21T14:30:00.000Z",
+    sharedAt: "2026-02-21T14:32:00.000Z",
+    expiresAt: null,
+    isLiveRecording: false,
+};
+
+function extractBootPayload(html: string): { raw: string; parsed: Record<string, unknown> } {
+    const match = html.match(
+        /<script id="share-boot" type="application\/json">([\s\S]*?)<\/script>/
+    );
+
+    if (!match) {
+        throw new Error("Missing share boot payload");
+    }
+
+    return {
+        raw: match[1],
+        parsed: JSON.parse(match[1]) as Record<string, unknown>,
+    };
+}
+
 describe("share-contract", () => {
     it("parses canonical and machine share refs deterministically", () => {
         expect(parseShareRef("abc123token")).toEqual({ shareToken: "abc123token", pathFormat: "html" });
@@ -32,6 +65,47 @@ describe("share-contract", () => {
         expect(resolveShareFormat("md", null)).toBe("md");
         expect(() => resolveShareFormat("json", "md")).toThrow("Conflicting format selectors");
         expect(() => resolveShareFormat("html", "xml")).toThrow("Unsupported format");
+    });
+
+    it("builds the share page view model from memo domain data and route-derived canonicalUrl", () => {
+        const artifacts = createEmptyArtifactMap();
+        const viewModel = buildSharePageViewModel(
+            baseResolvedMemo,
+            "https://example.com/s/route-derived-token",
+            artifacts
+        );
+
+        expect(viewModel).toEqual({
+            artifactType: "memo",
+            artifactId: "memo-123",
+            shareToken: "abc123token",
+            canonicalUrl: "https://example.com/s/route-derived-token",
+            title: "Standup Notes",
+            transcript: "Today we finished the uploader and fixed retries.",
+            mediaUrl: "https://cdn.example.com/audio.webm",
+            createdAt: "2026-02-21T14:30:00.000Z",
+            sharedAt: "2026-02-21T14:32:00.000Z",
+            expiresAt: null,
+            isLiveRecording: false,
+            transcriptStatus: "complete",
+            transcriptSegments: null,
+            artifacts,
+        });
+    });
+
+    it("serializes the share boot payload without literal angle brackets", () => {
+        const serialized = serializeShareBootPayload({
+            shareToken: "abc123token",
+            canonicalUrl: "https://example.com/s/abc123token",
+            isLiveRecording: false,
+            transcriptFileName: "shared-transcript.txt",
+            mediaUrl: "https://cdn.example.com/audio?<script>",
+        });
+
+        expect(serialized).not.toContain("<");
+        expect(JSON.parse(serialized)).toMatchObject({
+            mediaUrl: "https://cdn.example.com/audio?<script>",
+        });
     });
 
     it("emits markdown and json with equivalent core artifact identity and content", () => {
@@ -155,6 +229,78 @@ describe("share-contract", () => {
 
         expect(html).toContain('id="export-transcript-btn"');
         expect(html).toContain('id="transcript-content"');
+    });
+
+    it("embeds a safe share boot payload that parses as JSON with the expected keys", () => {
+        const html = buildSharedArtifactHtml({
+            ...basePayload,
+            mediaUrl: "https://cdn.example.com/audio?<unsafe>",
+        });
+        const boot = extractBootPayload(html);
+
+        expect(boot.raw).not.toContain("<");
+        expect(boot.parsed).toEqual({
+            shareToken: "abc123token",
+            canonicalUrl: "https://example.com/s/abc123token",
+            isLiveRecording: false,
+            transcriptFileName: "standup-notes-transcript.txt",
+            mediaUrl: "https://cdn.example.com/audio?<unsafe>",
+        });
+    });
+
+    it("renders the comments root inside the article shell", () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        const commentsRootIndex = html.indexOf('<section id="comments-root">');
+        const articleCloseIndex = html.indexOf("</article>");
+
+        expect(commentsRootIndex).toBeGreaterThan(-1);
+        expect(commentsRootIndex).toBeLessThan(articleCloseIndex);
+    });
+
+    it("drives transcript export from the embedded boot payload", () => {
+        const clickedDownloads: string[] = [];
+        const html = buildSharedArtifactHtml(basePayload);
+        const parsed = new DOMParser().parseFromString(html, "text/html");
+        const inlineScript = parsed.querySelector('script:not([type="application/json"])');
+
+        const createObjectURL = jest.fn(() => "blob:mock-export");
+        const revokeObjectURL = jest.fn();
+        Object.defineProperty(global.URL, "createObjectURL", {
+            configurable: true,
+            value: createObjectURL,
+        });
+        Object.defineProperty(global.URL, "revokeObjectURL", {
+            configurable: true,
+            value: revokeObjectURL,
+        });
+        Object.defineProperty(global.navigator, "clipboard", {
+            configurable: true,
+            value: { writeText: jest.fn().mockResolvedValue(undefined) },
+        });
+        Object.defineProperty(global.HTMLAnchorElement.prototype, "click", {
+            configurable: true,
+            value: function click(this: HTMLAnchorElement) {
+                clickedDownloads.push(this.download);
+            },
+        });
+
+        document.head.innerHTML = parsed.head.innerHTML;
+        document.body.innerHTML = parsed.body.innerHTML;
+
+        expect(inlineScript?.textContent).toBeTruthy();
+        window.eval(inlineScript?.textContent ?? "");
+
+        const exportButton = document.getElementById("export-transcript-btn");
+        expect(exportButton).not.toBeNull();
+        expect(exportButton?.getAttribute("data-filename")).toBeNull();
+
+        exportButton?.dispatchEvent(
+            new MouseEvent("click", { bubbles: true, cancelable: true })
+        );
+
+        expect(clickedDownloads).toEqual(["standup-notes-transcript.txt"]);
+        expect(createObjectURL).toHaveBeenCalledTimes(1);
+        expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock-export");
     });
 
     describe("transcript keyword search", () => {
