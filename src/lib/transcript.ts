@@ -5,6 +5,8 @@
 export type TranscriptSegment = {
     /** Segment index as string: "0", "1", … */
     id: string;
+    dbId?: number;
+    segmentIndex?: number;
     startMs: number;
     endMs: number;
     text: string;

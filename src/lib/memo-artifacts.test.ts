@@ -232,6 +232,7 @@ describe("memo-artifacts", () => {
 
         it("falls back to deterministic summary text when the API key is missing", async () => {
             process.env = { ...env };
+            delete process.env.ANTHROPIC_API_KEY;
             const artifactUpdate = jest.fn(() => createAwaitableUpdate());
             const artifactInsert = jest.fn().mockResolvedValue({ data: null, error: null });
             const supabase = {

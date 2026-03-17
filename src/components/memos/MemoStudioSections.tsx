@@ -30,6 +30,7 @@ import {
   UserButton,
 } from "@clerk/nextjs";
 import AudioRecorder from "@/components/AudioRecorder";
+import { MemoRoomPanel } from "@/components/memos/MemoRoomPanel";
 import StatusDot from "@/components/StatusDot";
 import VoiceoverStudio from "@/components/VoiceoverStudio";
 import type {
@@ -51,6 +52,7 @@ import {
   isMemoProcessing,
   type Memo,
 } from "@/lib/memo-ui";
+import type { TranscriptSegment } from "@/lib/transcript";
 
 const TRANSCRIPT_TIMESTAMPS_STORAGE_KEY = "memo-transcript-show-timestamps";
 
@@ -117,9 +119,13 @@ function MemoTranscript({
   transcriptSegments,
   isFailed,
   showTimestamps,
+  onSegmentSelect,
+  selectedSegmentIds,
 }: Pick<Memo, "transcript" | "transcriptSegments"> & {
   isFailed: boolean;
   showTimestamps: boolean;
+  onSegmentSelect?: (segment: TranscriptSegment) => void;
+  selectedSegmentIds?: Set<string>;
 }) {
   const textClassName = isFailed ? "text-red-300/40 italic" : "text-white/80";
 
@@ -127,12 +133,18 @@ function MemoTranscript({
     return (
       <div className={`flex flex-col gap-5 text-lg leading-relaxed ${textClassName}`}>
         {transcriptSegments.map((segment) => (
-          <div
+          <button
+            type="button"
             key={segment.id}
+            onClick={() => onSegmentSelect?.(segment)}
             className={`transcript-segment items-start ${
               showTimestamps
                 ? "grid grid-cols-[auto_minmax(0,1fr)] gap-x-4"
                 : "block"
+            } w-full rounded-2xl px-3 py-2 text-left transition-colors ${
+              selectedSegmentIds?.has(String(segment.dbId ?? segment.id))
+                ? "bg-accent/10 ring-1 ring-accent/25"
+                : "hover:bg-white/[0.03]"
             }`}
           >
             {showTimestamps ? (
@@ -141,7 +153,7 @@ function MemoTranscript({
               </div>
             ) : null}
             <div>{segment.text}</div>
-          </div>
+          </button>
         ))}
       </div>
     );
@@ -199,6 +211,28 @@ export function MemoDetailView({
   });
   const inputRef = useRef<HTMLInputElement>(null);
   const hasTranscriptSegments = Boolean(memo.transcriptSegments?.length);
+  const [selectedAnchorSegments, setSelectedAnchorSegments] = useState<TranscriptSegment[]>([]);
+
+  function toggleAnchorSegment(segment: TranscriptSegment) {
+    const segmentKey = String(segment.dbId ?? segment.id);
+    setSelectedAnchorSegments((current) => {
+      const alreadySelected = current.some(
+        (entry) => String(entry.dbId ?? entry.id) === segmentKey
+      );
+
+      if (alreadySelected) {
+        return current.filter(
+          (entry) => String(entry.dbId ?? entry.id) !== segmentKey
+        );
+      }
+
+      return [...current, segment];
+    });
+  }
+
+  function clearSelectedAnchorSegments() {
+    setSelectedAnchorSegments([]);
+  }
 
   function startEditing() {
     setEditValue(displayTitle);
@@ -412,7 +446,8 @@ export function MemoDetailView({
       </div>
 
       <div className="flex-1 overflow-y-auto px-8 py-10 relative">
-        <div className="max-w-3xl mx-auto">
+        <div className="mx-auto grid max-w-7xl gap-10 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="min-w-0">
           {canDownloadFailedRecording && (
             <div className="mb-6 rounded-2xl border border-red-500/25 bg-red-500/10 px-5 py-4 text-sm text-red-100">
               <div className="font-medium text-red-50">Recording couldn't be saved.</div>
@@ -453,6 +488,10 @@ export function MemoDetailView({
             transcriptSegments={memo.transcriptSegments}
             isFailed={isFailed}
             showTimestamps={showTranscriptTimestamps}
+            onSegmentSelect={toggleAnchorSegment}
+            selectedSegmentIds={new Set(
+              selectedAnchorSegments.map((segment) => String(segment.dbId ?? segment.id))
+            )}
           />
 
           {!isFailed && memo.transcript && memo.url && (
@@ -487,6 +526,15 @@ export function MemoDetailView({
               </a>
             </div>
           )}
+          </div>
+
+          <div className="xl:sticky xl:top-8 xl:self-start">
+            <MemoRoomPanel
+              memo={memo}
+              selectedAnchorSegments={selectedAnchorSegments}
+              onClearSelectedAnchors={clearSelectedAnchorSegments}
+            />
+          </div>
         </div>
       </div>
 

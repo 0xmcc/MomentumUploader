@@ -50,6 +50,34 @@ jest.mock("@/components/ThemeProvider", () => ({
     useTheme: () => ({ playbackTheme: "accent" }),
 }));
 
+jest.mock("@/hooks/useMemoPlayback", () => ({
+    useMemoPlayback: jest.fn(() => ({
+        audioRef: { current: null },
+        currentTime: 0,
+        displayDuration: 0,
+        handleEnded: jest.fn(),
+        handleLoadedMetadata: jest.fn(),
+        handleSeek: jest.fn(),
+        handleShare: jest.fn(),
+        handleTimeUpdate: jest.fn(),
+        isPlaying: false,
+        lastShareUrl: null,
+        progress: 0,
+        shareLabel: "Share",
+        shareState: "idle",
+        togglePlay: jest.fn(),
+    })),
+}));
+
+jest.mock("@/components/VoiceoverStudio", () => ({
+    __esModule: true,
+    default: () => <div data-testid="voiceover-studio" />,
+}));
+
+jest.mock("@/components/memos/MemoRoomPanel", () => ({
+    MemoRoomPanel: () => <div data-testid="memo-room-panel" />,
+}));
+
 jest.mock("@/components/AudioRecorder", () => ({
     __esModule: true,
     default: ({
@@ -108,6 +136,21 @@ describe("Home optimistic ID behavior", () => {
                 return Promise.resolve({
                     ok: true,
                     json: async () => next,
+                });
+            }
+
+            if (url === "/api/memos/real-uuid-123") {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({
+                        memo: {
+                            id: "real-uuid-123",
+                            transcript: transcriptText,
+                            createdAt,
+                            wordCount: 8,
+                            transcriptSegments: null,
+                        },
+                    }),
                 });
             }
 

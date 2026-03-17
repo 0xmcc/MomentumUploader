@@ -77,6 +77,10 @@ jest.mock("@/components/VoiceoverStudio", () => ({
   default: () => <div data-testid="voiceover-studio" />,
 }));
 
+jest.mock("@/components/memos/MemoRoomPanel", () => ({
+  MemoRoomPanel: () => <div data-testid="memo-room-panel" />,
+}));
+
 describe("MemoDetailView", () => {
   beforeEach(() => {
     window.localStorage.clear();

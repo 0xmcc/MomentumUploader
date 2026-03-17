@@ -21,13 +21,15 @@ async function fetchTranscriptSegments(
 ): Promise<TranscriptSegment[]> {
     const { data: segRows } = await supabaseAdmin
         .from("memo_transcript_segments")
-        .select("segment_index, start_ms, end_ms, text")
+        .select("id, segment_index, start_ms, end_ms, text")
         .eq("memo_id", memoId)
         .eq("source", source)
         .order("segment_index", { ascending: true });
 
     return (segRows ?? []).map((row) => ({
         id: String(row.segment_index),
+        dbId: row.id as number,
+        segmentIndex: row.segment_index as number,
         startMs: row.start_ms as number,
         endMs: row.end_ms as number,
         text: row.text as string,

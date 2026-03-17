@@ -104,12 +104,14 @@ describe("GET /api/memos/:id", () => {
         expect(body.memo.transcriptSegments).toEqual([
             {
                 id: "0",
+                segmentIndex: 0,
                 startMs: 0,
                 endMs: 1800,
                 text: "First segment.",
             },
             {
                 id: "1",
+                segmentIndex: 1,
                 startMs: 1800,
                 endMs: 4200,
                 text: "Second segment.",
@@ -190,12 +192,14 @@ describe("GET /api/memos/:id", () => {
         expect(body.memo.transcriptSegments).toEqual([
             {
                 id: "0",
+                segmentIndex: 0,
                 startMs: 0,
                 endMs: 1800,
                 text: "Live first segment.",
             },
             {
                 id: "1",
+                segmentIndex: 1,
                 startMs: 1800,
                 endMs: 4200,
                 text: "Live second segment.",
@@ -270,6 +274,7 @@ describe("GET /api/memos/:id", () => {
         expect(body.memo.transcriptSegments).toEqual([
             {
                 id: "0",
+                segmentIndex: 0,
                 startMs: 12000,
                 endMs: 16500,
                 text: "Recovered live segment.",
