@@ -1,4 +1,5 @@
 import { createEmptyArtifactMap } from "@/lib/artifact-types";
+import { act } from "@testing-library/react";
 import type { ResolvedMemoShare } from "@/lib/share-domain";
 import {
     buildSharePageViewModel,
@@ -52,6 +53,37 @@ function extractBootPayload(html: string): { raw: string; parsed: Record<string,
         raw: match[1],
         parsed: JSON.parse(match[1]) as Record<string, unknown>,
     };
+}
+
+async function loadSharePageScript(
+    html: string,
+    fetchMock: jest.Mock
+): Promise<void> {
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+    const inlineScripts = Array.from(parsed.querySelectorAll("script"))
+        .filter((script) => script.getAttribute("type") !== "application/json")
+        .map((script) => script.textContent ?? "");
+
+    document.head.innerHTML = parsed.head.innerHTML;
+    document.body.innerHTML = parsed.body.innerHTML;
+
+    Object.defineProperty(global, "fetch", {
+        configurable: true,
+        writable: true,
+        value: fetchMock,
+    });
+    Object.defineProperty(global.navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: jest.fn().mockResolvedValue(undefined) },
+    });
+
+    await act(async () => {
+        inlineScripts.forEach((script) => {
+            window.eval(script);
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+    });
 }
 
 describe("share-contract", () => {
@@ -258,6 +290,26 @@ describe("share-contract", () => {
         expect(commentsRootIndex).toBeLessThan(articleCloseIndex);
     });
 
+    it("renders the discussion scaffold with separate unauthenticated and owner-only hints", () => {
+        const html = buildSharedArtifactHtml(basePayload);
+
+        expect(html).toContain('<section id="discussion" class="disc-section">');
+        expect(html).toContain('id="disc-form"');
+        expect(html).toContain('id="disc-signin"');
+        expect(html).toContain("Sign in to add a note.");
+        expect(html).toContain('id="disc-owner-only"');
+        expect(html).toContain("Only the memo owner can post.");
+    });
+
+    it("uses direct audio seeking for discussion anchors and guards the owner form listener from duplicates", () => {
+        const html = buildSharedArtifactHtml(basePayload);
+
+        expect(html).toContain("audio.currentTime = +btn.dataset.t / 1000;");
+        expect(html).not.toContain("seekTo(");
+        expect(html).toContain("if (!form._listenerAttached)");
+        expect(html).toContain("const { messages, isOwner, isAuthenticated } = await res.json();");
+    });
+
     it("drives transcript export from the embedded boot payload", () => {
         const clickedDownloads: string[] = [];
         const html = buildSharedArtifactHtml(basePayload);
@@ -302,6 +354,86 @@ describe("share-contract", () => {
         expect(clickedDownloads).toEqual(["standup-notes-transcript.txt"]);
         expect(createObjectURL).toHaveBeenCalledTimes(1);
         expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock-export");
+    });
+
+    it("shows the sign-in hint for unauthenticated non-owners after discussion loads", async () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        const fetchMock = jest.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                messages: [],
+                isOwner: false,
+                isAuthenticated: false,
+            }),
+        });
+
+        await loadSharePageScript(html, fetchMock);
+
+        expect(document.getElementById("disc-list")).toHaveTextContent("No notes yet.");
+        expect((document.getElementById("disc-signin") as HTMLElement).style.display).toBe("");
+        expect((document.getElementById("disc-owner-only") as HTMLElement).style.display).toBe(
+            "none"
+        );
+    });
+
+    it("shows the owner-only hint for signed-in non-owners after discussion loads", async () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        const fetchMock = jest.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                messages: [],
+                isOwner: false,
+                isAuthenticated: true,
+            }),
+        });
+
+        await loadSharePageScript(html, fetchMock);
+
+        expect(document.getElementById("disc-list")).toHaveTextContent("No notes yet.");
+        expect((document.getElementById("disc-owner-only") as HTMLElement).style.display).toBe(
+            ""
+        );
+        expect((document.getElementById("disc-signin") as HTMLElement).style.display).toBe(
+            "none"
+        );
+    });
+
+    it("renders discussion anchors that seek the share audio directly and play it", async () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        const fetchMock = jest.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                messages: [
+                    {
+                        id: "message-1",
+                        authorName: "Owner",
+                        createdAt: "2026-03-16T12:00:00.000Z",
+                        content: "Check this section.",
+                        anchorStartMs: 12000,
+                    },
+                ],
+                isOwner: true,
+                isAuthenticated: true,
+            }),
+        });
+
+        await loadSharePageScript(html, fetchMock);
+
+        const audio = document.querySelector("audio.share-audio") as HTMLAudioElement;
+        const play = jest.fn().mockResolvedValue(undefined);
+        Object.defineProperty(audio, "play", {
+            configurable: true,
+            value: play,
+        });
+
+        const anchorButton = document.querySelector(".disc-anchor") as HTMLButtonElement;
+        expect(anchorButton).toHaveTextContent("0:12");
+
+        anchorButton.click();
+
+        expect(audio.currentTime).toBe(12);
+        expect(play).toHaveBeenCalledTimes(1);
+        expect((document.getElementById("disc-form") as HTMLElement).style.display).toBe("");
     });
 
     describe("transcript keyword search", () => {

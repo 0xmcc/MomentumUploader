@@ -77,10 +77,6 @@ jest.mock("@/components/VoiceoverStudio", () => ({
   default: () => <div data-testid="voiceover-studio" />,
 }));
 
-jest.mock("@/components/memos/MemoRoomPanel", () => ({
-  MemoRoomPanel: () => <div data-testid="memo-room-panel" />,
-}));
-
 describe("MemoDetailView", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -190,5 +186,24 @@ describe("MemoDetailView", () => {
     expect(blocks).toHaveLength(1);
     expect(blocks[0]).toHaveTextContent("0:42");
     expect(blocks[0]).toHaveTextContent("Forty two seconds in.");
+  });
+
+  it("uses a single-column detail layout without the memo room sidebar", () => {
+    const { container } = render(
+      <MemoDetailView
+        memo={{
+          id: "memo-layout-1",
+          title: "Layout Memo",
+          transcript: "Transcript content.",
+          createdAt: "2026-03-16T12:00:00.000Z",
+          wordCount: 2,
+        }}
+      />
+    );
+
+    const detailGrid = container.querySelector(".mx-auto.grid.max-w-7xl");
+    expect(detailGrid).not.toBeNull();
+    expect(detailGrid).not.toHaveClass("xl:grid-cols-[minmax(0,1fr)_360px]");
+    expect(container.querySelector(".xl\\:sticky")).toBeNull();
   });
 });

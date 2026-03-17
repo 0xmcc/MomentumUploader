@@ -30,7 +30,6 @@ import {
   UserButton,
 } from "@clerk/nextjs";
 import AudioRecorder from "@/components/AudioRecorder";
-import { MemoRoomPanel } from "@/components/memos/MemoRoomPanel";
 import StatusDot from "@/components/StatusDot";
 import VoiceoverStudio from "@/components/VoiceoverStudio";
 import type {
@@ -228,10 +227,6 @@ export function MemoDetailView({
 
       return [...current, segment];
     });
-  }
-
-  function clearSelectedAnchorSegments() {
-    setSelectedAnchorSegments([]);
   }
 
   function startEditing() {
@@ -446,94 +441,88 @@ export function MemoDetailView({
       </div>
 
       <div className="flex-1 overflow-y-auto px-8 py-10 relative">
-        <div className="mx-auto grid max-w-7xl gap-10 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="mx-auto grid max-w-7xl gap-10">
           <div className="min-w-0">
-          {canDownloadFailedRecording && (
-            <div className="mb-6 rounded-2xl border border-red-500/25 bg-red-500/10 px-5 py-4 text-sm text-red-100">
-              <div className="font-medium text-red-50">Recording couldn't be saved.</div>
-              <div className="mt-1 text-red-100/75">
-                Finalization failed, but the uploaded chunks are still available.
+            {canDownloadFailedRecording && (
+              <div className="mb-6 rounded-2xl border border-red-500/25 bg-red-500/10 px-5 py-4 text-sm text-red-100">
+                <div className="font-medium text-red-50">Recording couldn't be saved.</div>
+                <div className="mt-1 text-red-100/75">
+                  Finalization failed, but the uploaded chunks are still available.
+                </div>
+                <a
+                  href={`/api/memos/${memo.id}/download-chunks`}
+                  download={`recording-${memo.id}.webm`}
+                  className="mt-3 inline-flex items-center gap-2 rounded-full border border-red-200/25 bg-red-950/30 px-3 py-1.5 text-xs font-mono uppercase tracking-wide text-red-50 transition-colors hover:border-red-100/40 hover:bg-red-950/50"
+                >
+                  <FileDown size={14} />
+                  Download recording
+                </a>
               </div>
-              <a
-                href={`/api/memos/${memo.id}/download-chunks`}
-                download={`recording-${memo.id}.webm`}
-                className="mt-3 inline-flex items-center gap-2 rounded-full border border-red-200/25 bg-red-950/30 px-3 py-1.5 text-xs font-mono uppercase tracking-wide text-red-50 transition-colors hover:border-red-100/40 hover:bg-red-950/50"
-              >
-                <FileDown size={14} />
-                Download recording
-              </a>
-            </div>
-          )}
-
-          {hasTranscriptSegments && (
-            <div className="mb-5 flex justify-end">
-              <button
-                type="button"
-                onClick={handleTranscriptTimestampToggle}
-                aria-pressed={showTranscriptTimestamps}
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-mono uppercase tracking-wide transition-all ${
-                  showTranscriptTimestamps
-                    ? "border-accent/40 bg-accent/10 text-accent"
-                    : "border-white/10 bg-white/5 text-white/50 hover:border-white/20 hover:text-white/75"
-                }`}
-              >
-                <Clock3 size={13} />
-                {showTranscriptTimestamps ? "Hide timestamps" : "Show timestamps"}
-              </button>
-            </div>
-          )}
-
-          <MemoTranscript
-            transcript={memo.transcript}
-            transcriptSegments={memo.transcriptSegments}
-            isFailed={isFailed}
-            showTimestamps={showTranscriptTimestamps}
-            onSegmentSelect={toggleAnchorSegment}
-            selectedSegmentIds={new Set(
-              selectedAnchorSegments.map((segment) => String(segment.dbId ?? segment.id))
             )}
-          />
 
-          {!isFailed && memo.transcript && memo.url && (
-            <div className="mt-10">
-              <button
-                type="button"
-                onClick={() => setShowVoiceoverStudio((v) => !v)}
-                className="voiceover-studio-toggle flex items-center gap-2 text-white/70 hover:text-white/90 font-semibold text-base transition-colors"
-                aria-expanded={showVoiceoverStudio}
-              >
-                {showVoiceoverStudio ? (
-                  <ChevronUp size={18} className="voiceover-studio-toggle-icon" />
-                ) : (
-                  <ChevronDown size={18} className="voiceover-studio-toggle-icon" />
-                )}
-                Voiceover Studio
-              </button>
-              {showVoiceoverStudio && <VoiceoverStudio memo={memo} />}
-            </div>
-          )}
+            {hasTranscriptSegments && (
+              <div className="mb-5 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleTranscriptTimestampToggle}
+                  aria-pressed={showTranscriptTimestamps}
+                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-mono uppercase tracking-wide transition-all ${
+                    showTranscriptTimestamps
+                      ? "border-accent/40 bg-accent/10 text-accent"
+                      : "border-white/10 bg-white/5 text-white/50 hover:border-white/20 hover:text-white/75"
+                  }`}
+                >
+                  <Clock3 size={13} />
+                  {showTranscriptTimestamps ? "Hide timestamps" : "Show timestamps"}
+                </button>
+              </div>
+            )}
 
-          {memo.url && (
-            <div className="mt-12 pt-8 border-t border-white/5 flex items-center justify-between text-[11px] text-white/20 font-mono uppercase tracking-widest">
-              <span>Recorded {new Date(memo.createdAt).toLocaleString()}</span>
-              <a
-                href={memo.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 hover:text-accent transition-colors"
-              >
-                <ExternalLink size={11} /> Source
-              </a>
-            </div>
-          )}
-          </div>
-
-          <div className="xl:sticky xl:top-8 xl:self-start">
-            <MemoRoomPanel
-              memo={memo}
-              selectedAnchorSegments={selectedAnchorSegments}
-              onClearSelectedAnchors={clearSelectedAnchorSegments}
+            <MemoTranscript
+              transcript={memo.transcript}
+              transcriptSegments={memo.transcriptSegments}
+              isFailed={isFailed}
+              showTimestamps={showTranscriptTimestamps}
+              onSegmentSelect={toggleAnchorSegment}
+              selectedSegmentIds={new Set(
+                selectedAnchorSegments.map((segment) =>
+                  String(segment.dbId ?? segment.id)
+                )
+              )}
             />
+
+            {!isFailed && memo.transcript && memo.url && (
+              <div className="mt-10">
+                <button
+                  type="button"
+                  onClick={() => setShowVoiceoverStudio((v) => !v)}
+                  className="voiceover-studio-toggle flex items-center gap-2 text-white/70 hover:text-white/90 font-semibold text-base transition-colors"
+                  aria-expanded={showVoiceoverStudio}
+                >
+                  {showVoiceoverStudio ? (
+                    <ChevronUp size={18} className="voiceover-studio-toggle-icon" />
+                  ) : (
+                    <ChevronDown size={18} className="voiceover-studio-toggle-icon" />
+                  )}
+                  Voiceover Studio
+                </button>
+                {showVoiceoverStudio && <VoiceoverStudio memo={memo} />}
+              </div>
+            )}
+
+            {memo.url && (
+              <div className="mt-12 pt-8 border-t border-white/5 flex items-center justify-between text-[11px] text-white/20 font-mono uppercase tracking-widest">
+                <span>Recorded {new Date(memo.createdAt).toLocaleString()}</span>
+                <a
+                  href={memo.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 hover:text-accent transition-colors"
+                >
+                  <ExternalLink size={11} /> Source
+                </a>
+              </div>
+            )}
           </div>
         </div>
       </div>

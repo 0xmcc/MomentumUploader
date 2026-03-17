@@ -651,6 +651,97 @@ export function buildSharedArtifactHtml(
     }
     .ts-btn:hover { background: rgba(234, 88, 12, 0.3); }
     .seg-text { flex: 1; }
+    .disc-section {
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid rgba(251, 191, 126, 0.15);
+    }
+    .disc-heading {
+      margin: 0 0 1rem;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      opacity: 0.5;
+    }
+    .disc-loading,
+    .disc-empty {
+      margin: 0;
+      color: #fed7aa;
+      font-size: 0.95rem;
+    }
+    .disc-msg {
+      padding: 1rem 0;
+      border-bottom: 1px solid rgba(251, 191, 126, 0.14);
+    }
+    .disc-msg:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+    .disc-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.45rem;
+      font-size: 0.85rem;
+    }
+    .disc-author {
+      color: #fff7ed;
+      font-weight: 600;
+    }
+    .disc-time {
+      color: #fdba74;
+    }
+    .disc-content {
+      margin: 0;
+      color: #ffedd5;
+      white-space: pre-wrap;
+    }
+    .disc-form {
+      margin-top: 1.25rem;
+    }
+    .disc-form textarea {
+      width: 100%;
+      min-height: 5.5rem;
+      resize: vertical;
+      box-sizing: border-box;
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(251, 191, 126, 0.28);
+      border-radius: 14px;
+      padding: 0.8rem 0.9rem;
+      color: #ffedd5;
+      font: inherit;
+    }
+    .disc-form textarea:focus {
+      outline: none;
+      border-color: rgba(251, 191, 126, 0.6);
+      background: rgba(0, 0, 0, 0.35);
+    }
+    .disc-form-row {
+      margin-top: 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    .disc-form button,
+    .ts-link {
+      border: 1px solid rgba(251, 191, 126, 0.3);
+      background: rgba(234, 88, 12, 0.16);
+      color: #ffedd5;
+      border-radius: 999px;
+      padding: 0.35rem 0.75rem;
+      font-size: 0.78rem;
+      cursor: pointer;
+    }
+    .disc-form button:hover,
+    .ts-link:hover {
+      background: rgba(234, 88, 12, 0.3);
+    }
+    .disc-error {
+      color: #fca5a5;
+      font-size: 0.78rem;
+    }
   </style>
 </head>
 <body>
@@ -682,7 +773,23 @@ export function buildSharedArtifactHtml(
       </div>
       
       ${transcriptContentHtml}
-      <section id="comments-root"></section>
+      <section id="comments-root">
+        <section id="discussion" class="disc-section">
+          <h2 class="disc-heading">Discussion</h2>
+          <div id="disc-list" aria-live="polite">
+            <p class="disc-loading">Loading...</p>
+          </div>
+          <form id="disc-form" class="disc-form" style="display:none" novalidate>
+            <textarea id="disc-input" placeholder="Add a note..." rows="3" required></textarea>
+            <div class="disc-form-row">
+              <span id="disc-error" class="disc-error" role="alert" style="display:none"></span>
+              <button type="submit" id="disc-submit">Post</button>
+            </div>
+          </form>
+          <p id="disc-signin" style="display:none">Sign in to add a note.</p>
+          <p id="disc-owner-only" style="display:none">Only the memo owner can post.</p>
+        </section>
+      </section>
       
     </article>
   </main>
@@ -753,6 +860,171 @@ export function buildSharedArtifactHtml(
           });
         });
       }
+    })();
+
+    (() => {
+      if (!shareBoot) return;
+
+      const discussionList = document.getElementById("disc-list");
+      const form = document.getElementById("disc-form");
+      const discussionInput = document.getElementById("disc-input");
+      const discussionError = document.getElementById("disc-error");
+      const discussionSubmit = document.getElementById("disc-submit");
+      const signInHint = document.getElementById("disc-signin");
+      const ownerOnlyHint = document.getElementById("disc-owner-only");
+
+      if (
+        !discussionList ||
+        !form ||
+        !discussionInput ||
+        !discussionError ||
+        !discussionSubmit ||
+        !signInHint ||
+        !ownerOnlyHint
+      ) {
+        return;
+      }
+
+      const shareRef = shareBoot.shareToken;
+
+      function escHtml(s) {
+        return String(s)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      function fmtRelative(iso) {
+        const date = new Date(iso);
+        if (Number.isNaN(date.getTime())) {
+          return "";
+        }
+
+        const diffSeconds = Math.round((date.getTime() - Date.now()) / 1000);
+        const absSeconds = Math.abs(diffSeconds);
+        if (typeof Intl === "undefined" || typeof Intl.RelativeTimeFormat !== "function") {
+          return date.toLocaleString();
+        }
+
+        const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+        if (absSeconds < 60) {
+          return rtf.format(diffSeconds, "second");
+        }
+
+        const diffMinutes = Math.round(diffSeconds / 60);
+        if (Math.abs(diffMinutes) < 60) {
+          return rtf.format(diffMinutes, "minute");
+        }
+
+        const diffHours = Math.round(diffSeconds / 3600);
+        if (Math.abs(diffHours) < 24) {
+          return rtf.format(diffHours, "hour");
+        }
+
+        const diffDays = Math.round(diffSeconds / 86400);
+        return rtf.format(diffDays, "day");
+      }
+
+      function fmtMs(ms) {
+        const totalSec = Math.floor(ms / 1000);
+        const minutes = Math.floor(totalSec / 60);
+        const seconds = totalSec % 60;
+        return minutes + ":" + String(seconds).padStart(2, "0");
+      }
+
+      async function loadDiscussion() {
+        form.style.display = "none";
+        signInHint.style.display = "none";
+        ownerOnlyHint.style.display = "none";
+
+        try {
+          const res = await fetch("/api/s/" + shareRef + "/discussion");
+          if (!res.ok) {
+            throw new Error("Failed to load discussion");
+          }
+
+          const { messages, isOwner, isAuthenticated } = await res.json();
+          discussionList.innerHTML = messages.length === 0
+            ? '<p class="disc-empty">No notes yet.</p>'
+            : messages.map((message) => {
+                return '<div class="disc-msg">' +
+                  '<div class="disc-meta">' +
+                    '<span class="disc-author">' + escHtml(message.authorName) + '</span>' +
+                    '<span class="disc-time">' + escHtml(fmtRelative(message.createdAt)) + '</span>' +
+                    (message.anchorStartMs != null
+                      ? '<button class="disc-anchor ts-link" data-t="' + message.anchorStartMs + '">▶ ' + fmtMs(message.anchorStartMs) + '</button>'
+                      : "") +
+                  "</div>" +
+                  '<p class="disc-content">' + escHtml(message.content) + "</p>" +
+                "</div>";
+              }).join("");
+
+          const audio = document.querySelector("audio.share-audio");
+          discussionList.querySelectorAll(".disc-anchor").forEach((btn) =>
+            btn.addEventListener("click", () => {
+              if (!audio) return;
+              audio.currentTime = +btn.dataset.t / 1000;
+              audio.play().catch(function() {});
+            })
+          );
+
+          if (isOwner) {
+            form.style.display = "";
+            if (!form._listenerAttached) {
+              form._listenerAttached = true;
+              form.addEventListener("submit", async (event) => {
+                event.preventDefault();
+                const content = discussionInput.value.trim();
+                if (!content) return;
+
+                discussionSubmit.disabled = true;
+                discussionError.style.display = "none";
+
+                try {
+                  const response = await fetch("/api/s/" + shareRef + "/discussion", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ content }),
+                    credentials: "include",
+                  });
+
+                  if (!response.ok) {
+                    let message = "Post failed";
+                    try {
+                      const payload = await response.json();
+                      if (payload && typeof payload.error === "string") {
+                        message = payload.error;
+                      }
+                    } catch (_error) {
+                      // Fall back to the generic message.
+                    }
+
+                    throw new Error(message);
+                  }
+
+                  discussionInput.value = "";
+                  await loadDiscussion();
+                } catch (error) {
+                  discussionError.textContent = error instanceof Error ? error.message : "Post failed";
+                  discussionError.style.display = "";
+                } finally {
+                  discussionSubmit.disabled = false;
+                }
+              });
+            }
+          } else if (isAuthenticated) {
+            ownerOnlyHint.style.display = "";
+          } else {
+            signInHint.style.display = "";
+          }
+        } catch (_error) {
+          discussionList.innerHTML = '<p class="disc-error">Could not load discussion.</p>';
+        }
+      }
+
+      loadDiscussion();
     })();
 
     (() => {
