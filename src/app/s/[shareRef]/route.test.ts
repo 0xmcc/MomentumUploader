@@ -12,6 +12,7 @@ jest.mock("@/lib/supabase", () => ({
 
 type SharedMemoRow = {
     id: string;
+    user_id?: string | null;
     title: string | null;
     transcript: string | null;
     audio_url: string | null;
@@ -51,6 +52,7 @@ function mockShareLookup(result: { data: SharedMemoRow | null; error: { message:
 
 const activeMemo: SharedMemoRow = {
     id: "memo-1",
+    user_id: "user-owner-1",
     title: "Weekly Sync",
     transcript: "We shipped the new share links and added tests.",
     audio_url: "https://example.com/audio.webm",

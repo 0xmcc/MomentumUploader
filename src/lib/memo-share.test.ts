@@ -11,6 +11,7 @@ jest.mock("@/lib/supabase", () => ({
 
 type MemoShareRow = {
   id: string;
+  user_id?: string;
   title: string;
   transcript: string;
   transcript_status: string;
@@ -61,6 +62,7 @@ describe("resolveMemoShare", () => {
   it("returns a memo-pure share payload without renderer-only fields", async () => {
     setupMemoShareMocks({
       id: "memo-123",
+      user_id: "user-abc",
       title: "Weekly Sync",
       transcript: "We reviewed the roadmap.",
       transcript_status: "complete",
@@ -82,6 +84,7 @@ describe("resolveMemoShare", () => {
 
     expect(result.memo).toEqual({
       memoId: "memo-123",
+      ownerUserId: "user-abc",
       shareToken: "token1234",
       title: "Weekly Sync",
       transcript: "We reviewed the roadmap.",
@@ -103,5 +106,27 @@ describe("resolveMemoShare", () => {
     expect(result.memo).not.toHaveProperty("canonicalUrl");
     expect(result.memo).not.toHaveProperty("artifactType");
     expect(result.memo).not.toHaveProperty("artifacts");
+  });
+
+  it("returns ownerUserId as null when user_id is absent from the row", async () => {
+    setupMemoShareMocks({
+      id: "memo-no-owner",
+      title: "Orphaned Memo",
+      transcript: "No owner row.",
+      transcript_status: "complete",
+      audio_url: null,
+      created_at: "2026-03-10T10:00:00.000Z",
+      share_token: "orphan-token",
+      shared_at: null,
+      revoked_at: null,
+      is_shareable: true,
+      // user_id intentionally absent
+    });
+
+    const result = await resolveMemoShare("orphan-token");
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") throw new Error("Expected ok");
+    expect(result.memo.ownerUserId).toBeNull();
   });
 });

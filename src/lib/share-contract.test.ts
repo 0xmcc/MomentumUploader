@@ -26,6 +26,7 @@ const basePayload: SharedArtifactPayload = {
 
 const baseResolvedMemo: ResolvedMemoShare = {
     memoId: "memo-123",
+    ownerUserId: "user-owner-id",
     shareToken: "abc123token",
     title: "Standup Notes",
     transcript: "Today we finished the uploader and fixed retries.",

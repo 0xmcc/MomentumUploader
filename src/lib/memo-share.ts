@@ -10,7 +10,7 @@ type MemoShareState =
 
 type MemoShareRow = Record<string, unknown>;
 
-const MEMO_SHARE_SELECT = "id, title, transcript, transcript_status, audio_url, duration, created_at, share_token, shared_at, share_expires_at, expires_at, revoked_at, is_shareable";
+const MEMO_SHARE_SELECT = "id, user_id, title, transcript, transcript_status, audio_url, duration, created_at, share_token, shared_at, share_expires_at, expires_at, revoked_at, is_shareable";
 
 function readString(raw: unknown): string | null {
     return typeof raw === "string" ? raw : null;
@@ -38,6 +38,7 @@ function buildResolvedMemo(
 
     return {
         memoId: readString(row.id) ?? "",
+        ownerUserId: readString(row.user_id),
         shareToken,
         title,
         transcript: readString(row.transcript) ?? "",
