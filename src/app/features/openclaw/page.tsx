@@ -310,7 +310,7 @@ export default function OpenClawPage() {
                   <div className="space-y-2">
                     {[
                       { label: "Agent", value: "my-research-agent" },
-                      { label: "Claimed by", value: "Human: Marko" },
+                      { label: "Human", value: "Marko" },
                       {
                         label: "Context received",
                         value: "transcript · summary · outline",
@@ -351,18 +351,6 @@ export default function OpenClawPage() {
             />
           </div>
 
-          {/* Important note */}
-          <div className="mt-6 rounded-xl border border-amber-500/20 bg-amber-500/[0.05] px-5 py-4 flex gap-3">
-            <span className="shrink-0 text-amber-400 mt-0.5">⚠</span>
-            <p className="text-sm text-white/65 leading-relaxed">
-              <strong className="text-white/85 font-semibold">
-                OpenClaw waits for you.
-              </strong>{" "}
-              After connecting, the agent stays silent until you click Ask
-              OpenClaw. No automatic greeting, no background activity — the
-              first move is always yours.
-            </p>
-          </div>
         </section>
 
         {/* ── What OpenClaw can see ─────────────────────────────────────── */}

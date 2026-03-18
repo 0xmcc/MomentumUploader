@@ -1009,9 +1009,9 @@ export function buildSharedArtifactHtml(
             <div id="oc-invite" class="oc-widget">
               <p class="oc-label">Connect your OpenClaw to this memo</p>
               <button id="oc-invite-btn" type="button">Invite OpenClaw</button>
-              <p id="oc-copied" class="oc-hint" role="status" aria-live="polite" style="display:none">Copied to clipboard. Send this exact block to your OpenClaw.</p>
+              <p id="oc-copied" class="oc-hint" role="status" aria-live="polite" style="display:none">Copied. Send this to OpenClaw.</p>
               <div id="oc-preview" class="oc-preview" style="display:none">
-                <p class="oc-preview-title">This is what you just copied</p>
+                <p class="oc-preview-title">Send This To OpenClaw</p>
                 <pre id="oc-preview-text" class="oc-preview-text"></pre>
                 <ol class="oc-preview-steps">
                   <li>Paste this exact block into your OpenClaw chat or command window.</li>
@@ -1563,9 +1563,9 @@ export function buildSharedArtifactHtml(
 
             try {
               await navigator.clipboard.writeText(inviteText);
-              openClawCopied.textContent = "Copied to clipboard. Send this exact block to your OpenClaw.";
+              openClawCopied.textContent = "Copied. Send this to OpenClaw.";
             } catch (_clipboardError) {
-              openClawCopied.textContent = "Copy failed here. Use the block below and send it to your OpenClaw.";
+              openClawCopied.textContent = "Copy failed here. Send the block below to OpenClaw.";
             }
 
             openClawCopied.style.display = "";

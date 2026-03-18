@@ -459,7 +459,7 @@ describe("share-contract", () => {
         expect(html).toContain('id="oc-ask-btn"');
         expect(html).toContain('id="oc-ask-dialog"');
         expect(html).toContain('id="oc-ask-submit"');
-        expect(html).toContain("This is what you just copied");
+        expect(html).toContain("Send This To OpenClaw");
         expect(html).toContain("Paste this exact block into your OpenClaw chat or command window.");
     });
 
@@ -473,7 +473,7 @@ describe("share-contract", () => {
         expect(html).toContain("navigator.clipboard.writeText(inviteText)");
         expect(html).toContain("openClawPreviewText.textContent = inviteText || \"\";");
         expect(html).toContain("openClawPreview.style.display = inviteText ? \"grid\" : \"none\";");
-        expect(html).toContain("Copy failed here. Use the block below and send it to your OpenClaw.");
+        expect(html).toContain("Copy failed here. Send the block below to OpenClaw.");
         expect(html).toContain("setInterval(function() {");
         expect(html).not.toContain('"/api/s/" + shareRef + "/handoff"');
     });

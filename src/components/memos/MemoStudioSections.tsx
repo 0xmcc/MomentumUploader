@@ -20,6 +20,8 @@ import {
   FileDown,
   Loader2,
   Mic2,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Plus,
   Search,
@@ -583,6 +585,25 @@ export function MemoSidebar({
   onSearchQueryChange,
   onSelectMemo,
 }: MemoSidebarProps) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  if (collapsed) {
+    return (
+      <aside className="w-14 flex-shrink-0 flex flex-col items-center border-r border-white/10 bg-[#0F0F0F]/80 backdrop-blur-xl z-20 py-4 gap-4">
+        <div className="w-10 h-10 bg-accent/20 rounded-xl flex items-center justify-center text-accent shadow-[0_0_20px_var(--theme-glow)] border border-accent/20">
+          <Mic2 size={20} />
+        </div>
+        <button
+          onClick={() => setCollapsed(false)}
+          className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 active:scale-90 flex items-center justify-center text-white/50 hover:text-white/80 transition-all border border-white/10"
+          title="Expand sidebar"
+        >
+          <PanelLeftOpen size={18} />
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside className="w-80 flex-shrink-0 flex flex-col border-r border-white/10 bg-[#0F0F0F]/80 backdrop-blur-xl z-20">
       <div className="p-6 border-b border-white/5 flex flex-col gap-6">
@@ -593,13 +614,22 @@ export function MemoSidebar({
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-white/95">Memos</h1>
           </div>
-          <button
-            onClick={() => onSelectMemo(null)}
-            className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 active:scale-90 flex items-center justify-center text-white/70 transition-all border border-white/10 shadow-lg"
-            title="New Recording"
-          >
-            <Plus size={22} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCollapsed(true)}
+              className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 active:scale-90 flex items-center justify-center text-white/50 hover:text-white/80 transition-all border border-white/10"
+              title="Collapse sidebar"
+            >
+              <PanelLeftClose size={16} />
+            </button>
+            <button
+              onClick={() => onSelectMemo(null)}
+              className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 active:scale-90 flex items-center justify-center text-white/70 transition-all border border-white/10 shadow-lg"
+              title="New Recording"
+            >
+              <Plus size={22} />
+            </button>
+          </div>
         </div>
 
         <div className="relative">
