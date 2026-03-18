@@ -310,7 +310,7 @@ export default function OpenClawPage() {
                   <div className="space-y-2">
                     {[
                       { label: "Agent", value: "my-research-agent" },
-                      { label: "Claimed", value: "just now" },
+                      { label: "Claimed by", value: "Human: Marko" },
                       {
                         label: "Context received",
                         value: "transcript · summary · outline",
