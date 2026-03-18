@@ -1,8 +1,10 @@
+import { timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { resolveMemoUserId } from "@/lib/memo-api-auth";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export const OPENCLAW_INTERNAL_KEY_HEADER = "x-openclaw-internal-key";
+export const OPENCLAW_API_KEY_HEADER = "x-openclaw-api-key";
 export const MEMO_AGENT_ID_HEADER = "x-memo-agent-id";
 
 export type AgentRow = {
@@ -26,6 +28,17 @@ type OptionalAgentContext =
           error: string;
       };
 
+export type OpenClawGatewayContext =
+    | {
+          ok: true;
+          openclawExternalId: string;
+      }
+    | {
+          ok: false;
+          status: number;
+          error: string;
+      };
+
 function readGatewayKey(req: NextRequest): string | null {
     const value =
         typeof req.headers?.get === "function"
@@ -42,6 +55,43 @@ function readAgentId(req: NextRequest): string | null {
     return value ? value : null;
 }
 
+function readOpenClawApiKey(req: NextRequest): string | null {
+    const value =
+        typeof req.headers?.get === "function"
+            ? req.headers.get(OPENCLAW_API_KEY_HEADER)?.trim()
+            : null;
+    return value ? value : null;
+}
+
+function secureCompare(left: string, right: string): boolean {
+    const leftBuffer = Buffer.from(left);
+    const rightBuffer = Buffer.from(right);
+
+    if (leftBuffer.length !== rightBuffer.length) {
+        return false;
+    }
+
+    return timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function resolveConfiguredOpenClawSecrets(): Record<string, string> {
+    const raw = process.env.OPENCLAW_API_KEYS_JSON?.trim();
+    if (!raw) {
+        return {};
+    }
+
+    try {
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        return Object.fromEntries(
+            Object.entries(parsed).filter(
+                (entry): entry is [string, string] => typeof entry[1] === "string"
+            )
+        );
+    } catch {
+        return {};
+    }
+}
+
 export function serializeAgent(agent: AgentRow) {
     return {
         id: agent.id,
@@ -50,6 +100,39 @@ export function serializeAgent(agent: AgentRow) {
         description: agent.description ?? null,
         status: agent.status,
         createdAt: agent.created_at,
+    };
+}
+
+export async function validateOpenClawGateway(
+    req: NextRequest
+): Promise<OpenClawGatewayContext> {
+    const apiKey = readOpenClawApiKey(req);
+    if (!apiKey) {
+        return { ok: false, status: 401, error: "Unauthorized" };
+    }
+
+    const parts = apiKey.split(":");
+    if (parts.length !== 2) {
+        return { ok: false, status: 401, error: "Unauthorized" };
+    }
+
+    const [accountIdRaw, secretRaw] = parts;
+    const accountId = accountIdRaw.trim();
+    const secret = secretRaw.trim();
+
+    if (!accountId || !secret) {
+        return { ok: false, status: 401, error: "Unauthorized" };
+    }
+
+    const configuredSecrets = resolveConfiguredOpenClawSecrets();
+    const expectedSecret = configuredSecrets[accountId];
+    if (!expectedSecret || !secureCompare(secret, expectedSecret)) {
+        return { ok: false, status: 401, error: "Unauthorized" };
+    }
+
+    return {
+        ok: true,
+        openclawExternalId: accountId,
     };
 }
 

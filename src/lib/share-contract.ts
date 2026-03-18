@@ -50,6 +50,7 @@ export type SharedArtifactJson = {
     };
     artifacts: ArtifactMap;
   };
+  agent_handoff: AgentHandoffPayload;
 };
 
 export type ShareBootPayload = {
@@ -58,6 +59,29 @@ export type ShareBootPayload = {
   isLiveRecording: boolean;
   transcriptFileName: string;
   mediaUrl: string | null;
+};
+
+export type AgentHandoffPayload = {
+  kind: "momentum/share-agent-handoff";
+  version: "1";
+  shareRef: string;
+  canonicalUrl: string;
+  alternates: {
+    markdownUrl: string;
+    jsonUrl: string;
+  };
+  skill: {
+    manifestUrl: string;
+    version: "0.1.0";
+  };
+  handoff: {
+    url: string;
+    method: "POST";
+  };
+  suggestedInitialAction: {
+    type: "greeting";
+    instruction: string;
+  };
 };
 
 const SUPPORTED_QUERY_FORMATS = new Set<string>(["html", "md", "json"]);
@@ -179,8 +203,40 @@ export function buildSharePageViewModel(
   };
 }
 
-export function serializeShareBootPayload(payload: ShareBootPayload): string {
+export function serializeEmbeddedJson(payload: unknown): string {
   return JSON.stringify(payload).replace(/</g, "\\u003c");
+}
+
+function buildAgentHandoffPayload(payload: SharedArtifactPayload): AgentHandoffPayload {
+  const canonicalUrl = new URL(payload.canonicalUrl);
+  const baseUrl = canonicalUrl.origin;
+
+  return {
+    kind: "momentum/share-agent-handoff",
+    version: "1",
+    shareRef: payload.shareToken,
+    canonicalUrl: payload.canonicalUrl,
+    alternates: {
+      markdownUrl: `${payload.canonicalUrl}.md`,
+      jsonUrl: `${payload.canonicalUrl}.json`,
+    },
+    skill: {
+      manifestUrl: `${baseUrl}/openclaw/memo-room/v1/skill.json`,
+      version: "0.1.0",
+    },
+    handoff: {
+      url: `${baseUrl}/api/s/${payload.shareToken}/handoff`,
+      method: "POST",
+    },
+    suggestedInitialAction: {
+      type: "greeting",
+      instruction: "Introduce yourself briefly in the memo room and offer help.",
+    },
+  };
+}
+
+export function serializeShareBootPayload(payload: ShareBootPayload): string {
+  return serializeEmbeddedJson(payload);
 }
 
 export function buildSharedArtifactJson(payload: SharedArtifactPayload): SharedArtifactJson {
@@ -204,10 +260,12 @@ export function buildSharedArtifactJson(payload: SharedArtifactPayload): SharedA
       },
       artifacts,
     },
+    agent_handoff: buildAgentHandoffPayload(payload),
   };
 }
 
 export function buildSharedArtifactMarkdown(payload: SharedArtifactPayload): string {
+  const agentHandoff = buildAgentHandoffPayload(payload);
   const lines = [
     "---",
     `artifact_type: ${payload.artifactType}`,
@@ -218,6 +276,10 @@ export function buildSharedArtifactMarkdown(payload: SharedArtifactPayload): str
     `shared_at: ${payload.sharedAt ?? "null"}`,
     `expires_at: ${payload.expiresAt ?? "null"}`,
     `media_url: ${payload.mediaUrl ?? "null"}`,
+    `skill_manifest_url: ${agentHandoff.skill.manifestUrl}`,
+    `handoff_url: ${agentHandoff.handoff.url}`,
+    `alternate_json_url: ${agentHandoff.alternates.jsonUrl}`,
+    `alternate_markdown_url: ${agentHandoff.alternates.markdownUrl}`,
     "---",
     "",
     `# ${payload.title}`,
@@ -301,6 +363,7 @@ export function buildSharedArtifactHtml(
   const encodedMarkdown = `${encodedCanonical}.md`;
   const encodedJson = `${encodedCanonical}.json`;
   const transcriptFileName = `${toSafeFileName(payload.title)}-transcript.txt`;
+  const agentHandoffPayload = buildAgentHandoffPayload(payload);
   const serializedThemes = JSON.stringify(
     THEMES.map((theme) => ({
       id: theme.id,
@@ -315,6 +378,7 @@ export function buildSharedArtifactHtml(
     transcriptFileName,
     mediaUrl: payload.mediaUrl,
   });
+  const serializedAgentHandoffPayload = serializeEmbeddedJson(agentHandoffPayload);
   const liveStatusNotice = isLiveRecording
     ? "<p class=\"live-status\">Live recording in progress. Transcript updates automatically every 3 seconds.</p>"
     : "";
@@ -343,6 +407,8 @@ export function buildSharedArtifactHtml(
   <link rel="canonical" href="${escapedCanonicalUrl}" />
   <link rel="alternate" type="text/markdown" href="${encodedMarkdown}" />
   <link rel="alternate" type="application/json" href="${encodedJson}" />
+  <meta name="momentum:share-agent-handoff" content="available" />
+  <script id="momentum-share-agent-handoff" type="application/json">${serializedAgentHandoffPayload}</script>
   <style>
     :root {
       color-scheme: dark;
@@ -791,6 +857,110 @@ export function buildSharedArtifactHtml(
       color: #fca5a5;
       font-size: 0.78rem;
     }
+    #openclaw-widget {
+      margin-top: 1rem;
+      display: none;
+      gap: 0.8rem;
+      padding: 0.9rem 0;
+      border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+    }
+    .oc-widget {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+    .oc-label,
+    .oc-hint,
+    .oc-status {
+      margin: 0;
+      font-size: 0.9rem;
+      color: color-mix(in srgb, var(--foreground) 86%, var(--accent) 14%);
+    }
+    .oc-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-weight: 600;
+    }
+    #openclaw-widget button {
+      width: fit-content;
+      border: 1px solid color-mix(in srgb, var(--border) 55%, var(--accent) 45%);
+      background: transparent;
+      color: var(--foreground);
+      border-radius: 999px;
+      padding: 0.35rem 0.75rem;
+      font-size: 0.78rem;
+      cursor: pointer;
+    }
+    #openclaw-widget button:hover {
+      background: color-mix(in srgb, var(--foreground) 6%, transparent);
+    }
+    .oc-preview {
+      display: none;
+      gap: 0.75rem;
+      padding: 1rem;
+      border-radius: 18px;
+      border: 1px solid color-mix(in srgb, var(--accent) 48%, var(--border) 52%);
+      background:
+        linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--foreground) 4%, transparent),
+          color-mix(in srgb, var(--surface) 88%, transparent)
+        );
+      box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 7%, transparent);
+    }
+    .oc-preview-title {
+      margin: 0;
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: color-mix(in srgb, var(--foreground) 92%, var(--accent) 8%);
+    }
+    .oc-preview-text {
+      margin: 0;
+      padding: 0.85rem 0.95rem;
+      border-radius: 14px;
+      border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+      background: color-mix(in srgb, var(--surface) 92%, black 8%);
+      color: color-mix(in srgb, var(--accent) 76%, var(--foreground) 24%);
+      white-space: pre-wrap;
+      word-break: break-word;
+      font: 500 0.82rem/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, "Liberation Mono", "Courier New", monospace;
+    }
+    .oc-preview-steps {
+      margin: 0;
+      padding-left: 1.35rem;
+      display: grid;
+      gap: 0.38rem;
+      color: color-mix(in srgb, var(--foreground) 74%, var(--accent) 26%);
+      font-size: 0.86rem;
+    }
+    .oc-preview-steps li::marker {
+      color: var(--accent);
+      font-weight: 700;
+    }
+    #oc-ask-dialog {
+      display: none;
+      margin-top: 0.35rem;
+      gap: 0.6rem;
+    }
+    #oc-ask-input {
+      width: 100%;
+      min-height: 4.2rem;
+      resize: vertical;
+      box-sizing: border-box;
+      background: transparent;
+      border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      border-radius: 14px;
+      padding: 0.8rem 0.9rem;
+      color: var(--foreground);
+      font: inherit;
+    }
+    #oc-ask-input:focus {
+      outline: none;
+      border-color: color-mix(in srgb, var(--border) 35%, var(--accent) 65%);
+      background: color-mix(in srgb, var(--foreground) 4%, transparent);
+    }
   </style>
 </head>
 <body>
@@ -835,6 +1005,34 @@ export function buildSharedArtifactHtml(
               <button type="submit" id="disc-submit">Post</button>
             </div>
           </form>
+          <div id="openclaw-widget">
+            <div id="oc-invite" class="oc-widget">
+              <p class="oc-label">Connect your OpenClaw to this memo</p>
+              <button id="oc-invite-btn" type="button">Invite OpenClaw</button>
+              <p id="oc-copied" class="oc-hint" role="status" aria-live="polite" style="display:none">Copied to clipboard. Send this exact block to your OpenClaw.</p>
+              <div id="oc-preview" class="oc-preview" style="display:none">
+                <p class="oc-preview-title">This is what you just copied</p>
+                <pre id="oc-preview-text" class="oc-preview-text"></pre>
+                <ol class="oc-preview-steps">
+                  <li>Paste this exact block into your OpenClaw chat or command window.</li>
+                  <li>OpenClaw will read the memo share and follow the handoff instructions.</li>
+                  <li>Come back here when it shows up as pending or connected.</li>
+                </ol>
+              </div>
+            </div>
+            <div id="oc-pending" class="oc-widget" style="display:none">
+              <p class="oc-label">OpenClaw is waiting to be connected</p>
+              <button id="oc-claim-btn" type="button">Claim OpenClaw</button>
+            </div>
+            <div id="oc-claimed" class="oc-widget" style="display:none">
+              <span class="oc-status">● OpenClaw connected</span>
+              <button id="oc-ask-btn" type="button">Ask OpenClaw</button>
+            </div>
+            <div id="oc-ask-dialog">
+              <textarea id="oc-ask-input" placeholder="What do you want to ask OpenClaw?" rows="3"></textarea>
+              <button id="oc-ask-submit" type="button">Send</button>
+            </div>
+          </div>
           <p id="disc-signin" style="display:none">Sign in to add a note.</p>
           <p id="disc-owner-only" style="display:none">Only the memo owner can post.</p>
         </section>
@@ -1063,6 +1261,19 @@ export function buildSharedArtifactHtml(
       const discussionSubmit = document.getElementById("disc-submit");
       const signInHint = document.getElementById("disc-signin");
       const ownerOnlyHint = document.getElementById("disc-owner-only");
+      const openClawWidget = document.getElementById("openclaw-widget");
+      const openClawInvite = document.getElementById("oc-invite");
+      const openClawPending = document.getElementById("oc-pending");
+      const openClawClaimed = document.getElementById("oc-claimed");
+      const openClawInviteButton = document.getElementById("oc-invite-btn");
+      const openClawClaimButton = document.getElementById("oc-claim-btn");
+      const openClawAskButton = document.getElementById("oc-ask-btn");
+      const openClawCopied = document.getElementById("oc-copied");
+      const openClawPreview = document.getElementById("oc-preview");
+      const openClawPreviewText = document.getElementById("oc-preview-text");
+      const openClawAskDialog = document.getElementById("oc-ask-dialog");
+      const openClawAskInput = document.getElementById("oc-ask-input");
+      const openClawAskSubmit = document.getElementById("oc-ask-submit");
 
       if (
         !discussionList ||
@@ -1199,15 +1410,109 @@ export function buildSharedArtifactHtml(
         }
       }
 
+      const openClawState = {
+        state: "none",
+        agentId: null,
+        roomId: null,
+        pollId: null,
+      };
+
+      function stopOpenClawPolling() {
+        if (openClawState.pollId != null) {
+          clearInterval(openClawState.pollId);
+          openClawState.pollId = null;
+        }
+      }
+
+      function renderOpenClawState(isOwner) {
+        if (
+          !openClawWidget ||
+          !openClawInvite ||
+          !openClawPending ||
+          !openClawClaimed ||
+          !openClawAskDialog
+        ) {
+          return;
+        }
+
+        if (!isOwner) {
+          openClawWidget.style.display = "none";
+          openClawInvite.style.display = "none";
+          openClawPending.style.display = "none";
+          openClawClaimed.style.display = "none";
+          openClawAskDialog.style.display = "none";
+          return;
+        }
+
+        openClawWidget.style.display = "grid";
+        openClawInvite.style.display = openClawState.state === "none" ? "" : "none";
+        openClawPending.style.display = openClawState.state === "pending_claim" ? "" : "none";
+        openClawClaimed.style.display = openClawState.state === "claimed" ? "" : "none";
+        openClawAskDialog.style.display =
+          openClawState.state === "claimed" &&
+          openClawAskDialog.dataset.open === "true"
+            ? "grid"
+            : "none";
+      }
+
+      async function loadOpenClawStatus() {
+        try {
+          const res = await fetch("/api/s/" + shareRef + "/openclaw-status", {
+            credentials: "include",
+          });
+          if (!res.ok) {
+            throw new Error("Failed to load OpenClaw status");
+          }
+
+          const payload = await res.json();
+          if (!payload || typeof payload.state !== "string") {
+            return;
+          }
+
+          openClawState.state = payload.state;
+          openClawState.agentId =
+            typeof payload.agentId === "string" ? payload.agentId : null;
+          openClawState.roomId =
+            typeof payload.roomId === "string" ? payload.roomId : null;
+
+          if (openClawState.state !== "pending_claim") {
+            stopOpenClawPolling();
+          }
+
+          renderOpenClawState(true);
+        } catch (_error) {
+          // Leave the current owner widget state in place.
+        }
+      }
+
+      function startOpenClawPolling() {
+        stopOpenClawPolling();
+        openClawState.pollId = setInterval(function() {
+          void loadOpenClawStatus();
+        }, 3000);
+      }
+
+      function renderOpenClawInvitePreview(inviteText) {
+        if (!openClawPreview || !openClawPreviewText) {
+          return;
+        }
+
+        openClawPreviewText.textContent = inviteText || "";
+        openClawPreview.style.display = inviteText ? "grid" : "none";
+      }
+
       function renderDiscussionAccess(isOwner, isAuthenticated) {
         signInHint.style.display = "none";
         ownerOnlyHint.style.display = "none";
         form.style.display = isOwner ? "" : "none";
+        renderOpenClawState(isOwner);
 
         if (isOwner) {
+          void loadOpenClawStatus();
           return;
         }
 
+        stopOpenClawPolling();
         if (isAuthenticated) {
           ownerOnlyHint.style.display = "";
         } else {
@@ -1229,6 +1534,111 @@ export function buildSharedArtifactHtml(
         } catch (_error) {
           discussionList.innerHTML = '<p class="disc-error">Could not load discussion.</p>';
         }
+      }
+
+      if (openClawInviteButton && openClawCopied) {
+        openClawInviteButton.addEventListener("click", async () => {
+          openClawCopied.style.display = "none";
+
+          try {
+            const response = await fetch("/api/s/" + shareRef + "/invite", {
+              method: "POST",
+              credentials: "include",
+            });
+            if (!response.ok) {
+              throw new Error("Invite failed");
+            }
+
+            const payload = await response.json();
+            const inviteText =
+              payload && typeof payload.inviteText === "string"
+                ? payload.inviteText
+                : "";
+            if (!inviteText) {
+              throw new Error("Invite failed");
+            }
+
+            renderOpenClawInvitePreview(inviteText);
+            startOpenClawPolling();
+
+            try {
+              await navigator.clipboard.writeText(inviteText);
+              openClawCopied.textContent = "Copied to clipboard. Send this exact block to your OpenClaw.";
+            } catch (_clipboardError) {
+              openClawCopied.textContent = "Copy failed here. Use the block below and send it to your OpenClaw.";
+            }
+
+            openClawCopied.style.display = "";
+          } catch (_error) {
+            openClawCopied.style.display = "none";
+          }
+        });
+      }
+
+      if (openClawClaimButton) {
+        openClawClaimButton.addEventListener("click", async () => {
+          try {
+            const response = await fetch("/api/s/" + shareRef + "/claim", {
+              method: "POST",
+              credentials: "include",
+            });
+            if (!response.ok) {
+              throw new Error("Claim failed");
+            }
+
+            const payload = await response.json();
+            openClawState.state = "claimed";
+            openClawState.agentId =
+              payload && typeof payload.agentId === "string"
+                ? payload.agentId
+                : openClawState.agentId;
+            stopOpenClawPolling();
+            await loadOpenClawStatus();
+          } catch (_error) {
+            // Keep the pending state visible until the owner retries.
+          }
+        });
+      }
+
+      if (openClawAskButton && openClawAskDialog) {
+        openClawAskButton.addEventListener("click", () => {
+          openClawAskDialog.dataset.open =
+            openClawAskDialog.dataset.open === "true" ? "false" : "true";
+          renderOpenClawState(true);
+        });
+      }
+
+      if (openClawAskSubmit && openClawAskInput && openClawAskDialog) {
+        openClawAskSubmit.addEventListener("click", async () => {
+          const content = openClawAskInput.value.trim();
+          if (!content || !openClawState.roomId || !openClawState.agentId) {
+            return;
+          }
+
+          openClawAskSubmit.disabled = true;
+          try {
+            const response = await fetch("/api/memo-rooms/" + openClawState.roomId + "/invocations", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                agentId: openClawState.agentId,
+                content,
+              }),
+              credentials: "include",
+            });
+            if (!response.ok) {
+              throw new Error("Invocation failed");
+            }
+
+            openClawAskInput.value = "";
+            openClawAskDialog.dataset.open = "false";
+            renderOpenClawState(true);
+          } catch (_error) {
+            // Leave the dialog open so the owner can retry.
+          } finally {
+            openClawAskSubmit.disabled = false;
+          }
+        });
       }
 
       if (!form._listenerAttached) {

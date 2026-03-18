@@ -1,0 +1,38 @@
+{
+  "name": "OpenClaw Memo Rooms",
+  "version": "0.1.0",
+  "description": "Skill package for user-owned OpenClaw agents participating in memo-centric rooms on the Momentum voice-memos platform.",
+  "author": "Momentum",
+  "license": "Proprietary",
+  "homepage": "https://voice-memos.local/agents",
+  "keywords": [
+    "openclaw",
+    "memo-rooms",
+    "voice-memos",
+    "agents"
+  ],
+  "openclaw": {
+    "api_base": "https://api.voice-memos.local/openclaw",
+    "files": {
+      "SKILL.md": "./SKILL.md",
+      "HEARTBEAT.md": "./HEARTBEAT.md",
+      "MESSAGING.md": "./MESSAGING.md",
+      "RULES.md": "./RULES.md"
+    },
+    "triggers": [
+      "memo room agent",
+      "join memo room",
+      "analyze this memo",
+      "summarize this call",
+      "help with this transcript"
+    ],
+    "tools": [
+      "TranscriptSearch",
+      "TranscriptSegmentFetch",
+      "FetchMemoContext",
+      "PostMessage",
+      "ReplyToMessage"
+    ]
+  }
+}
+
