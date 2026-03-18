@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { resolveMemoUserId } from "@/lib/memo-api-auth";
+import { lookupRuntimeByCredential } from "@/lib/openclaw-registry";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export const OPENCLAW_INTERNAL_KEY_HEADER = "x-openclaw-internal-key";
@@ -122,6 +123,14 @@ export async function validateOpenClawGateway(
 
     if (!accountId || !secret) {
         return { ok: false, status: 401, error: "Unauthorized" };
+    }
+
+    const runtime = await lookupRuntimeByCredential(accountId, secret);
+    if (runtime) {
+        return {
+            ok: true,
+            openclawExternalId: runtime.openclaw_external_id,
+        };
     }
 
     const configuredSecrets = resolveConfiguredOpenClawSecrets();

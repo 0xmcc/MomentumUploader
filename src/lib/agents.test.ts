@@ -2,9 +2,14 @@
 
 import { NextRequest } from "next/server";
 import { validateOpenClawGateway } from "@/lib/agents";
+import { lookupRuntimeByCredential } from "@/lib/openclaw-registry";
 
 jest.mock("@/lib/memo-api-auth", () => ({
     resolveMemoUserId: jest.fn(),
+}));
+
+jest.mock("@/lib/openclaw-registry", () => ({
+    lookupRuntimeByCredential: jest.fn(),
 }));
 
 jest.mock("@/lib/supabase", () => ({
@@ -21,6 +26,7 @@ describe("validateOpenClawGateway", () => {
         process.env.OPENCLAW_API_KEYS_JSON = JSON.stringify({
             oc_acct_123: "secret-xyz",
         });
+        (lookupRuntimeByCredential as jest.Mock).mockResolvedValue(null);
     });
 
     afterAll(() => {
@@ -80,6 +86,19 @@ describe("validateOpenClawGateway", () => {
         ).resolves.toEqual({
             ok: true,
             openclawExternalId: "oc_acct_123",
+        });
+    });
+
+    it("prefers DB-backed runtime credentials before the env fallback", async () => {
+        (lookupRuntimeByCredential as jest.Mock).mockResolvedValue({
+            openclaw_external_id: "oc_acct_db",
+        });
+
+        await expect(
+            validateOpenClawGateway(makeRequest("oc_acct_db:db-secret"))
+        ).resolves.toEqual({
+            ok: true,
+            openclawExternalId: "oc_acct_db",
         });
     });
 });
