@@ -56,6 +56,25 @@ function extractBootPayload(html: string): { raw: string; parsed: Record<string,
     };
 }
 
+function extractJsonScriptPayload(
+    html: string,
+    scriptId: string
+): { raw: string; parsed: Record<string, unknown> } {
+    const pattern = new RegExp(
+        `<script id="${scriptId}" type="application/json">([\\s\\S]*?)<\\/script>`
+    );
+    const match = html.match(pattern);
+
+    if (!match) {
+        throw new Error(`Missing ${scriptId} payload`);
+    }
+
+    return {
+        raw: match[1],
+        parsed: JSON.parse(match[1]) as Record<string, unknown>,
+    };
+}
+
 async function loadSharePageScript(
     html: string,
     fetchMock: jest.Mock
@@ -374,6 +393,89 @@ describe("share-contract", () => {
         expect(html).toContain("Sign in to add a note.");
         expect(html).toContain('id="disc-owner-only"');
         expect(html).toContain("Only the memo owner can post.");
+    });
+
+    it("publishes public-safe OpenClaw handoff metadata across html, markdown, and json exports", () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        const markdown = buildSharedArtifactMarkdown(basePayload);
+        const json = buildSharedArtifactJson(basePayload) as Record<string, unknown>;
+        const embedded = extractJsonScriptPayload(html, "momentum-share-agent-handoff");
+
+        expect(html).toContain('<meta name="momentum:share-agent-handoff" content="available"');
+        expect(html).toContain('id="momentum-share-agent-handoff"');
+        expect(html).toContain('"kind":"momentum/share-agent-handoff"');
+        expect(html).toContain('"shareRef":"abc123token"');
+        expect(html).toContain('"manifestUrl":"https://example.com/openclaw/memo-room/v1/skill.json"');
+        expect(html).toContain('"url":"https://example.com/api/s/abc123token/handoff"');
+        expect(html).not.toContain('"roomId"');
+        expect(embedded.raw).not.toContain("<");
+        expect(embedded.parsed).toMatchObject({
+            kind: "momentum/share-agent-handoff",
+            shareRef: "abc123token",
+        });
+
+        expect(markdown).toContain("skill_manifest_url: https://example.com/openclaw/memo-room/v1/skill.json");
+        expect(markdown).toContain("handoff_url: https://example.com/api/s/abc123token/handoff");
+        expect(markdown).toContain("alternate_json_url: https://example.com/s/abc123token.json");
+        expect(markdown).toContain("alternate_markdown_url: https://example.com/s/abc123token.md");
+
+        expect(json).toMatchObject({
+            agent_handoff: {
+                kind: "momentum/share-agent-handoff",
+                version: "1",
+                shareRef: "abc123token",
+                canonicalUrl: "https://example.com/s/abc123token",
+                alternates: {
+                    markdownUrl: "https://example.com/s/abc123token.md",
+                    jsonUrl: "https://example.com/s/abc123token.json",
+                },
+                skill: {
+                    manifestUrl: "https://example.com/openclaw/memo-room/v1/skill.json",
+                    version: "0.1.0",
+                },
+                handoff: {
+                    url: "https://example.com/api/s/abc123token/handoff",
+                    method: "POST",
+                },
+                suggestedInitialAction: {
+                    type: "greeting",
+                },
+            },
+        });
+        expect(JSON.stringify(json)).not.toContain('"roomId"');
+    });
+
+    it("renders the owner-only OpenClaw invite, claim, and ask widget scaffold", () => {
+        const html = buildSharedArtifactHtml(basePayload);
+
+        expect(html).toContain('id="openclaw-widget"');
+        expect(html).toContain('id="oc-invite"');
+        expect(html).toContain('id="oc-invite-btn"');
+        expect(html).toContain('id="oc-preview"');
+        expect(html).toContain('id="oc-preview-text"');
+        expect(html).toContain('id="oc-pending"');
+        expect(html).toContain('id="oc-claim-btn"');
+        expect(html).toContain('id="oc-claimed"');
+        expect(html).toContain('id="oc-ask-btn"');
+        expect(html).toContain('id="oc-ask-dialog"');
+        expect(html).toContain('id="oc-ask-submit"');
+        expect(html).toContain("This is what you just copied");
+        expect(html).toContain("Paste this exact block into your OpenClaw chat or command window.");
+    });
+
+    it("wires the owner widget to the OpenClaw share endpoints and memo-room invocations", () => {
+        const html = buildSharedArtifactHtml(basePayload);
+
+        expect(html).toContain('fetch("/api/s/" + shareRef + "/openclaw-status"');
+        expect(html).toContain('fetch("/api/s/" + shareRef + "/invite"');
+        expect(html).toContain('fetch("/api/s/" + shareRef + "/claim"');
+        expect(html).toContain('fetch("/api/memo-rooms/" + openClawState.roomId + "/invocations"');
+        expect(html).toContain("navigator.clipboard.writeText(inviteText)");
+        expect(html).toContain("openClawPreviewText.textContent = inviteText || \"\";");
+        expect(html).toContain("openClawPreview.style.display = inviteText ? \"grid\" : \"none\";");
+        expect(html).toContain("Copy failed here. Use the block below and send it to your OpenClaw.");
+        expect(html).toContain("setInterval(function() {");
+        expect(html).not.toContain('"/api/s/" + shareRef + "/handoff"');
     });
 
     it("uses direct audio seeking for discussion anchors and guards the owner form listener from duplicates", () => {

@@ -5,8 +5,7 @@ import {
   getOrCreateMemoDiscussion,
   type MemoDiscussion,
 } from "@/lib/memo-discussion";
-import { resolveMemoShare } from "@/lib/memo-share";
-import { isValidShareToken } from "@/lib/share-access";
+import { resolveSharedMemoForRoute } from "@/lib/share-route";
 import { supabaseAdmin } from "@/lib/supabase";
 
 type Params = { params: Promise<{ shareRef: string }> };
@@ -33,18 +32,6 @@ type OwnerIdentity = {
   displayName: string;
   avatarUrl: string | null;
 };
-
-function respondShareStatus(status: "not_found" | "revoked" | "expired"): Response {
-  if (status === "not_found") {
-    return Response.json({ error: "This share link is not available." }, { status: 404 });
-  }
-
-  if (status === "revoked") {
-    return Response.json({ error: "This share link is no longer active." }, { status: 410 });
-  }
-
-  return Response.json({ error: "This share link has expired." }, { status: 410 });
-}
 
 function resolveAuthorParticipant(message: DiscussionMessageRow) {
   return Array.isArray(message.author_participant)
@@ -113,22 +100,9 @@ function serializeDiscussionMessage(
   };
 }
 
-async function resolveSharedMemo(shareRef: string) {
-  if (!isValidShareToken(shareRef)) {
-    return { ok: false as const, response: respondShareStatus("not_found") };
-  }
-
-  const share = await resolveMemoShare(shareRef);
-  if (share.status !== "ok") {
-    return { ok: false as const, response: respondShareStatus(share.status) };
-  }
-
-  return { ok: true as const, memo: share.memo };
-}
-
 export async function GET(_req: Request, { params }: Params): Promise<Response> {
   const { shareRef } = await params;
-  const share = await resolveSharedMemo(shareRef);
+  const share = await resolveSharedMemoForRoute(shareRef);
 
   if (!share.ok) {
     return share.response;
@@ -188,7 +162,7 @@ export async function GET(_req: Request, { params }: Params): Promise<Response> 
 
 export async function POST(req: Request, { params }: Params): Promise<Response> {
   const { shareRef } = await params;
-  const share = await resolveSharedMemo(shareRef);
+  const share = await resolveSharedMemoForRoute(shareRef);
 
   if (!share.ok) {
     return share.response;
