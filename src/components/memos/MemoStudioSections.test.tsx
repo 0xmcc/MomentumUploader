@@ -1,26 +1,30 @@
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoDetailView } from "./MemoStudioSections";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  MemoDetailView,
+  MemoTranscriptPanel,
+} from "./MemoStudioSections";
+import type { useAudioPlayback as UseAudioPlayback } from "@/hooks/useMemoPlayback";
 
-const mockUseMemoPlayback = jest.fn(() => ({
-  audioRef: { current: null },
-  currentTime: 0,
-  displayDuration: 0,
-  handleEnded: jest.fn(),
-  handleLoadedMetadata: jest.fn(),
-  handleSeek: jest.fn(),
+const { useAudioPlayback: realUseAudioPlayback } = jest.requireActual(
+  "@/hooks/useMemoPlayback"
+) as {
+  useAudioPlayback: typeof UseAudioPlayback;
+};
+
+const mockUseMemoShare = jest.fn(() => ({
   handleShare: jest.fn(),
   handleShareLink: jest.fn(),
-  handleTimeUpdate: jest.fn(),
-  isPlaying: false,
   lastShareUrl: null,
-  progress: 0,
   shareLabel: "Share",
   shareState: "idle",
   shareLinkLabel: "Share link",
   shareLinkState: "idle",
-  togglePlay: jest.fn(),
 }));
+
+const mockUseAudioPlayback = jest.fn((...args: Parameters<typeof realUseAudioPlayback>) =>
+  realUseAudioPlayback(...args)
+);
 
 jest.mock("next/link", () => ({
   __esModule: true,
@@ -69,7 +73,8 @@ jest.mock("@/components/ThemeProvider", () => ({
 }));
 
 jest.mock("@/hooks/useMemoPlayback", () => ({
-  useMemoPlayback: (...args: unknown[]) => mockUseMemoPlayback(...args),
+  useMemoShare: (...args: unknown[]) => mockUseMemoShare(...args),
+  useAudioPlayback: (...args: unknown[]) => mockUseAudioPlayback(...args),
 }));
 
 jest.mock("@/components/ThemeToggle", () => ({
@@ -85,23 +90,25 @@ jest.mock("@/components/VoiceoverStudio", () => ({
 describe("MemoDetailView", () => {
   beforeEach(() => {
     window.localStorage.clear();
-    mockUseMemoPlayback.mockReturnValue({
+    mockUseMemoShare.mockReturnValue({
+      handleShare: jest.fn(),
+      handleShareLink: jest.fn(),
+      lastShareUrl: null,
+      shareLabel: "Share",
+      shareState: "idle",
+      shareLinkLabel: "Share link",
+      shareLinkState: "idle",
+    });
+    mockUseAudioPlayback.mockReturnValue({
       audioRef: { current: null },
       currentTime: 0,
       displayDuration: 0,
       handleEnded: jest.fn(),
       handleLoadedMetadata: jest.fn(),
       handleSeek: jest.fn(),
-      handleShare: jest.fn(),
-      handleShareLink: jest.fn(),
       handleTimeUpdate: jest.fn(),
       isPlaying: false,
-      lastShareUrl: null,
       progress: 0,
-      shareLabel: "Share",
-      shareState: "idle",
-      shareLinkLabel: "Share link",
-      shareLinkState: "idle",
       togglePlay: jest.fn(),
     });
   });
@@ -227,9 +234,8 @@ describe("MemoDetailView", () => {
       />
     );
 
-    const detailGrid = container.querySelector(".mx-auto.grid.max-w-7xl");
-    expect(detailGrid).not.toBeNull();
-    expect(detailGrid).not.toHaveClass("xl:grid-cols-[minmax(0,1fr)_360px]");
+    const detailColumn = container.querySelector(".mx-auto.w-full.max-w-7xl.flex.flex-col");
+    expect(detailColumn).not.toBeNull();
     expect(container.querySelector(".xl\\:sticky")).toBeNull();
   });
 
@@ -252,24 +258,14 @@ describe("MemoDetailView", () => {
   });
 
   it("keeps the open share page link to the left of copy when a share url is available", () => {
-    mockUseMemoPlayback.mockReturnValue({
-      audioRef: { current: null },
-      currentTime: 0,
-      displayDuration: 0,
-      handleEnded: jest.fn(),
-      handleLoadedMetadata: jest.fn(),
-      handleSeek: jest.fn(),
+    mockUseMemoShare.mockReturnValue({
       handleShare: jest.fn(),
       handleShareLink: jest.fn(),
-      handleTimeUpdate: jest.fn(),
-      isPlaying: false,
       lastShareUrl: "https://example.com/s/memo-share-2",
-      progress: 0,
       shareLabel: "Copy",
       shareState: "idle",
       shareLinkLabel: "Copied!",
       shareLinkState: "copied",
-      togglePlay: jest.fn(),
     });
 
     render(
@@ -296,5 +292,78 @@ describe("MemoDetailView", () => {
       openSharePageLink.compareDocumentPosition(copyButton) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+  });
+
+  it("MemoTranscriptPanel commits only once when re-rendered with identical props", () => {
+    const onRender = jest.fn();
+    const onToggle = jest.fn();
+    const memo = {
+      id: "memo-transcript-panel-1",
+      transcript: "Transcript body",
+      createdAt: "2026-03-15T12:00:00.000Z",
+      wordCount: 2,
+      transcriptSegments: [
+        {
+          id: "segment-1",
+          startMs: 0,
+          endMs: 1200,
+          text: "Segment one",
+        },
+      ],
+    } as never;
+
+    const { rerender } = render(
+      <MemoTranscriptPanel
+        memo={memo}
+        showTimestamps={false}
+        onToggleTimestamps={onToggle}
+        transcriptProfilerOnRender={onRender}
+      />
+    );
+    expect(onRender).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <MemoTranscriptPanel
+        memo={memo}
+        showTimestamps={false}
+        onToggleTimestamps={onToggle}
+        transcriptProfilerOnRender={onRender}
+      />
+    );
+
+    expect(onRender).toHaveBeenCalledTimes(1);
+  });
+
+  it("MemoTranscriptPanel does not commit when playback currentTime changes in the footer", () => {
+    const onRender = jest.fn();
+    mockUseAudioPlayback.mockImplementation((...args) => realUseAudioPlayback(...args));
+    const memo = {
+      id: "memo-transcript-panel-2",
+      transcript: "hello",
+      url: "https://example.com/audio.mp3",
+      createdAt: "2026-03-15T12:00:00.000Z",
+      durationSeconds: 120,
+      wordCount: 1,
+    } as never;
+
+    const { container } = render(
+      <MemoDetailView memo={memo} transcriptPanelProfilerOnRender={onRender} />
+    );
+    expect(onRender).toHaveBeenCalledTimes(1);
+
+    const audio = container.querySelector("audio") as HTMLAudioElement | null;
+    expect(audio).not.toBeNull();
+
+    act(() => {
+      Object.defineProperty(audio, "currentTime", {
+        configurable: true,
+        value: 42,
+        writable: true,
+      });
+      fireEvent.timeUpdate(audio as HTMLAudioElement);
+    });
+
+    expect(screen.getByText("0:42")).toBeInTheDocument();
+    expect(onRender).toHaveBeenCalledTimes(1);
   });
 });

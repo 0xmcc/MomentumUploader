@@ -1,8 +1,11 @@
 import { act, renderHook } from "@testing-library/react";
-import { useMemoPlayback } from "./useMemoPlayback";
+import {
+  useAudioPlayback,
+  useMemoShare,
+} from "./useMemoPlayback";
 import { SHARE_STATE_RESET_MS, type Memo } from "@/lib/memo-ui";
 
-describe("useMemoPlayback", () => {
+describe("useMemoShare", () => {
   const memo: Memo = {
     id: "memo-1",
     transcript: "hello world",
@@ -33,7 +36,7 @@ describe("useMemoPlayback", () => {
     const mockFetch = jest.fn();
     Object.defineProperty(global, "fetch", { writable: true, value: mockFetch });
 
-    const { result } = renderHook(() => useMemoPlayback(memo));
+    const { result } = renderHook(() => useMemoShare(memo));
 
     await act(async () => {
       await result.current.handleShare();
@@ -66,7 +69,7 @@ describe("useMemoPlayback", () => {
     });
     Object.defineProperty(global, "fetch", { writable: true, value: mockFetch });
 
-    const { result } = renderHook(() => useMemoPlayback(memo));
+    const { result } = renderHook(() => useMemoShare(memo));
 
     await act(async () => {
       await result.current.handleShareLink();
@@ -87,9 +90,17 @@ describe("useMemoPlayback", () => {
     expect(result.current.shareLinkState).toBe("idle");
     expect(result.current.shareLinkLabel).toBe("Share link");
   });
+});
+
+describe("useAudioPlayback", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
 
   it("manages play/pause, seeking, and progress updates", async () => {
-    const { result } = renderHook(() => useMemoPlayback(memo));
+    const { result } = renderHook(() =>
+      useAudioPlayback("https://example.com/audio.webm", 120)
+    );
     const audio = {
       currentTime: 0,
       pause: jest.fn(),

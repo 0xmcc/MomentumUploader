@@ -81,6 +81,7 @@ These are architectural commitments. Implementation details may change around th
   - agent-specific settings not meant for other participants
   - internal ownership/auth linkage
 - Existing share routes and memo exports must remain memo-content surfaces, not memo-room leakage surfaces.
+- If share surfaces advertise agent onboarding, they may expose only public-safe discovery metadata such as manifest URLs, alternates, and a share-scoped handoff URL. Room ids, participant state, and write-capable runtime coordinates stay behind authenticated handoff.
 
 ---
 
@@ -189,7 +190,39 @@ What is reused, wrapped, extended, replaced:
 - Replaced:
   - no existing transcript write path.
 
-### 3.3 Current memo detail / memo studio UI seam
+### 3.3 Existing share route and share-contract seam
+
+Current repo seam:
+
+- `src/app/s/[shareRef]/route.ts`
+  - canonical public share route that already serves HTML plus `.md` and `.json` alternates.
+- `src/lib/share-contract.ts`
+  - shared renderers and payload builders for HTML, markdown, and JSON exports.
+
+Implementation direction:
+
+- Keep the canonical share URL human-first and read-only.
+- Extend the share contract with public-safe agent discovery metadata in HTML, markdown, and JSON.
+- Keep that metadata limited to:
+  - skill manifest location;
+  - alternate markdown/json locations;
+  - share-scoped handoff endpoint;
+  - suggested initial action.
+- Add a separate authenticated handoff endpoint rather than turning `/s/[shareRef]` into a write surface.
+- Keep room resolution server-side: `shareRef -> memo -> room -> invocation`.
+
+What is reused, wrapped, extended, replaced:
+
+- Reused:
+  - the existing canonical share route and alternate export model.
+- Wrapped:
+  - share-scoped agent discovery should wrap the current share contract instead of bypassing it.
+- Extended:
+  - HTML boot metadata, markdown frontmatter, JSON payload shape, and a share-scoped handoff endpoint.
+- Replaced:
+  - no existing human-visible share UX needs to be replaced for v1.
+
+### 3.4 Current memo detail / memo studio UI seam
 
 Current repo seam:
 
@@ -219,7 +252,7 @@ What is reused, wrapped, extended, replaced:
 - Replaced:
   - none of the existing memo detail basics; the room layer is a superset.
 
-### 3.4 Existing test conventions seam
+### 3.5 Existing test conventions seam
 
 Current repo seam:
 
@@ -521,7 +554,8 @@ Scope:
 - room participant invite/remove for agents;
 - `agent_room_state`;
 - `agent_invocations`;
-- state and invocation endpoints.
+- state and invocation endpoints;
+- share-scoped handoff endpoint that resolves public share links into authenticated runtime entrypoints.
 
 Depends on:
 
@@ -543,7 +577,8 @@ Must complete before:
 
 Completion gate:
 
-- explicit invocation can be created, processed once, and persisted without crossing ownership boundaries.
+- explicit invocation can be created, processed once, and persisted without crossing ownership boundaries;
+- a canonical share link can resolve into authenticated agent runtime without exposing room internals on the public share surface.
 
 ### 7.5 Phase E - Memo-room UI integration
 
@@ -782,6 +817,7 @@ Coverage priority:
 - visibility filtering;
 - restricted participant validation;
 - agent auth boundary;
+- share handoff auth and resolution;
 - invocation uniqueness and status progression.
 
 ### 10.2 Library tests
@@ -816,6 +852,7 @@ These are the permanent safety net and should be treated as must-have:
 - duplicate `(agent_id, request_message_id)` invocations are rejected;
 - completed invocations are not answered again without explicit retry;
 - protected owner-only or agent-internal data does not leak through room/context/tool responses.
+- public share payloads may advertise agent discovery metadata, but must not leak room ids, participant lists, private messages, or agent-private state.
 
 ### 10.5 Simulation tests
 
@@ -884,7 +921,8 @@ Ship:
 - internal agent gateway;
 - `agent_room_state`;
 - `agent_invocations`;
-- orchestration-facing endpoints.
+- orchestration-facing endpoints;
+- share-scoped handoff path from canonical share links into agent runtime.
 
 This is the minimum viable agent backend.
 
@@ -923,6 +961,7 @@ Ship when needed:
 - Do not weaken existing memo ownership and share boundaries.
 - Do not move agent logic into low-level transcript chunking or artifact tables.
 - Do not use memo-room data to backfill public/share routes unless that is explicitly designed and reviewed later.
+- Do not turn `/s/[shareRef]`, `.md`, or `.json` into direct room write surfaces.
 - Do not expose agent-private or owner-private content through convenience context payloads.
 - Do not collapse rooms into memos in API or schema shape just because v1 usage is usually 1:1.
 - Do not allow client-controlled thread topology or anchor validity.

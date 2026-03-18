@@ -28,14 +28,10 @@ function getShareLinkLabel(shareState: ShareState) {
   return "Share link";
 }
 
-export function useMemoPlayback(memo: Memo) {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [audioDuration, setAudioDuration] = useState<number | null>(null);
+export function useMemoShare(memo: Memo) {
   const [shareState, setShareState] = useState<ShareState>("idle");
   const [shareLinkState, setShareLinkState] = useState<ShareState>("idle");
   const [lastShareUrl, setLastShareUrl] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const shareResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shareLinkResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -65,46 +61,6 @@ export function useMemoPlayback(memo: Memo) {
       clearShareLinkResetTimer();
     };
   }, [clearShareLinkResetTimer, clearShareResetTimer, memo.id]);
-
-  const togglePlay = useCallback(async () => {
-    if (!audioRef.current) return;
-
-    if (isPlaying) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-      return;
-    }
-
-    await audioRef.current.play();
-    setIsPlaying(true);
-  }, [isPlaying]);
-
-  const handleSeek = useCallback(
-    (e: MouseEvent<HTMLDivElement>) => {
-      if (!audioRef.current || !audioDuration) return;
-      const rect = e.currentTarget.getBoundingClientRect();
-      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      audioRef.current.currentTime = ratio * audioDuration;
-      setCurrentTime(ratio * audioDuration);
-    },
-    [audioDuration]
-  );
-
-  const handleLoadedMetadata = useCallback(
-    (e: SyntheticEvent<HTMLAudioElement>) => {
-      setAudioDuration((e.target as HTMLAudioElement).duration);
-    },
-    []
-  );
-
-  const handleTimeUpdate = useCallback((e: SyntheticEvent<HTMLAudioElement>) => {
-    setCurrentTime((e.target as HTMLAudioElement).currentTime);
-  }, []);
-
-  const handleEnded = useCallback(() => {
-    setIsPlaying(false);
-    setCurrentTime(0);
-  }, []);
 
   const handleShare = useCallback(async () => {
     setShareState("loading");
@@ -157,28 +113,80 @@ export function useMemoPlayback(memo: Memo) {
     }
   }, [clearShareLinkResetTimer, memo.id]);
 
-  const progress = audioDuration ? (currentTime / audioDuration) * 100 : 0;
-  const displayDuration = audioDuration ?? memo.durationSeconds ?? null;
-  const shareLabel = getShareLabel(shareState);
-  const shareLinkLabel = getShareLinkLabel(shareLinkState);
+  return {
+    handleShare,
+    handleShareLink,
+    lastShareUrl,
+    shareLabel: getShareLabel(shareState),
+    shareLinkLabel: getShareLinkLabel(shareLinkState),
+    shareLinkState,
+    shareState,
+  };
+}
+
+export function useAudioPlayback(audioUrl?: string, durationSeconds?: number) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [audioDuration, setAudioDuration] = useState<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setAudioDuration(null);
+  }, [audioUrl]);
+
+  const togglePlay = useCallback(async () => {
+    if (!audioRef.current) return;
+
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+      return;
+    }
+
+    await audioRef.current.play();
+    setIsPlaying(true);
+  }, [isPlaying]);
+
+  const handleSeek = useCallback(
+    (e: MouseEvent<HTMLDivElement>) => {
+      if (!audioRef.current || !audioDuration) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      audioRef.current.currentTime = ratio * audioDuration;
+      setCurrentTime(ratio * audioDuration);
+    },
+    [audioDuration]
+  );
+
+  const handleLoadedMetadata = useCallback(
+    (e: SyntheticEvent<HTMLAudioElement>) => {
+      setAudioDuration((e.target as HTMLAudioElement).duration);
+    },
+    []
+  );
+
+  const handleTimeUpdate = useCallback((e: SyntheticEvent<HTMLAudioElement>) => {
+    setCurrentTime((e.target as HTMLAudioElement).currentTime);
+  }, []);
+
+  const handleEnded = useCallback(() => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+  }, []);
 
   return {
     audioRef,
+    audioDuration,
     currentTime,
-    displayDuration,
+    displayDuration: audioDuration ?? durationSeconds ?? null,
     handleEnded,
     handleLoadedMetadata,
     handleSeek,
-    handleShare,
-    handleShareLink,
     handleTimeUpdate,
     isPlaying,
-    lastShareUrl,
-    progress,
-    shareLabel,
-    shareLinkLabel,
-    shareLinkState,
-    shareState,
+    progress: audioDuration ? (currentTime / audioDuration) * 100 : 0,
     togglePlay,
   };
 }

@@ -51,23 +51,25 @@ jest.mock("@/components/ThemeProvider", () => ({
 }));
 
 jest.mock("@/hooks/useMemoPlayback", () => ({
-    useMemoPlayback: jest.fn(() => ({
+    useMemoShare: jest.fn(() => ({
+        handleShare: jest.fn(),
+        handleShareLink: jest.fn(),
+        lastShareUrl: null,
+        shareLabel: "Share",
+        shareLinkLabel: "Share link",
+        shareLinkState: "idle",
+        shareState: "idle",
+    })),
+    useAudioPlayback: jest.fn(() => ({
         audioRef: { current: null },
         currentTime: 0,
         displayDuration: 0,
         handleEnded: jest.fn(),
         handleLoadedMetadata: jest.fn(),
         handleSeek: jest.fn(),
-        handleShare: jest.fn(),
-        handleShareLink: jest.fn(),
         handleTimeUpdate: jest.fn(),
         isPlaying: false,
-        lastShareUrl: null,
         progress: 0,
-        shareLabel: "Share",
-        shareLinkLabel: "Share link",
-        shareLinkState: "idle",
-        shareState: "idle",
         togglePlay: jest.fn(),
     })),
 }));

@@ -1,6 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import React, {
+  Profiler,
+  useCallback,
+  useRef,
+  useState,
+  type ProfilerOnRenderCallback,
+} from "react";
 import Link from "next/link";
 import {
   Check,
@@ -14,9 +20,7 @@ import {
   FileDown,
   Loader2,
   Mic2,
-  Pause,
   Pencil,
-  Play,
   Plus,
   Search,
   Sparkles,
@@ -32,13 +36,14 @@ import {
 import AudioRecorder from "@/components/AudioRecorder";
 import StatusDot from "@/components/StatusDot";
 import VoiceoverStudio from "@/components/VoiceoverStudio";
+import { MemoPlaybackFooter } from "@/components/memos/MemoPlaybackFooter";
 import type {
   AudioInputPayload,
   UploadCompletePayload,
 } from "@/components/AudioRecorder";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useTheme } from "@/components/ThemeProvider";
-import { useMemoPlayback } from "@/hooks/useMemoPlayback";
+import { useMemoShare } from "@/hooks/useMemoPlayback";
 import {
   MEMO_ESTIMATED_COST_PER_MINUTE_USD,
   exportMarkdown,
@@ -112,7 +117,7 @@ function AuthControls() {
   );
 }
 
-function MemoTranscript({
+export const MemoTranscript = React.memo(function MemoTranscript({
   transcript,
   transcriptSegments,
   isFailed,
@@ -152,37 +157,92 @@ function MemoTranscript({
       {transcript || "No transcript available."}
     </div>
   );
+});
+
+export function MemoTranscriptPanelInner({
+  memo,
+  showTimestamps,
+  onToggleTimestamps,
+  transcriptProfilerOnRender,
+}: {
+  memo: Memo;
+  showTimestamps: boolean;
+  onToggleTimestamps: () => void;
+  transcriptProfilerOnRender?: ProfilerOnRenderCallback;
+}) {
+  const isFailed = isMemoFailed(memo);
+  const hasTranscriptSegments = Boolean(memo.transcriptSegments?.length);
+  const transcript = (
+    <MemoTranscript
+      transcript={memo.transcript}
+      transcriptSegments={memo.transcriptSegments}
+      isFailed={isFailed}
+      showTimestamps={showTimestamps}
+    />
+  );
+
+  return (
+    <div className="rounded-2xl border border-white/5 bg-white/[0.02] overflow-hidden flex flex-col min-h-0">
+      {hasTranscriptSegments && (
+        <div className="px-5 pt-4 pb-2 flex justify-end flex-shrink-0">
+          <button
+            type="button"
+            onClick={onToggleTimestamps}
+            aria-pressed={showTimestamps}
+            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-mono uppercase tracking-wide transition-all ${
+              showTimestamps
+                ? "border-accent/40 bg-accent/10 text-accent"
+                : "border-white/10 bg-white/5 text-white/50 hover:border-white/20 hover:text-white/75"
+            }`}
+          >
+            <Clock3 size={13} />
+            {showTimestamps ? "Hide timestamps" : "Show timestamps"}
+          </button>
+        </div>
+      )}
+
+      <div
+        className="overflow-y-auto px-5 pb-6 md:h-[min(60vh,720px)]"
+        style={{
+          scrollbarWidth: "thin",
+          scrollbarColor: "rgba(255,255,255,0.1) transparent",
+        }}
+      >
+        {transcriptProfilerOnRender ? (
+          <Profiler id="MemoTranscriptPanel" onRender={transcriptProfilerOnRender}>
+            {transcript}
+          </Profiler>
+        ) : (
+          transcript
+        )}
+      </div>
+    </div>
+  );
 }
+
+export const MemoTranscriptPanel = React.memo(MemoTranscriptPanelInner);
 
 export function MemoDetailView({
   memo,
   onTitleSave,
   onTitleRegenerate,
+  transcriptPanelProfilerOnRender,
 }: {
   memo: Memo;
   onTitleSave?: (memoId: string, title: string) => void;
   onTitleRegenerate?: (memoId: string) => Promise<string | null>;
+  transcriptPanelProfilerOnRender?: ProfilerOnRenderCallback;
 }) {
   const { playbackTheme } = useTheme();
   const {
-    audioRef,
-    currentTime,
-    displayDuration,
-    handleEnded,
-    handleLoadedMetadata,
-    handleSeek,
     handleShare,
     handleShareLink,
-    handleTimeUpdate,
-    isPlaying,
     lastShareUrl,
-    progress,
     shareLabel,
     shareLinkLabel,
     shareLinkState,
     shareState,
-    togglePlay,
-  } = useMemoPlayback(memo);
+  } = useMemoShare(memo);
   const isFailed = isMemoFailed(memo);
   const isProcessing = isMemoProcessing(memo);
   const statusLabel = isFailed ? "Failed" : isProcessing ? "Processing" : "Ready";
@@ -192,7 +252,7 @@ export function MemoDetailView({
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editValue, setEditValue] = useState("");
   const [isRegenerating, setIsRegenerating] = useState(false);
-  const [showVoiceoverStudio, setShowVoiceoverStudio] = useState(true);
+  const [showVoiceoverStudio, setShowVoiceoverStudio] = useState(false);
   const [showTranscriptTimestamps, setShowTranscriptTimestamps] = useState(() => {
     if (typeof window === "undefined") {
       return false;
@@ -201,7 +261,6 @@ export function MemoDetailView({
     return window.localStorage.getItem(TRANSCRIPT_TIMESTAMPS_STORAGE_KEY) === "true";
   });
   const inputRef = useRef<HTMLInputElement>(null);
-  const hasTranscriptSegments = Boolean(memo.transcriptSegments?.length);
 
   function startEditing() {
     setEditValue(displayTitle);
@@ -229,7 +288,7 @@ export function MemoDetailView({
     setIsEditingTitle(false);
   }
 
-  function handleTranscriptTimestampToggle() {
+  const handleTranscriptTimestampToggle = useCallback(() => {
     setShowTranscriptTimestamps((current) => {
       const next = !current;
       window.localStorage.setItem(
@@ -238,7 +297,16 @@ export function MemoDetailView({
       );
       return next;
     });
-  }
+  }, []);
+
+  const transcriptPanel = (
+    <MemoTranscriptPanel
+      memo={memo}
+      showTimestamps={showTranscriptTimestamps}
+      onToggleTimestamps={handleTranscriptTimestampToggle}
+      transcriptProfilerOnRender={transcriptPanelProfilerOnRender}
+    />
+  );
 
   return (
     <motion.div
@@ -435,173 +503,63 @@ export function MemoDetailView({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-8 py-10 relative">
-        <div className="mx-auto grid max-w-7xl gap-10">
-          <div className="min-w-0">
-            {canDownloadFailedRecording && (
-              <div className="mb-6 rounded-2xl border border-red-500/25 bg-red-500/10 px-5 py-4 text-sm text-red-100">
-                <div className="font-medium text-red-50">Recording couldn't be saved.</div>
-                <div className="mt-1 text-red-100/75">
-                  Finalization failed, but the uploaded chunks are still available.
-                </div>
-                <a
-                  href={`/api/memos/${memo.id}/download-chunks`}
-                  download={`recording-${memo.id}.webm`}
-                  className="mt-3 inline-flex items-center gap-2 rounded-full border border-red-200/25 bg-red-950/30 px-3 py-1.5 text-xs font-mono uppercase tracking-wide text-red-50 transition-colors hover:border-red-100/40 hover:bg-red-950/50"
-                >
-                  <FileDown size={14} />
-                  Download recording
-                </a>
+      <div className="flex-1 flex flex-col min-h-0 px-8 py-10 overflow-y-auto md:overflow-visible">
+        <div className="mx-auto w-full max-w-7xl flex flex-col min-h-0 gap-6">
+          {canDownloadFailedRecording && (
+            <div className="rounded-2xl border border-red-500/25 bg-red-500/10 px-5 py-4 text-sm text-red-100">
+              <div className="font-medium text-red-50">Recording couldn't be saved.</div>
+              <div className="mt-1 text-red-100/75">
+                Finalization failed, but the uploaded chunks are still available.
               </div>
-            )}
+              <a
+                href={`/api/memos/${memo.id}/download-chunks`}
+                download={`recording-${memo.id}.webm`}
+                className="mt-3 inline-flex items-center gap-2 rounded-full border border-red-200/25 bg-red-950/30 px-3 py-1.5 text-xs font-mono uppercase tracking-wide text-red-50 transition-colors hover:border-red-100/40 hover:bg-red-950/50"
+              >
+                <FileDown size={14} />
+                Download recording
+              </a>
+            </div>
+          )}
 
-            {hasTranscriptSegments && (
-              <div className="mb-5 flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleTranscriptTimestampToggle}
-                  aria-pressed={showTranscriptTimestamps}
-                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-mono uppercase tracking-wide transition-all ${
-                    showTranscriptTimestamps
-                      ? "border-accent/40 bg-accent/10 text-accent"
-                      : "border-white/10 bg-white/5 text-white/50 hover:border-white/20 hover:text-white/75"
-                  }`}
-                >
-                  <Clock3 size={13} />
-                  {showTranscriptTimestamps ? "Hide timestamps" : "Show timestamps"}
-                </button>
-              </div>
-            )}
+          {transcriptPanel}
 
-            <MemoTranscript
-              transcript={memo.transcript}
-              transcriptSegments={memo.transcriptSegments}
-              isFailed={isFailed}
-              showTimestamps={showTranscriptTimestamps}
-              />
+          {!isFailed && memo.transcript && memo.url && (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={() => setShowVoiceoverStudio((v) => !v)}
+                className="voiceover-studio-toggle flex items-center gap-2 text-white/70 hover:text-white/90 font-semibold text-base transition-colors"
+                aria-expanded={showVoiceoverStudio}
+              >
+                {showVoiceoverStudio ? (
+                  <ChevronUp size={18} className="voiceover-studio-toggle-icon" />
+                ) : (
+                  <ChevronDown size={18} className="voiceover-studio-toggle-icon" />
+                )}
+                Voiceover Studio
+              </button>
+              {showVoiceoverStudio && <VoiceoverStudio memo={memo} />}
+            </div>
+          )}
 
-            {!isFailed && memo.transcript && memo.url && (
-              <div className="mt-10">
-                <button
-                  type="button"
-                  onClick={() => setShowVoiceoverStudio((v) => !v)}
-                  className="voiceover-studio-toggle flex items-center gap-2 text-white/70 hover:text-white/90 font-semibold text-base transition-colors"
-                  aria-expanded={showVoiceoverStudio}
-                >
-                  {showVoiceoverStudio ? (
-                    <ChevronUp size={18} className="voiceover-studio-toggle-icon" />
-                  ) : (
-                    <ChevronDown size={18} className="voiceover-studio-toggle-icon" />
-                  )}
-                  Voiceover Studio
-                </button>
-                {showVoiceoverStudio && <VoiceoverStudio memo={memo} />}
-              </div>
-            )}
-
-            {memo.url && (
-              <div className="mt-12 pt-8 border-t border-white/5 flex items-center justify-between text-[11px] text-white/20 font-mono uppercase tracking-widest">
-                <span>Recorded {new Date(memo.createdAt).toLocaleString()}</span>
-                <a
-                  href={memo.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 hover:text-accent transition-colors"
-                >
-                  <ExternalLink size={11} /> Source
-                </a>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-[#161616] border-t border-white/10 px-8 py-5 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10">
-        <div className="max-w-3xl mx-auto flex flex-col gap-4">
           {memo.url && (
-            <div className="flex flex-col gap-3">
-              <audio
-                ref={audioRef}
-                src={memo.url}
-                preload="metadata"
-                onLoadedMetadata={handleLoadedMetadata}
-                onTimeUpdate={handleTimeUpdate}
-                onEnded={handleEnded}
-              />
-
-              <div className="flex flex-col gap-2">
-                <div
-                  onClick={handleSeek}
-                  className="w-full h-1.5 bg-white/5 rounded-full cursor-pointer relative group overflow-hidden"
-                >
-                  <div
-                    className={`absolute left-0 top-0 h-full transition-all duration-100 ease-linear ${
-                      playbackTheme === "accent"
-                        ? "bg-accent shadow-[0_0_12px_var(--accent)]"
-                        : "bg-white/60 shadow-[0_0_12px_rgba(255,255,255,0.3)]"
-                    }`}
-                    style={{ width: `${progress}%` }}
-                  />
-                  <div
-                    className="absolute h-full w-0.5 bg-white scale-y-150 transition-all opacity-0 group-hover:opacity-100"
-                    style={{ left: `${progress}%` }}
-                  />
-                </div>
-                <div className="flex items-center justify-between font-mono text-[11px] text-white/20 tracking-tighter tabular-nums uppercase">
-                  <span>{formatSecs(currentTime)}</span>
-                  <span>
-                    {displayDuration != null ? formatSecs(displayDuration) : "--:--"}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-center">
-                <button
-                  onClick={togglePlay}
-                  className="group relative flex items-center justify-center w-16 h-16 rounded-full transition-all duration-300 hover:scale-105 active:scale-95"
-                >
-                  <div
-                    className={`absolute inset-0 rounded-full blur-2xl transition-opacity duration-500 ${
-                      playbackTheme === "accent"
-                        ? "bg-accent/20 group-hover:bg-accent/30"
-                        : "bg-white/5 group-hover:bg-white/10"
-                    }`}
-                  />
-
-                  <div className="absolute inset-0 rounded-full bg-[#121212] border border-white/5 shadow-2xl" />
-                  <div
-                    className={`absolute inset-1 rounded-full border border-white/5 ${
-                      playbackTheme === "accent" ? "bg-accent/5" : "bg-white/[0.02]"
-                    }`}
-                  />
-
-                  <div
-                    className={`absolute inset-2.5 rounded-full border transition-colors duration-300 ${
-                      playbackTheme === "accent"
-                        ? "border-accent/20 bg-accent/10"
-                        : "border-white/10 bg-white/5"
-                    }`}
-                  />
-
-                  <div
-                    className={`absolute inset-[22%] rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 ${
-                      playbackTheme === "accent"
-                        ? "bg-white text-black group-hover:bg-accent group-hover:text-white"
-                        : "bg-white/10 text-white group-hover:bg-white group-hover:text-black"
-                    }`}
-                  >
-                    {isPlaying ? (
-                      <Pause size={18} fill="currentColor" />
-                    ) : (
-                      <Play size={18} fill="currentColor" className="translate-x-0.5" />
-                    )}
-                  </div>
-                </button>
-              </div>
+            <div className="pt-8 border-t border-white/5 flex items-center justify-between text-[11px] text-white/20 font-mono uppercase tracking-widest">
+              <span>Recorded {new Date(memo.createdAt).toLocaleString()}</span>
+              <a
+                href={memo.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 hover:text-accent transition-colors"
+              >
+                <ExternalLink size={11} /> Source
+              </a>
             </div>
           )}
         </div>
       </div>
+
+      <MemoPlaybackFooter memo={memo} playbackTheme={playbackTheme} />
     </motion.div>
   );
 }
