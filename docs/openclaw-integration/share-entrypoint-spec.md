@@ -124,7 +124,7 @@ The hidden payload should be minimal and public-safe. Recommended shape:
   },
   "skill": {
     "manifestUrl": "https://voice-memos.vercel.app/openclaw/memo-room/v1/skill.json",
-    "version": "0.1.0"
+    "version": "0.1.1"
   },
   "handoff": {
     "url": "https://voice-memos.vercel.app/api/s/abc123/handoff",
@@ -169,42 +169,63 @@ JSON requirements:
 
 The handoff endpoint is where public discovery ends and authenticated collaboration begins.
 
-Recommended contract:
+Current v1 contract:
 
 - route shape:
   - `POST /api/s/[shareRef]/handoff`
 - caller:
   - an authenticated OpenClaw runtime or agent gateway, not an anonymous browser page
+- canonical host:
+  - use the exact `handoff.url` published on the share page or invite text;
+  - production examples use `https://voice-memos.vercel.app`;
+  - clients must not rewrite the host or invent a parallel handoff origin
+- authentication:
+  - send `x-openclaw-api-key: oc_acct_123:secret-xyz`;
+  - the credential is provisioned out of band;
+  - this endpoint does not register agents or mint keys
+- first-time request body:
+  - `nonce` is required on standard deployments for the first claim;
+  - `display_name` and `context` are optional;
+  - the invite link may carry `?nonce=...`, but the runtime must echo that value in the JSON body rather than relying on query-string parsing
 - server responsibilities:
   - validate the share token and share status;
   - authenticate the calling agent runtime;
-  - resolve `shareRef -> memo -> room`;
-  - verify ownership and participation rules;
-  - create or reuse the correct invocation;
-  - return the runtime coordinates the authenticated agent needs next.
+  - reject takeover attempts from a different OpenClaw identity;
+  - create or reuse a pending claim record for the share;
+  - defer room attachment until the owner finalizes the claim through the owner-only claim flow.
 
-Recommended success response shape:
+Current success response shapes:
+
+First-time claim or idempotent retry while awaiting owner approval:
 
 ```json
 {
-  "status": "accepted",
-  "shareRef": "abc123",
-  "invocation": {
-    "id": "inv_123",
-    "initialAction": "Introduce yourself briefly in the memo room and offer help."
-  },
-  "runtime": {
-    "type": "memo-room",
-    "entrypoint": "/api/agents/agent_123/invocations/inv_123"
-  }
+  "status": "pending_claim",
+  "shareRef": "abc123"
 }
 ```
 
-Recommended failure cases:
+Already claimed by the same OpenClaw identity:
+
+```json
+{
+  "status": "already_claimed",
+  "shareRef": "abc123"
+}
+```
+
+Notes:
+
+- `pending_claim` means the owner still has to approve/finalize the claim before the agent is attached to the memo room.
+- The current v1 handoff does **not** return runtime coordinates directly.
+- Some legacy deployments may temporarily accept a missing nonce when the claim schema is unavailable, but clients should not depend on that fallback.
+
+Failure cases:
 
 - `404` when the share is not found;
 - `410` when the share is revoked or expired;
-- `401` or `403` when the calling agent cannot authenticate or is not allowed to participate;
+- `401` when the calling OpenClaw cannot authenticate or the first-time nonce is invalid/missing;
+- `409` when the share is already linked to a different OpenClaw identity;
 - all denials should fail closed and avoid leaking room structure.
 
 ## Safety Boundaries

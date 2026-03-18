@@ -10,7 +10,7 @@ export const dynamic = "force-static";
 const FAQ_ITEMS = [
   {
     q: "What is OpenClaw?",
-    a: "OpenClaw is a protocol for connecting an external AI agent to a shared memo. When you invite OpenClaw, you're generating a one-time handoff link that lets a compatible AI agent read your memo's context and join the memo room. The agent is external — it's something you bring, not something built into Sonic Memos.",
+    a: "OpenClaw is a protocol for connecting an external AI agent to a shared memo. When you invite OpenClaw, you're generating a one-time handoff link with a share-scoped nonce. A compatible agent reads the page metadata, calls the handoff endpoint on the same host, and then waits for owner approval before it joins the memo room. The agent is external — it's something you bring, not something built into Sonic Memos.",
   },
   {
     q: "Why doesn't OpenClaw say anything right after connecting?",
@@ -38,7 +38,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "Do I need a specific kind of AI agent to use this?",
-    a: "Yes. The agent needs to be OpenClaw-compatible — meaning it understands the claim handoff protocol and can operate in a memo room. Standard chatbots or browser sessions won't work. OpenClaw is designed for AI agents that can follow structured handoff instructions.",
+    a: "Yes. The agent needs to be OpenClaw-compatible — meaning it can read the handoff metadata, send the required x-openclaw-api-key header, echo the invite nonce in the JSON body for a first-time claim, and operate in a memo room. Standard chatbots or browser sessions won't work.",
   },
 ];
 
@@ -58,6 +58,25 @@ const SEES_NO = [
   { label: "Other memos in your workspace" },
   { label: "Live recording in progress" },
   { label: "Invite nonce or authentication tokens" },
+];
+
+const BUILDER_RULES = [
+  {
+    title: "Canonical host",
+    body: "Use the exact handoff URL advertised by the share page or invite text. In production that host is https://voice-memos.vercel.app. Do not rewrite the host or synthesize a parallel API origin.",
+  },
+  {
+    title: "Auth header",
+    body: "Authenticated handoffs use x-openclaw-api-key with the format oc_acct_123:secret-xyz. Keys are provisioned to the OpenClaw runtime out of band.",
+  },
+  {
+    title: "First-time claim",
+    body: "On the first claim, copy the invite nonce into the POST body as JSON. The server does not rely on the query string after discovery.",
+  },
+  {
+    title: "Statuses",
+    body: "A valid first call returns pending_claim while the owner still needs to approve the claim. A retry from the same linked OpenClaw returns already_claimed.",
+  },
 ];
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -263,7 +282,7 @@ export default function OpenClawPage() {
               number={1}
               title="Generate an invite"
               description="From any shared memo you own, click Invite OpenClaw. You'll get a short block of text containing a one-time invite link — valid for 24 hours. Send that text to your OpenClaw-compatible AI agent."
-              detail="The invite includes instructions the agent needs to connect. Once sent, you'll see a pending state in the memo until the agent claims it."
+              detail="The invite carries a share link plus a one-time nonce. Your memo stays in a pending state until a compatible agent uses that nonce to start the handoff."
               mockSlot={
                 <div className="rounded-xl border border-white/8 bg-black/30 p-4 space-y-3">
                   <div className="flex items-center gap-2 mb-1">
@@ -276,7 +295,7 @@ export default function OpenClawPage() {
                     Please open this link and connect to my memo room:
                     <br />
                     <span className="text-orange-400/80">
-                      https://sonicmemos.app/s/qz7r…?nonce=a4f8…
+                      https://voice-memos.vercel.app/s/qz7r...?nonce=a4f8...
                     </span>
                     <br />
                     <br />
@@ -297,8 +316,8 @@ export default function OpenClawPage() {
             <StepCard
               number={2}
               title="OpenClaw reads and connects"
-              description="Your agent visits the invite URL, reads the memo's OpenClaw skill instructions from the page metadata, and calls the handoff endpoint. It receives your transcript, summary, and any artifacts. The claim goes from pending to connected."
-              detail="This happens on the agent's side — there's nothing you need to do. The memo view updates to show OpenClaw as connected once the claim is complete."
+              description="Your agent visits the invite URL, reads the memo's OpenClaw skill instructions from the page metadata, and calls the exact handoff endpoint on the same host. It sends x-openclaw-api-key, copies the invite nonce into the JSON body, and receives a pending_claim response while owner approval is still outstanding."
+              detail="This happens on the agent's side, but the memo only shows OpenClaw as connected after you finalize the claim. If the same OpenClaw retries later, the handoff becomes idempotent and returns already_claimed."
               mockSlot={
                 <div className="rounded-xl border border-white/8 bg-black/30 p-4 space-y-3">
                   <div className="flex items-center gap-2 mb-1">
@@ -310,9 +329,17 @@ export default function OpenClawPage() {
                   <div className="space-y-2">
                     {[
                       { label: "Agent", value: "my-research-agent" },
-                      { label: "Human", value: "Marko" },
+                      { label: "Auth", value: "x-openclaw-api-key" },
                       {
-                        label: "Context received",
+                        label: "First response",
+                        value: "pending_claim",
+                      },
+                      {
+                        label: "Next state",
+                        value: "already_claimed or connected",
+                      },
+                      {
+                        label: "Context after approval",
                         value: "transcript · summary · outline",
                       },
                     ].map(({ label, value }) => (
@@ -351,6 +378,56 @@ export default function OpenClawPage() {
             />
           </div>
 
+        </section>
+
+        {/* ── Builder contract ─────────────────────────────────────────── */}
+        <section className="mb-20">
+          <h2 className="text-2xl font-bold text-white mb-2">
+            For agent builders
+          </h2>
+          <p className="text-white/55 text-sm mb-8 max-w-3xl">
+            OpenClaw is not a vibes-based integration. The handoff is an
+            explicit contract with a fixed host, auth header, nonce
+            requirement, and status model.
+          </p>
+
+          <div className="grid lg:grid-cols-[1.2fr_0.8fr] gap-6">
+            <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-6">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-white/75 mb-4">
+                Handoff example
+              </h3>
+              <pre className="overflow-x-auto rounded-xl border border-white/8 bg-black/30 p-4 text-xs leading-relaxed text-white/70">
+                <code>{`POST https://voice-memos.vercel.app/api/s/{shareRef}/handoff
+x-openclaw-api-key: oc_acct_123:secret-xyz
+content-type: application/json
+
+{
+  "nonce": "invite-nonce-from-share-url",
+  "display_name": "My OpenClaw",
+  "context": "Optional short description"
+}`}</code>
+              </pre>
+              <p className="mt-4 text-xs leading-relaxed text-white/45">
+                First-time success returns <code>pending_claim</code>. A later
+                retry from the same linked OpenClaw returns{" "}
+                <code>already_claimed</code>.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {BUILDER_RULES.map(({ title, body }) => (
+                <div
+                  key={title}
+                  className="rounded-xl border border-white/8 bg-white/[0.02] px-5 py-4"
+                >
+                  <h3 className="font-semibold text-white/90 mb-1 text-sm">
+                    {title}
+                  </h3>
+                  <p className="text-white/55 text-sm leading-relaxed">{body}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </section>
 
         {/* ── What OpenClaw can see ─────────────────────────────────────── */}
@@ -424,7 +501,7 @@ export default function OpenClawPage() {
               },
               {
                 title: "Requires an OpenClaw-compatible agent",
-                body: "You can't connect a standard chatbot or browser session. The agent needs to understand the claim handoff protocol — the same format the invite text describes. Only bring agents that are built for this.",
+                body: "You can't connect a standard chatbot or browser session. The agent needs to understand the claim handoff protocol, send x-openclaw-api-key, and use the invite nonce correctly. Only bring agents that are built for this.",
               },
               {
                 title: "One agent per memo",

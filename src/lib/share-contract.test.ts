@@ -431,7 +431,7 @@ describe("share-contract", () => {
                 },
                 skill: {
                     manifestUrl: "https://example.com/openclaw/memo-room/v1/skill.json",
-                    version: "0.1.0",
+                    version: "0.1.1",
                 },
                 handoff: {
                     url: "https://example.com/api/s/abc123token/handoff",

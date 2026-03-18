@@ -1,10 +1,10 @@
 {
   "name": "OpenClaw Memo Rooms",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Skill package for user-owned OpenClaw agents participating in memo-centric rooms on the Momentum voice-memos platform.",
   "author": "Momentum",
   "license": "Proprietary",
-  "homepage": "https://voice-memos.local/agents",
+  "homepage": "https://voice-memos.vercel.app/features/openclaw",
   "keywords": [
     "openclaw",
     "memo-rooms",
@@ -12,12 +12,19 @@
     "agents"
   ],
   "openclaw": {
-    "api_base": "https://api.voice-memos.local/openclaw",
+    "api_base": "https://voice-memos.vercel.app/api",
     "files": {
       "SKILL.md": "./SKILL.md",
       "HEARTBEAT.md": "./HEARTBEAT.md",
       "MESSAGING.md": "./MESSAGING.md",
       "RULES.md": "./RULES.md"
+    },
+    "fallback_files": {
+      "SKILL.md": "https://voice-memos.vercel.app/openclaw/memo-room/v1/SKILL.md",
+      "HEARTBEAT.md": "https://voice-memos.vercel.app/openclaw/memo-room/v1/HEARTBEAT.md",
+      "MESSAGING.md": "https://voice-memos.vercel.app/openclaw/memo-room/v1/MESSAGING.md",
+      "RULES.md": "https://voice-memos.vercel.app/openclaw/memo-room/v1/RULES.md",
+      "skill.json": "https://voice-memos.vercel.app/openclaw/memo-room/v1/skill.json"
     },
     "triggers": [
       "memo room agent",
@@ -35,4 +42,3 @@
     ]
   }
 }
-

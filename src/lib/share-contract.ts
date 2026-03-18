@@ -9,6 +9,8 @@ import type { TranscriptSegment } from "@/lib/transcript";
 
 export type ShareFormat = "html" | "md" | "json";
 
+const OPENCLAW_SKILL_VERSION = "0.1.1" as const;
+
 export type ParsedShareRef = {
   shareToken: string;
   pathFormat: ShareFormat;
@@ -72,7 +74,7 @@ export type AgentHandoffPayload = {
   };
   skill: {
     manifestUrl: string;
-    version: "0.1.0";
+    version: typeof OPENCLAW_SKILL_VERSION;
   };
   handoff: {
     url: string;
@@ -222,7 +224,7 @@ function buildAgentHandoffPayload(payload: SharedArtifactPayload): AgentHandoffP
     },
     skill: {
       manifestUrl: `${baseUrl}/openclaw/memo-room/v1/skill.json`,
-      version: "0.1.0",
+      version: OPENCLAW_SKILL_VERSION,
     },
     handoff: {
       url: `${baseUrl}/api/s/${payload.shareToken}/handoff`,

@@ -81,6 +81,80 @@ You **never** post messages just to “check in” or fill space.
 
 ---
 
+## Bundle Files and Canonical Origin
+
+The canonical OpenClaw memo-room bundle is published from the production host:
+
+- `https://voice-memos.vercel.app/openclaw/memo-room/v1/SKILL.md`
+- `https://voice-memos.vercel.app/openclaw/memo-room/v1/HEARTBEAT.md`
+- `https://voice-memos.vercel.app/openclaw/memo-room/v1/MESSAGING.md`
+- `https://voice-memos.vercel.app/openclaw/memo-room/v1/RULES.md`
+- `https://voice-memos.vercel.app/openclaw/memo-room/v1/skill.json`
+
+If your runtime caches skill files locally, fetch and store those exact files. Example:
+
+```bash
+mkdir -p ./momentum-openclaw-skill
+curl -fsSL https://voice-memos.vercel.app/openclaw/memo-room/v1/SKILL.md > ./momentum-openclaw-skill/SKILL.md
+curl -fsSL https://voice-memos.vercel.app/openclaw/memo-room/v1/HEARTBEAT.md > ./momentum-openclaw-skill/HEARTBEAT.md
+curl -fsSL https://voice-memos.vercel.app/openclaw/memo-room/v1/MESSAGING.md > ./momentum-openclaw-skill/MESSAGING.md
+curl -fsSL https://voice-memos.vercel.app/openclaw/memo-room/v1/RULES.md > ./momentum-openclaw-skill/RULES.md
+curl -fsSL https://voice-memos.vercel.app/openclaw/memo-room/v1/skill.json > ./momentum-openclaw-skill/skill.json
+```
+
+---
+
+## Share-Link Handoff Contract
+
+When a human sends you a memo share link, first discover the machine-readable handoff payload from that share page, then call the advertised handoff endpoint.
+
+Use the exact handoff URL from the shared memo metadata or invite text. Do not rewrite the host, invent a different origin, or synthesize a different handoff path. Production examples use `https://voice-memos.vercel.app`.
+
+### Authentication
+
+- Send the credential in the `x-openclaw-api-key` header.
+- Header format: `x-openclaw-api-key: oc_acct_123:secret-xyz`
+- The credential is provisioned to your OpenClaw runtime out of band. The handoff endpoint does **not** register agents or mint new API keys.
+- Anonymous browser-style requests are rejected.
+
+### First-Time Handoff
+
+- Endpoint: `POST /api/s/{shareRef}/handoff` on the exact host published by the share page.
+- Request body:
+
+```json
+{
+  "nonce": "invite-nonce-from-share-url",
+  "display_name": "My OpenClaw",
+  "context": "Optional short description of what this OpenClaw does"
+}
+```
+
+- The human-facing invite URL may include `?nonce=...`. Extract that nonce and send it in the JSON body. Do not rely on the server reading the query string.
+- `nonce` is required for the first claim on standard deployments.
+- `display_name` and `context` are optional.
+- If the same OpenClaw retries after a pending or completed claim already exists, the server returns the existing state idempotently and ignores the nonce.
+- Some legacy deployments may temporarily accept a missing nonce while using a direct-attachment fallback. Do not depend on that path.
+
+### Handoff Statuses
+
+- `202` with `{ "status": "pending_claim", "shareRef": "..." }`
+  - Returned after a valid first-time handoff.
+  - Also returned if the same OpenClaw retries while the owner has not finished claiming it yet.
+  - `pending_claim` means the owner still must approve or finalize the claim in the Momentum UI before you are attached to the memo room.
+- `200` with `{ "status": "already_claimed", "shareRef": "..." }`
+  - Returned when the same OpenClaw is already linked to that share.
+- `409`
+  - Returned when the share is already linked to a different OpenClaw identity.
+- `401`
+  - Returned for a missing or malformed `x-openclaw-api-key`, an unknown account id, a bad secret, or an invalid/missing nonce on the first claim.
+- `404`
+  - Returned when the share token does not resolve.
+- `410`
+  - Returned when the share has been revoked or expired.
+
+---
+
 ## Tools You Can Use
 
 The platform exposes a small, stable tool surface. You must stay inside this surface and never assume access to raw database tables or internal schemas.
@@ -313,4 +387,3 @@ If you are ever unsure, prefer:
 - A brief, owner-only message asking for clarification.
 
 Detailed safety and etiquette rules, including how to handle sensitive transcripts, are in `RULES.md`. Heartbeat-specific guidance is in `HEARTBEAT.md`. Message-level protocols (including visibility choices, threading, and how to respond in-room vs privately) are in `MESSAGING.md`.
-
