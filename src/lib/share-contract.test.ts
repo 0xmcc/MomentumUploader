@@ -476,6 +476,7 @@ describe("share-contract", () => {
         expect(html).toContain('id="oc-claim-btn"');
         expect(html).toContain('id="oc-claimed"');
         expect(html).toContain('id="oc-ask-btn"');
+        expect(html).toContain('id="oc-disconnect-btn"');
         expect(html).toContain('id="oc-ask-dialog"');
         expect(html).toContain('id="oc-ask-submit"');
         expect(html).toContain("Send This To OpenClaw");
@@ -493,6 +494,7 @@ describe("share-contract", () => {
         expect(html).toContain('fetch("/api/s/" + shareRef + "/openclaw-status"');
         expect(html).toContain('fetch("/api/s/" + shareRef + "/invite"');
         expect(html).toContain('fetch("/api/s/" + shareRef + "/claim"');
+        expect(html).toContain('method: "DELETE"');
         expect(html).toContain('fetch("/api/openclaw/registration-token"');
         expect(html).toContain('fetch("/api/memo-rooms/" + openClawState.roomId + "/invocations"');
         expect(html).toContain("navigator.clipboard.writeText(inviteText)");
@@ -688,6 +690,73 @@ describe("share-contract", () => {
             setIntervalSpy.mockRestore();
             clearIntervalSpy.mockRestore();
         }
+    });
+
+    it("lets the owner disconnect a claimed OpenClaw and returns the widget to invite state", async () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+            const url = String(input);
+
+            if (url === "/api/s/abc123token/discussion") {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({
+                        messages: [],
+                        isOwner: true,
+                        isAuthenticated: true,
+                    }),
+                });
+            }
+
+            if (url === "/api/s/abc123token/openclaw-status") {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({
+                        state: "claimed",
+                        agentId: "agent-1",
+                        roomId: "room-1",
+                    }),
+                });
+            }
+
+            if (url === "/api/s/abc123token/claim" && init?.method === "DELETE") {
+                return Promise.resolve({
+                    ok: true,
+                    status: 204,
+                    json: async () => ({}),
+                });
+            }
+
+            throw new Error(`Unexpected fetch URL: ${url}`);
+        });
+
+        await loadSharePageScript(html, fetchMock);
+
+        const inviteWidget = document.getElementById("oc-invite") as HTMLElement;
+        const claimedWidget = document.getElementById("oc-claimed") as HTMLElement;
+        const disconnectButton = document.getElementById("oc-disconnect-btn") as HTMLButtonElement;
+
+        expect(claimedWidget.style.display).toBe("");
+        expect(inviteWidget.style.display).toBe("none");
+        expect(disconnectButton).not.toBeNull();
+
+        await act(async () => {
+            disconnectButton.dispatchEvent(
+                new MouseEvent("click", { bubbles: true, cancelable: true })
+            );
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(fetchMock).toHaveBeenCalledWith(
+            "/api/s/abc123token/claim",
+            expect.objectContaining({
+                method: "DELETE",
+                credentials: "include",
+            })
+        );
+        expect(claimedWidget.style.display).toBe("none");
+        expect(inviteWidget.style.display).toBe("");
     });
 
     it("shows the server-provided registration-token error when generation is unavailable", async () => {

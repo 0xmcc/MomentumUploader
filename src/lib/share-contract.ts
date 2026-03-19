@@ -899,6 +899,11 @@ export function buildSharedArtifactHtml(
       flex-direction: column;
       gap: 0.55rem;
     }
+    .oc-claimed-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+    }
     .oc-label,
     .oc-hint,
     .oc-status {
@@ -1086,7 +1091,10 @@ export function buildSharedArtifactHtml(
             </div>
             <div id="oc-claimed" class="oc-widget" style="display:none">
               <span class="oc-status">● OpenClaw connected</span>
-              <button id="oc-ask-btn" type="button">Ask OpenClaw</button>
+              <div class="oc-claimed-actions">
+                <button id="oc-ask-btn" type="button">Ask OpenClaw</button>
+                <button id="oc-disconnect-btn" type="button">Disconnect OpenClaw</button>
+              </div>
             </div>
             <div id="oc-ask-dialog">
               <textarea id="oc-ask-input" placeholder="What do you want to ask OpenClaw?" rows="3"></textarea>
@@ -1328,6 +1336,7 @@ export function buildSharedArtifactHtml(
       const openClawInviteButton = document.getElementById("oc-invite-btn");
       const openClawClaimButton = document.getElementById("oc-claim-btn");
       const openClawAskButton = document.getElementById("oc-ask-btn");
+      const openClawDisconnectButton = document.getElementById("oc-disconnect-btn");
       const openClawCopied = document.getElementById("oc-copied");
       const openClawPreview = document.getElementById("oc-preview");
       const openClawPreviewText = document.getElementById("oc-preview-text");
@@ -1566,6 +1575,33 @@ export function buildSharedArtifactHtml(
         }
       }
 
+      function resetOpenClawWidgetToInviteState() {
+        openClawState.state = "none";
+        openClawState.agentId = null;
+        openClawState.roomId = null;
+
+        if (openClawCopied) {
+          openClawCopied.style.display = "none";
+        }
+
+        renderOpenClawInvitePreview("");
+
+        if (openClawRegResult) {
+          openClawRegResult.style.display = "none";
+          openClawRegResult.innerHTML = "";
+        }
+
+        if (openClawAskInput) {
+          openClawAskInput.value = "";
+        }
+
+        if (openClawAskDialog) {
+          openClawAskDialog.dataset.open = "false";
+        }
+
+        renderOpenClawState(true);
+      }
+
       async function readOpenClawError(response, fallbackMessage) {
         try {
           const payload = await response.json();
@@ -1674,6 +1710,28 @@ export function buildSharedArtifactHtml(
             await loadOpenClawStatus();
           } catch (_error) {
             // Keep the pending state visible until the owner retries.
+          }
+        });
+      }
+
+      if (openClawDisconnectButton) {
+        openClawDisconnectButton.addEventListener("click", async () => {
+          openClawDisconnectButton.disabled = true;
+          try {
+            const response = await fetch("/api/s/" + shareRef + "/claim", {
+              method: "DELETE",
+              credentials: "include",
+            });
+            if (!response.ok) {
+              throw new Error("Disconnect failed");
+            }
+
+            stopOpenClawPolling();
+            resetOpenClawWidgetToInviteState();
+          } catch (_error) {
+            // Keep the claimed state visible until the owner retries.
+          } finally {
+            openClawDisconnectButton.disabled = false;
           }
         });
       }
