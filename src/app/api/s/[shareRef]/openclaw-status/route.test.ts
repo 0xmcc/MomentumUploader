@@ -2,10 +2,15 @@
 
 import { NextRequest } from "next/server";
 import { GET } from "./route";
+import { validateOpenClawGateway } from "@/lib/agents";
 import { resolveMemoUserId } from "@/lib/memo-api-auth";
 import { findMemoDiscussion, getOrCreateMemoDiscussion } from "@/lib/memo-discussion";
 import { resolveMemoShare } from "@/lib/memo-share";
 import { supabaseAdmin } from "@/lib/supabase";
+
+jest.mock("@/lib/agents", () => ({
+    validateOpenClawGateway: jest.fn(),
+}));
 
 jest.mock("@/lib/memo-api-auth", () => ({
     resolveMemoUserId: jest.fn(),
@@ -46,6 +51,10 @@ describe("GET /api/s/:shareRef/openclaw-status", () => {
         jest.clearAllMocks();
         (resolveMemoUserId as jest.Mock).mockResolvedValue("user-owner");
         (resolveMemoShare as jest.Mock).mockResolvedValue({ status: "ok", memo: sharedMemo });
+        (validateOpenClawGateway as jest.Mock).mockResolvedValue({
+            ok: true,
+            openclawExternalId: "oc_acct_123",
+        });
         (findMemoDiscussion as jest.Mock).mockResolvedValue({
             roomId: "room-1",
             ownerParticipantId: "owner-participant-1",
@@ -137,6 +146,42 @@ describe("GET /api/s/:shareRef/openclaw-status", () => {
         });
 
         const req = new NextRequest("https://example.com/api/s/sharetoken1234/openclaw-status");
+        const res = await GET(req, { params: Promise.resolve({ shareRef: "sharetoken1234" }) });
+        const body = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(body).toEqual({
+            state: "claimed",
+            agentId: "agent-1",
+            roomId: "room-1",
+        });
+    });
+
+    it("allows the linked OpenClaw runtime to resolve its claimed room via x-openclaw-api-key", async () => {
+        (resolveMemoUserId as jest.Mock).mockResolvedValue(null);
+
+        const currentClaim = makeCurrentClaimChain({
+            data: {
+                id: "claim-1",
+                status: "claimed",
+                agent_id: "agent-1",
+                openclaw_external_id: "oc_acct_123",
+            },
+            error: null,
+        });
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "openclaw_claim_requests") {
+                return { select: currentClaim.select };
+            }
+
+            throw new Error(`Unexpected table ${table}`);
+        });
+
+        const req = new NextRequest("https://example.com/api/s/sharetoken1234/openclaw-status", {
+            headers: new Headers({
+                "x-openclaw-api-key": "oc_acct_123:secret-xyz",
+            }),
+        });
         const res = await GET(req, { params: Promise.resolve({ shareRef: "sharetoken1234" }) });
         const body = await res.json();
 
