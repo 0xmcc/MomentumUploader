@@ -96,7 +96,7 @@ describe("share discussion route", () => {
             error: null,
         });
         const visibilityEq = jest.fn(() => ({ order }));
-        const roomEq = jest.fn(() => ({ eq: visibilityEq }));
+        const roomEq = jest.fn(() => ({ eq: visibilityEq, order }));
         const select = jest.fn(() => ({ eq: roomEq }));
 
         (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
@@ -131,8 +131,181 @@ describe("share discussion route", () => {
             isAuthenticated: true,
         });
         expect(roomEq).toHaveBeenCalledWith("memo_room_id", "room-1");
-        expect(visibilityEq).toHaveBeenCalledWith("visibility", "public");
+        expect(visibilityEq).not.toHaveBeenCalled();
         expect(clerkClient).toHaveBeenCalledTimes(1);
+    });
+
+    it("shows owner-only OpenClaw replies to the memo owner on the share page", async () => {
+        (auth as jest.Mock).mockResolvedValue({ userId: "user-owner" });
+        (findMemoDiscussion as jest.Mock).mockResolvedValue({
+            roomId: "room-1",
+            ownerParticipantId: "participant-owner",
+        });
+
+        const allVisibleRows = [
+            {
+                id: "message-1",
+                memo_id: "memo-1",
+                author_participant_id: "participant-owner",
+                content: "Owner asked a question",
+                visibility: "public",
+                restricted_participant_ids: null,
+                reply_to_message_id: null,
+                root_message_id: "message-1",
+                anchor_start_ms: 12000,
+                anchor_end_ms: null,
+                anchor_segment_ids: null,
+                created_at: "2026-03-16T12:10:00.000Z",
+                author_participant: {
+                    id: "participant-owner",
+                    participant_type: "human",
+                    user_id: "user-owner",
+                    role: "owner",
+                },
+            },
+            {
+                id: "message-2",
+                memo_id: "memo-1",
+                author_participant_id: "participant-agent",
+                content: "Private coaching note",
+                visibility: "owner_only",
+                restricted_participant_ids: null,
+                reply_to_message_id: null,
+                root_message_id: "message-2",
+                anchor_start_ms: 24000,
+                anchor_end_ms: null,
+                anchor_segment_ids: null,
+                created_at: "2026-03-16T12:11:00.000Z",
+                author_participant: {
+                    id: "participant-agent",
+                    participant_type: "agent",
+                    user_id: null,
+                    role: "member",
+                },
+            },
+        ];
+        const publicOnlyOrder = jest.fn().mockResolvedValue({
+            data: [allVisibleRows[0]],
+            error: null,
+        });
+        const order = jest.fn().mockResolvedValue({
+            data: allVisibleRows,
+            error: null,
+        });
+        const visibilityEq = jest.fn(() => ({ order: publicOnlyOrder }));
+        const roomEq = jest.fn(() => ({ eq: visibilityEq, order }));
+        const select = jest.fn(() => ({ eq: roomEq }));
+
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "memo_messages") {
+                return { select };
+            }
+
+            throw new Error(`Unexpected table ${table}`);
+        });
+
+        const res = await GET(
+            new Request("https://example.com/api/s/sharetoken1234/discussion"),
+            { params: Promise.resolve({ shareRef: "sharetoken1234" }) }
+        );
+        const body = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(body).toEqual({
+            messages: [
+                {
+                    id: "message-1",
+                    memoId: "memo-1",
+                    authorName: "Marko Ivanovic",
+                    authorAvatarUrl: "https://img.example.com/marko.png",
+                    authorIsOwner: true,
+                    content: "Owner asked a question",
+                    anchorStartMs: 12000,
+                    createdAt: "2026-03-16T12:10:00.000Z",
+                },
+                {
+                    id: "message-2",
+                    memoId: "memo-1",
+                    authorName: "Agent",
+                    authorAvatarUrl: null,
+                    authorIsOwner: false,
+                    content: "Private coaching note",
+                    anchorStartMs: 24000,
+                    createdAt: "2026-03-16T12:11:00.000Z",
+                },
+            ],
+            isOwner: true,
+            isAuthenticated: true,
+        });
+    });
+
+    it("does not leak owner-only OpenClaw replies to non-owners", async () => {
+        (auth as jest.Mock).mockResolvedValue({ userId: null });
+        (findMemoDiscussion as jest.Mock).mockResolvedValue({
+            roomId: "room-1",
+            ownerParticipantId: "participant-owner",
+        });
+
+        const publicOnlyOrder = jest.fn().mockResolvedValue({
+            data: [
+                {
+                    id: "message-1",
+                    memo_id: "memo-1",
+                    author_participant_id: "participant-owner",
+                    content: "Owner asked a question",
+                    visibility: "public",
+                    restricted_participant_ids: null,
+                    reply_to_message_id: null,
+                    root_message_id: "message-1",
+                    anchor_start_ms: 12000,
+                    anchor_end_ms: null,
+                    anchor_segment_ids: null,
+                    created_at: "2026-03-16T12:10:00.000Z",
+                    author_participant: {
+                        id: "participant-owner",
+                        participant_type: "human",
+                        user_id: "user-owner",
+                        role: "owner",
+                    },
+                },
+            ],
+            error: null,
+        });
+        const visibilityEq = jest.fn(() => ({ order: publicOnlyOrder }));
+        const roomEq = jest.fn(() => ({ eq: visibilityEq }));
+        const select = jest.fn(() => ({ eq: roomEq }));
+
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "memo_messages") {
+                return { select };
+            }
+
+            throw new Error(`Unexpected table ${table}`);
+        });
+
+        const res = await GET(
+            new Request("https://example.com/api/s/sharetoken1234/discussion"),
+            { params: Promise.resolve({ shareRef: "sharetoken1234" }) }
+        );
+        const body = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(body).toEqual({
+            messages: [
+                {
+                    id: "message-1",
+                    memoId: "memo-1",
+                    authorName: "Marko Ivanovic",
+                    authorAvatarUrl: "https://img.example.com/marko.png",
+                    authorIsOwner: true,
+                    content: "Owner asked a question",
+                    anchorStartMs: 12000,
+                    createdAt: "2026-03-16T12:10:00.000Z",
+                },
+            ],
+            isOwner: false,
+            isAuthenticated: false,
+        });
     });
 
     it("returns an empty discussion instead of an error when no room exists", async () => {
