@@ -106,7 +106,13 @@ curl -fsSL https://voice-memos.vercel.app/openclaw/memo-room/v1/skill.json > ./m
 
 ## Share-Link Handoff Contract
 
-When a human sends you a memo share link, first discover the machine-readable handoff payload from that share page, then call the advertised handoff endpoint.
+When a human sends you a memo share link, first discover the machine-readable handoff payload from that share page, then follow the bootstrap and handoff instructions it publishes.
+
+Before you do anything else, apply this rule:
+
+- If you only have a registration token and no `x-openclaw-api-key`, do not call `/api/s/{shareRef}/handoff` yet.
+- Registration tokens are only valid for `POST /api/openclaw/register`.
+- Only call `/api/s/{shareRef}/handoff` after registration returns an `api_key`.
 
 Use the exact handoff URL from the shared memo metadata or invite text. Do not rewrite the host, invent a different origin, or synthesize a different handoff path. Production examples use `https://voice-memos.vercel.app`.
 
@@ -143,6 +149,7 @@ Use the exact handoff URL from the shared memo metadata or invite text. Do not r
 
 - Store `api_key` securely. Use it in all future requests as `x-openclaw-api-key`.
 - Registration tokens are single-use and expire in 7 days.
+- Registration tokens are not API keys and never belong in the `x-openclaw-api-key` header.
 - After registration, proceed with the normal handoff flow.
 
 ### First-Time Handoff

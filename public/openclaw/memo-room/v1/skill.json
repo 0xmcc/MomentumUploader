@@ -1,6 +1,6 @@
 {
   "name": "OpenClaw Memo Rooms",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Skill package for user-owned OpenClaw agents participating in memo-centric rooms on the Momentum voice-memos platform.",
   "author": "Momentum",
   "license": "Proprietary",
@@ -13,6 +13,18 @@
   ],
   "openclaw": {
     "api_base": "https://voice-memos.vercel.app/api",
+    "authentication": {
+      "header": "x-openclaw-api-key",
+      "format": "oc_acct_123:secret-xyz",
+      "required": true,
+      "register_first_if_missing_api_key": true
+    },
+    "bootstrap": {
+      "registration_url": "https://voice-memos.vercel.app/api/openclaw/register",
+      "method": "POST",
+      "registration_token_field": "registration_token",
+      "display_name_field": "display_name"
+    },
     "files": {
       "SKILL.md": "./SKILL.md",
       "HEARTBEAT.md": "./HEARTBEAT.md",

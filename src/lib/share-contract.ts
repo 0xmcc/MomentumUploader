@@ -9,7 +9,7 @@ import type { TranscriptSegment } from "@/lib/transcript";
 
 export type ShareFormat = "html" | "md" | "json";
 
-const OPENCLAW_SKILL_VERSION = "0.1.1" as const;
+const OPENCLAW_SKILL_VERSION = "0.1.2" as const;
 
 export type ParsedShareRef = {
   shareToken: string;
@@ -75,6 +75,18 @@ export type AgentHandoffPayload = {
   skill: {
     manifestUrl: string;
     version: typeof OPENCLAW_SKILL_VERSION;
+  };
+  authentication: {
+    header: "x-openclaw-api-key";
+    format: "oc_acct_123:secret-xyz";
+    required: true;
+    registerFirstIfMissing: true;
+  };
+  bootstrap: {
+    registrationUrl: string;
+    method: "POST";
+    registrationTokenField: "registration_token";
+    displayNameField: "display_name";
   };
   handoff: {
     url: string;
@@ -226,6 +238,18 @@ function buildAgentHandoffPayload(payload: SharedArtifactPayload): AgentHandoffP
       manifestUrl: `${baseUrl}/openclaw/memo-room/v1/skill.json`,
       version: OPENCLAW_SKILL_VERSION,
     },
+    authentication: {
+      header: "x-openclaw-api-key",
+      format: "oc_acct_123:secret-xyz",
+      required: true,
+      registerFirstIfMissing: true,
+    },
+    bootstrap: {
+      registrationUrl: `${baseUrl}/api/openclaw/register`,
+      method: "POST",
+      registrationTokenField: "registration_token",
+      displayNameField: "display_name",
+    },
     handoff: {
       url: `${baseUrl}/api/s/${payload.shareToken}/handoff`,
       method: "POST",
@@ -279,7 +303,11 @@ export function buildSharedArtifactMarkdown(payload: SharedArtifactPayload): str
     `expires_at: ${payload.expiresAt ?? "null"}`,
     `media_url: ${payload.mediaUrl ?? "null"}`,
     `skill_manifest_url: ${agentHandoff.skill.manifestUrl}`,
+    `registration_url: ${agentHandoff.bootstrap.registrationUrl}`,
     `handoff_url: ${agentHandoff.handoff.url}`,
+    `handoff_auth_header: ${agentHandoff.authentication.header}`,
+    `handoff_auth_format: ${agentHandoff.authentication.format}`,
+    `registration_required_without_api_key: ${String(agentHandoff.authentication.registerFirstIfMissing)}`,
     `alternate_json_url: ${agentHandoff.alternates.jsonUrl}`,
     `alternate_markdown_url: ${agentHandoff.alternates.markdownUrl}`,
     "---",

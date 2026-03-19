@@ -416,6 +416,10 @@ describe("share-contract", () => {
 
         expect(markdown).toContain("skill_manifest_url: https://example.com/openclaw/memo-room/v1/skill.json");
         expect(markdown).toContain("handoff_url: https://example.com/api/s/abc123token/handoff");
+        expect(markdown).toContain("registration_url: https://example.com/api/openclaw/register");
+        expect(markdown).toContain("handoff_auth_header: x-openclaw-api-key");
+        expect(markdown).toContain("handoff_auth_format: oc_acct_123:secret-xyz");
+        expect(markdown).toContain("registration_required_without_api_key: true");
         expect(markdown).toContain("alternate_json_url: https://example.com/s/abc123token.json");
         expect(markdown).toContain("alternate_markdown_url: https://example.com/s/abc123token.md");
 
@@ -431,7 +435,19 @@ describe("share-contract", () => {
                 },
                 skill: {
                     manifestUrl: "https://example.com/openclaw/memo-room/v1/skill.json",
-                    version: "0.1.1",
+                    version: "0.1.2",
+                },
+                authentication: {
+                    header: "x-openclaw-api-key",
+                    format: "oc_acct_123:secret-xyz",
+                    required: true,
+                    registerFirstIfMissing: true,
+                },
+                bootstrap: {
+                    registrationUrl: "https://example.com/api/openclaw/register",
+                    method: "POST",
+                    registrationTokenField: "registration_token",
+                    displayNameField: "display_name",
                 },
                 handoff: {
                     url: "https://example.com/api/s/abc123token/handoff",

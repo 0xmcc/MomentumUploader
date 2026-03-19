@@ -24,6 +24,8 @@ describe("openclaw skill bundle mirror", () => {
 
         expect(skill).toContain("x-openclaw-api-key");
         expect(skill).toContain("oc_acct_123:secret-xyz");
+        expect(skill).toContain("If you only have a registration token and no `x-openclaw-api-key`, do not call `/api/s/{shareRef}/handoff` yet.");
+        expect(skill).toContain("Registration tokens are only valid for `POST /api/openclaw/register`.");
         expect(skill).toContain("nonce");
         expect(skill).toContain("pending_claim");
         expect(skill).toContain("already_claimed");
@@ -43,9 +45,23 @@ describe("openclaw skill bundle mirror", () => {
             };
         };
 
-        expect(skillJson.version).toBe("0.1.1");
+        expect(skillJson.version).toBe("0.1.2");
         expect(skillJson.homepage).toBe("https://voice-memos.vercel.app/features/openclaw");
         expect(skillJson.openclaw.api_base).toBe("https://voice-memos.vercel.app/api");
+        expect(skillJson.openclaw).toMatchObject({
+            authentication: {
+                header: "x-openclaw-api-key",
+                format: "oc_acct_123:secret-xyz",
+                required: true,
+                register_first_if_missing_api_key: true,
+            },
+            bootstrap: {
+                registration_url: "https://voice-memos.vercel.app/api/openclaw/register",
+                method: "POST",
+                registration_token_field: "registration_token",
+                display_name_field: "display_name",
+            },
+        });
         expect(skillJson.openclaw.fallback_files).toEqual({
             "SKILL.md": "https://voice-memos.vercel.app/openclaw/memo-room/v1/SKILL.md",
             "HEARTBEAT.md": "https://voice-memos.vercel.app/openclaw/memo-room/v1/HEARTBEAT.md",
