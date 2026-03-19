@@ -1,5 +1,10 @@
 import { auth, clerkClient } from "@clerk/nextjs/server";
-import { createMessageId } from "@/lib/memo-rooms";
+import {
+  createMessageId,
+  isMessageVisibleToParticipant,
+  type MemoMessageRow,
+  type MemoRoomParticipantRow,
+} from "@/lib/memo-rooms";
 import {
   findMemoDiscussion,
   getOrCreateMemoDiscussion,
@@ -10,22 +15,25 @@ import { supabaseAdmin } from "@/lib/supabase";
 
 type Params = { params: Promise<{ shareRef: string }> };
 
-type DiscussionMessageRow = {
-  id: string;
-  memo_id: string;
-  content: string;
-  anchor_start_ms: number | null;
-  created_at: string;
+type DiscussionAuthorParticipant =
+  | {
+      participant_type?: string | null;
+      user_id?: string | null;
+      agent_id?: string | null;
+      role?: string | null;
+    }
+  | Array<{
+      participant_type?: string | null;
+      user_id?: string | null;
+      agent_id?: string | null;
+      role?: string | null;
+    }>
+  | null;
+
+type DiscussionMessageRow = Omit<MemoMessageRow, "author_participant"> & {
   author_participant?:
-    | {
-        participant_type?: string | null;
-        role?: string | null;
-      }
-    | Array<{
-        participant_type?: string | null;
-        role?: string | null;
-      }>
-    | null;
+    | DiscussionAuthorParticipant
+    | undefined;
 };
 
 type OwnerIdentity = {
@@ -132,14 +140,32 @@ export async function GET(_req: Request, { params }: Params): Promise<Response> 
     });
   }
 
-  const { data, error } = await supabaseAdmin
+  const ownerViewer: MemoRoomParticipantRow | null =
+    isOwner && discussion.ownerParticipantId
+      ? {
+          id: discussion.ownerParticipantId,
+          memo_room_id: discussion.roomId,
+          participant_type: "human",
+          user_id: userId,
+          role: "owner",
+          capability: "full_participation",
+          default_visibility: "public",
+          status: "active",
+        }
+      : null;
+
+  let query = supabaseAdmin
     .from("memo_messages")
     .select(
-      "id, memo_id, content, anchor_start_ms, created_at, author_participant:memo_room_participants!memo_messages_author_participant_id_fkey(participant_type, role)"
+      "id, memo_room_id, memo_id, author_participant_id, content, visibility, restricted_participant_ids, reply_to_message_id, root_message_id, anchor_start_ms, anchor_end_ms, anchor_segment_ids, created_at, author_participant:memo_room_participants!memo_messages_author_participant_id_fkey(participant_type, user_id, agent_id, role)"
     )
-    .eq("memo_room_id", discussion.roomId)
-    .eq("visibility", "public")
-    .order("created_at", { ascending: true });
+    .eq("memo_room_id", discussion.roomId);
+
+  if (!ownerViewer) {
+    query = query.eq("visibility", "public");
+  }
+
+  const { data, error } = await query.order("created_at", { ascending: true });
 
   if (error) {
     return Response.json(
@@ -149,12 +175,17 @@ export async function GET(_req: Request, { params }: Params): Promise<Response> 
   }
 
   const rows = (data ?? []) as DiscussionMessageRow[];
-  const ownerIdentity = rows.some(isOwnerAuthoredMessage)
+  const visibleRows = ownerViewer
+    ? rows.filter((message) =>
+        isMessageVisibleToParticipant(message as MemoMessageRow, ownerViewer)
+      )
+    : rows.filter((message) => message.visibility === "public");
+  const ownerIdentity = visibleRows.some(isOwnerAuthoredMessage)
     ? await resolveOwnerIdentity(share.memo.ownerUserId)
     : null;
 
   return Response.json({
-    messages: rows.map((message) => serializeDiscussionMessage(message, ownerIdentity)),
+    messages: visibleRows.map((message) => serializeDiscussionMessage(message, ownerIdentity)),
     isOwner,
     isAuthenticated,
   });
