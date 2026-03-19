@@ -2,8 +2,12 @@
 
 import { NextRequest } from "next/server";
 import { POST } from "./route";
-import { resolveMemoUserId } from "@/lib/memo-api-auth";
+import { resolveOptionalAgentContext } from "@/lib/agents";
 import { supabaseAdmin } from "@/lib/supabase";
+
+jest.mock("@/lib/agents", () => ({
+    resolveOptionalAgentContext: jest.fn(),
+}));
 
 jest.mock("@/lib/memo-api-auth", () => ({
     resolveMemoUserId: jest.fn(),
@@ -17,7 +21,11 @@ describe("POST /api/memo-rooms/:roomId/invocations", () => {
     });
 
     it("creates an owner request message and a durable agent invocation", async () => {
-        (resolveMemoUserId as jest.Mock).mockResolvedValue("owner-user");
+        (resolveOptionalAgentContext as jest.Mock).mockResolvedValue({
+            ok: true,
+            memoUserId: "owner-user",
+            agentId: null,
+        });
 
         const ownerSingle = jest.fn().mockResolvedValue({
             data: {
@@ -186,6 +194,55 @@ describe("POST /api/memo-rooms/:roomId/invocations", () => {
             agentId: "agent-1",
             requestMessageId: expect.any(String),
             status: "pending",
+        });
+    });
+
+    it("rejects OpenClaw-authenticated callers with a 403 instead of a false room-not-found", async () => {
+        (resolveOptionalAgentContext as jest.Mock).mockResolvedValue({
+            ok: true,
+            memoUserId: "owner-user",
+            agentId: "agent-1",
+        });
+
+        const agentParticipantSingle = jest.fn().mockResolvedValue({
+            data: {
+                id: "participant-agent",
+                memo_room_id: "room-1",
+                participant_type: "agent",
+                user_id: null,
+                agent_id: "agent-1",
+                role: "member",
+                capability: "comment_only",
+                default_visibility: "owner_only",
+                status: "active",
+            },
+            error: null,
+        });
+        const agentParticipantStatusEq = jest.fn(() => ({ single: agentParticipantSingle }));
+        const agentParticipantAgentEq = jest.fn(() => ({ eq: agentParticipantStatusEq }));
+        const agentParticipantRoomEq = jest.fn(() => ({ eq: agentParticipantAgentEq }));
+        const agentParticipantSelect = jest.fn(() => ({ eq: agentParticipantRoomEq }));
+
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "memo_room_participants") {
+                return { select: agentParticipantSelect };
+            }
+
+            throw new Error(`Unexpected table ${table}`);
+        });
+
+        const req = {
+            headers: new Headers({
+                "x-openclaw-api-key": "oc_acct_123:secret-xyz",
+            }),
+        } as unknown as NextRequest;
+
+        const res = await POST(req, { params: Promise.resolve({ roomId: "room-1" }) });
+        const body = await res.json();
+
+        expect(res.status).toBe(403);
+        expect(body).toEqual({
+            error: "Only room owners can invoke agents",
         });
     });
 });

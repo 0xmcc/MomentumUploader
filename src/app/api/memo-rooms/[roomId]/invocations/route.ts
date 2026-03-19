@@ -11,7 +11,7 @@ import {
     type MessageVisibility,
     type MemoMessageRow,
 } from "@/lib/memo-rooms";
-import { resolveMemoUserId } from "@/lib/memo-api-auth";
+import { resolveOptionalAgentContext } from "@/lib/agents";
 import { supabaseAdmin } from "@/lib/supabase";
 
 type Params = { params: Promise<{ roomId: string }> };
@@ -21,19 +21,23 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: NextRequest, { params }: Params) {
-    const userId = await resolveMemoUserId(req);
     const { roomId } = await params;
+    const actorContext = await resolveOptionalAgentContext(req);
 
-    if (!userId) {
-        return NextResponse.json({ error: "Memo room not found" }, { status: 404, headers: MEMO_ROOM_CORS });
+    if (!actorContext.ok) {
+        const status = actorContext.status === 403 ? 403 : 404;
+        const error = status === 403 ? actorContext.error : "Memo room not found";
+        return NextResponse.json({ error }, { status, headers: MEMO_ROOM_CORS });
     }
 
-    const requester = await getActiveHumanParticipant(roomId, userId);
+    const requester = actorContext.agentId
+        ? await getActiveAgentParticipant(roomId, actorContext.agentId)
+        : await getActiveHumanParticipant(roomId, actorContext.memoUserId);
     if (!requester) {
         return NextResponse.json({ error: "Memo room not found" }, { status: 404, headers: MEMO_ROOM_CORS });
     }
 
-    if (requester.role !== "owner") {
+    if (requester.participant_type !== "human" || requester.role !== "owner") {
         return NextResponse.json({ error: "Only room owners can invoke agents" }, { status: 403, headers: MEMO_ROOM_CORS });
     }
 
@@ -125,7 +129,7 @@ export async function POST(req: NextRequest, { params }: Params) {
             memo_room_id: roomId,
             memo_id: memoResolution.memoId,
             request_message_id: requestMessageId,
-            invoked_by_user_id: userId,
+            invoked_by_user_id: actorContext.memoUserId,
             status: "pending",
             anchor_start_ms: anchor.anchor_start_ms,
             anchor_end_ms: anchor.anchor_end_ms,
