@@ -5,7 +5,8 @@ import { supabaseAdmin } from "@/lib/supabase";
 const CORS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "PATCH, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, x-openclaw-internal-key, x-memo-agent-id",
+    "Access-Control-Allow-Headers":
+        "Content-Type, Authorization, x-openclaw-api-key, x-openclaw-internal-key, x-memo-agent-id",
 };
 
 type Params = { params: Promise<{ agentId: string; invocationId: string }> };

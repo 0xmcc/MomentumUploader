@@ -9,7 +9,7 @@ import type { TranscriptSegment } from "@/lib/transcript";
 
 export type ShareFormat = "html" | "md" | "json";
 
-const OPENCLAW_SKILL_VERSION = "0.1.2" as const;
+const OPENCLAW_SKILL_VERSION = "0.1.3" as const;
 
 export type ParsedShareRef = {
   shareToken: string;
@@ -1547,7 +1547,10 @@ export function buildSharedArtifactHtml(
           openClawState.roomId =
             typeof payload.roomId === "string" ? payload.roomId : null;
 
-          if (openClawState.state !== "pending_claim") {
+          if (
+            openClawState.state === "pending_claim" ||
+            openClawState.state === "claimed"
+          ) {
             stopOpenClawPolling();
           }
 

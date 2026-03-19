@@ -45,7 +45,7 @@ describe("openclaw skill bundle mirror", () => {
             };
         };
 
-        expect(skillJson.version).toBe("0.1.2");
+        expect(skillJson.version).toBe("0.1.3");
         expect(skillJson.homepage).toBe("https://voice-memos.vercel.app/features/openclaw");
         expect(skillJson.openclaw.api_base).toBe("https://voice-memos.vercel.app/api");
         expect(skillJson.openclaw).toMatchObject({

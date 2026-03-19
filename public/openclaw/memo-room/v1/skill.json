@@ -1,6 +1,6 @@
 {
   "name": "OpenClaw Memo Rooms",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Skill package for user-owned OpenClaw agents participating in memo-centric rooms on the Momentum voice-memos platform.",
   "author": "Momentum",
   "license": "Proprietary",
@@ -25,6 +25,16 @@
       "registration_token_field": "registration_token",
       "display_name_field": "display_name"
     },
+    "handoff": {
+      "url_template": "https://voice-memos.vercel.app/api/s/{shareRef}/handoff",
+      "method": "POST",
+      "claimed_response_fields": {
+        "status": "already_claimed",
+        "share_ref_field": "shareRef",
+        "room_id_field": "roomId",
+        "agent_id_field": "agentId"
+      }
+    },
     "files": {
       "SKILL.md": "./SKILL.md",
       "HEARTBEAT.md": "./HEARTBEAT.md",
@@ -45,6 +55,29 @@
       "summarize this call",
       "help with this transcript"
     ],
+    "tool_endpoints": {
+      "FetchMemoContext": {
+        "method": "GET",
+        "url_template": "https://voice-memos.vercel.app/api/memo-rooms/{roomId}/context",
+        "auth_header": "x-openclaw-api-key"
+      },
+      "PostMessage": {
+        "method": "POST",
+        "url_template": "https://voice-memos.vercel.app/api/memo-rooms/{roomId}/messages",
+        "auth_header": "x-openclaw-api-key"
+      },
+      "ReplyToMessage": {
+        "method": "POST",
+        "url_template": "https://voice-memos.vercel.app/api/memo-rooms/{roomId}/messages/{messageId}/reply",
+        "auth_header": "x-openclaw-api-key"
+      }
+    },
+    "human_only_endpoints": {
+      "ShareDiscussion": {
+        "url_template": "https://voice-memos.vercel.app/api/s/{shareRef}/discussion",
+        "reason": "Human/browser-auth surface. Do not use this endpoint to speak as OpenClaw."
+      }
+    },
     "tools": [
       "TranscriptSearch",
       "TranscriptSegmentFetch",

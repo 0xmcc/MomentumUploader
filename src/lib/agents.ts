@@ -164,10 +164,57 @@ async function getOwnedAgent(agentId: string, userId: string): Promise<AgentRow 
     return agent;
 }
 
+async function getOpenClawAgent(
+    openclawExternalId: string,
+    expectedAgentId?: string
+): Promise<AgentRow | null> {
+    const { data, error } = await supabaseAdmin
+        .from("agents")
+        .select("id, owner_user_id, name, description, status, created_at")
+        .eq("openclaw_external_id", openclawExternalId)
+        .single();
+    if (error || !data) {
+        return null;
+    }
+
+    const agent = data as AgentRow;
+    if (agent.status !== "active") {
+        return null;
+    }
+
+    if (expectedAgentId && agent.id !== expectedAgentId) {
+        return null;
+    }
+
+    return agent;
+}
+
 export async function resolveOptionalAgentContext(
     req: NextRequest,
     expectedAgentId?: string
 ): Promise<OptionalAgentContext> {
+    const openClawApiKey = readOpenClawApiKey(req);
+    if (openClawApiKey) {
+        const gateway = await validateOpenClawGateway(req);
+        if (!gateway.ok) {
+            return gateway;
+        }
+
+        const agent = await getOpenClawAgent(
+            gateway.openclawExternalId,
+            expectedAgentId
+        );
+        if (!agent) {
+            return { ok: false, status: 404, error: "Agent not found" };
+        }
+
+        return {
+            ok: true,
+            memoUserId: agent.owner_user_id,
+            agentId: agent.id,
+        };
+    }
+
     const memoUserId = await resolveMemoUserId(req);
     if (!memoUserId) {
         return { ok: false, status: 404, error: "Not found" };

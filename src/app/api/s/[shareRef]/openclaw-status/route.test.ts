@@ -3,7 +3,7 @@
 import { NextRequest } from "next/server";
 import { GET } from "./route";
 import { resolveMemoUserId } from "@/lib/memo-api-auth";
-import { findMemoDiscussion } from "@/lib/memo-discussion";
+import { findMemoDiscussion, getOrCreateMemoDiscussion } from "@/lib/memo-discussion";
 import { resolveMemoShare } from "@/lib/memo-share";
 import { supabaseAdmin } from "@/lib/supabase";
 
@@ -13,6 +13,7 @@ jest.mock("@/lib/memo-api-auth", () => ({
 
 jest.mock("@/lib/memo-discussion", () => ({
     findMemoDiscussion: jest.fn(),
+    getOrCreateMemoDiscussion: jest.fn(),
 }));
 
 jest.mock("@/lib/memo-share", () => ({
@@ -46,6 +47,10 @@ describe("GET /api/s/:shareRef/openclaw-status", () => {
         (resolveMemoUserId as jest.Mock).mockResolvedValue("user-owner");
         (resolveMemoShare as jest.Mock).mockResolvedValue({ status: "ok", memo: sharedMemo });
         (findMemoDiscussion as jest.Mock).mockResolvedValue({
+            roomId: "room-1",
+            ownerParticipantId: "owner-participant-1",
+        });
+        (getOrCreateMemoDiscussion as jest.Mock).mockResolvedValue({
             roomId: "room-1",
             ownerParticipantId: "owner-participant-1",
         });
@@ -140,6 +145,48 @@ describe("GET /api/s/:shareRef/openclaw-status", () => {
             state: "claimed",
             agentId: "agent-1",
             roomId: "room-1",
+        });
+    });
+
+    it("repairs a claimed room that is missing the owner participant before exposing it to the share page", async () => {
+        const currentClaim = makeCurrentClaimChain({
+            data: {
+                id: "claim-1",
+                status: "claimed",
+                agent_id: "agent-1",
+            },
+            error: null,
+        });
+        (findMemoDiscussion as jest.Mock).mockResolvedValue({
+            roomId: "room-stale",
+            ownerParticipantId: null,
+        });
+        (getOrCreateMemoDiscussion as jest.Mock).mockResolvedValue({
+            roomId: "room-repaired",
+            ownerParticipantId: "owner-participant-1",
+        });
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "openclaw_claim_requests") {
+                return { select: currentClaim.select };
+            }
+
+            throw new Error(`Unexpected table ${table}`);
+        });
+
+        const req = new NextRequest("https://example.com/api/s/sharetoken1234/openclaw-status");
+        const res = await GET(req, { params: Promise.resolve({ shareRef: "sharetoken1234" }) });
+        const body = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(getOrCreateMemoDiscussion).toHaveBeenCalledWith(
+            "memo-1",
+            "user-owner",
+            "Shared Memo"
+        );
+        expect(body).toEqual({
+            state: "claimed",
+            agentId: "agent-1",
+            roomId: "room-repaired",
         });
     });
 

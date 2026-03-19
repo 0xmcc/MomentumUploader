@@ -435,7 +435,7 @@ describe("share-contract", () => {
                 },
                 skill: {
                     manifestUrl: "https://example.com/openclaw/memo-room/v1/skill.json",
-                    version: "0.1.2",
+                    version: "0.1.3",
                 },
                 authentication: {
                     header: "x-openclaw-api-key",
@@ -686,6 +686,101 @@ describe("share-contract", () => {
                     body: JSON.stringify({ force: true }),
                 })
             );
+        } finally {
+            setIntervalSpy.mockRestore();
+            clearIntervalSpy.mockRestore();
+        }
+    });
+
+    it("keeps polling after invite while the OpenClaw is still awaiting first handoff", async () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        let pollStatus: (() => void | Promise<void>) | null = null;
+        const setIntervalSpy = jest
+            .spyOn(global, "setInterval")
+            .mockImplementation((callback: TimerHandler) => {
+                pollStatus = callback as () => void | Promise<void>;
+                return 123 as unknown as ReturnType<typeof setInterval>;
+            });
+        const clearIntervalSpy = jest
+            .spyOn(global, "clearInterval")
+            .mockImplementation(() => undefined);
+        let openClawStatusRequestCount = 0;
+        const fetchMock = jest.fn((input: RequestInfo | URL) => {
+            const url = String(input);
+
+            if (url === "/api/s/abc123token/discussion") {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({
+                        messages: [],
+                        isOwner: true,
+                        isAuthenticated: true,
+                    }),
+                });
+            }
+
+            if (url === "/api/s/abc123token/openclaw-status") {
+                openClawStatusRequestCount += 1;
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({
+                        state:
+                            openClawStatusRequestCount >= 3
+                                ? "pending_claim"
+                                : "none",
+                        requestCount: openClawStatusRequestCount,
+                    }),
+                });
+            }
+
+            if (url === "/api/s/abc123token/invite") {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({
+                        inviteText: "invite-block",
+                    }),
+                });
+            }
+
+            throw new Error(`Unexpected fetch URL: ${url}`);
+        });
+
+        try {
+            await loadSharePageScript(html, fetchMock);
+
+            const inviteButton = document.getElementById("oc-invite-btn") as HTMLButtonElement;
+            expect(inviteButton).not.toBeNull();
+
+            await act(async () => {
+                inviteButton.dispatchEvent(
+                    new MouseEvent("click", { bubbles: true, cancelable: true })
+                );
+                await Promise.resolve();
+                await Promise.resolve();
+            });
+
+            expect(pollStatus).not.toBeNull();
+            expect(clearIntervalSpy).not.toHaveBeenCalled();
+
+            await act(async () => {
+                await pollStatus?.();
+                await Promise.resolve();
+                await Promise.resolve();
+            });
+
+            expect(openClawStatusRequestCount).toBe(2);
+            expect(clearIntervalSpy).not.toHaveBeenCalled();
+
+            await act(async () => {
+                await pollStatus?.();
+                await Promise.resolve();
+                await Promise.resolve();
+            });
+
+            expect(openClawStatusRequestCount).toBe(3);
+            expect((document.getElementById("oc-pending") as HTMLElement).style.display).toBe("");
+            expect((document.getElementById("oc-invite") as HTMLElement).style.display).toBe("none");
+            expect(clearIntervalSpy).toHaveBeenCalledWith(123);
         } finally {
             setIntervalSpy.mockRestore();
             clearIntervalSpy.mockRestore();

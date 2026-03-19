@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { findLegacyOpenClawAttachment } from "@/lib/openclaw-compat";
-import { findMemoDiscussion } from "@/lib/memo-discussion";
+import { getOrCreateMemoDiscussion } from "@/lib/memo-discussion";
 import { getCurrentOpenClawClaimState } from "@/lib/openclaw-claims";
 import { requireOwnedSharedMemo } from "@/lib/share-route";
 
@@ -56,16 +56,18 @@ export async function GET(
         });
     }
 
-    const discussion = await findMemoDiscussion(
-        ownedShare.memo.memoId,
-        ownedShare.userId
-    );
-    if (!discussion?.roomId || !currentClaim.agent_id) {
+    if (!currentClaim.agent_id) {
         return Response.json(
             { error: "Failed to resolve OpenClaw discussion." },
             { status: 500 }
         );
     }
+
+    const discussion = await getOrCreateMemoDiscussion(
+        ownedShare.memo.memoId,
+        ownedShare.userId,
+        ownedShare.memo.title
+    );
 
     return Response.json({
         state: "claimed",

@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 export const MEMO_ROOM_CORS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, x-openclaw-api-key",
 };
 
 export type ParticipantType = "human" | "agent" | "system";

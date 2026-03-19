@@ -174,6 +174,7 @@ describe("POST /api/s/:shareRef/handoff", () => {
                 id: "claim-1",
                 status: "claimed",
                 openclaw_external_id: "oc_acct_123",
+                agent_id: "agent-1",
             },
             error: null,
         });
@@ -194,8 +195,15 @@ describe("POST /api/s/:shareRef/handoff", () => {
         expect(body).toEqual({
             status: "already_claimed",
             shareRef: "sharetoken1234",
+            agentId: "agent-1",
+            roomId: "room-1",
         });
         expect(supabaseAdmin.rpc).not.toHaveBeenCalled();
+        expect(getOrCreateMemoDiscussion).toHaveBeenCalledWith(
+            "memo-1",
+            "user-owner",
+            "Shared Memo"
+        );
     });
 
     it("rejects a different OpenClaw identity when the share is already claimed", async () => {

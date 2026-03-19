@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { validateOpenClawGateway } from "@/lib/agents";
+import { getOrCreateMemoDiscussion } from "@/lib/memo-discussion";
 import { attachLegacyOpenClawToMemo } from "@/lib/openclaw-compat";
 import { getCurrentOpenClawClaimState } from "@/lib/openclaw-claims";
 import { resolveSharedMemoForRoute } from "@/lib/share-route";
@@ -58,9 +59,23 @@ export async function POST(
         }
 
         if (currentClaim.status === "claimed") {
+            if (!currentClaim.agent_id) {
+                return Response.json(
+                    { error: "Failed to resolve OpenClaw discussion." },
+                    { status: 500 }
+                );
+            }
+
+            const discussion = await getOrCreateMemoDiscussion(
+                shared.memo.memoId,
+                shared.memo.ownerUserId,
+                shared.memo.title
+            );
             return Response.json({
                 status: "already_claimed",
                 shareRef: shared.memo.shareToken,
+                agentId: currentClaim.agent_id,
+                roomId: discussion.roomId,
             });
         }
 
