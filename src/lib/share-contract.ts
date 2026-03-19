@@ -941,6 +941,31 @@ export function buildSharedArtifactHtml(
       color: var(--accent);
       font-weight: 700;
     }
+    #oc-reg-section {
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+    .oc-reg-hint {
+      font-size: 0.75rem;
+      color: color-mix(in srgb, var(--foreground) 55%, transparent);
+      margin: 0;
+    }
+    .oc-reg-token-block {
+      font-family: monospace;
+      font-size: 0.78rem;
+      background: color-mix(in srgb, var(--foreground) 6%, transparent);
+      padding: 0.4rem 0.6rem;
+      border-radius: 4px;
+      word-break: break-all;
+    }
+    .oc-reg-warn {
+      font-size: 0.72rem;
+      color: color-mix(in srgb, var(--foreground) 55%, transparent);
+    }
     #oc-ask-dialog {
       display: none;
       margin-top: 0.35rem;
@@ -1020,6 +1045,11 @@ export function buildSharedArtifactHtml(
                   <li>OpenClaw will read the memo share and follow the handoff instructions.</li>
                   <li>Come back here when it shows up as pending or connected.</li>
                 </ol>
+              </div>
+              <div id="oc-reg-section" style="display:none">
+                <p class="oc-reg-hint">If OpenClaw says it isn't registered yet, generate a one-time registration token.</p>
+                <button id="oc-reg-btn" type="button">Generate registration token</button>
+                <div id="oc-reg-result" style="display:none"></div>
               </div>
             </div>
             <div id="oc-pending" class="oc-widget" style="display:none">
@@ -1273,6 +1303,9 @@ export function buildSharedArtifactHtml(
       const openClawCopied = document.getElementById("oc-copied");
       const openClawPreview = document.getElementById("oc-preview");
       const openClawPreviewText = document.getElementById("oc-preview-text");
+      const openClawRegSection = document.getElementById("oc-reg-section");
+      const openClawRegButton = document.getElementById("oc-reg-btn");
+      const openClawRegResult = document.getElementById("oc-reg-result");
       const openClawAskDialog = document.getElementById("oc-ask-dialog");
       const openClawAskInput = document.getElementById("oc-ask-input");
       const openClawAskSubmit = document.getElementById("oc-ask-submit");
@@ -1495,12 +1528,27 @@ export function buildSharedArtifactHtml(
       }
 
       function renderOpenClawInvitePreview(inviteText) {
-        if (!openClawPreview || !openClawPreviewText) {
-          return;
+        if (openClawPreview && openClawPreviewText) {
+          openClawPreviewText.textContent = inviteText || "";
+          openClawPreview.style.display = inviteText ? "grid" : "none";
         }
 
-        openClawPreviewText.textContent = inviteText || "";
-        openClawPreview.style.display = inviteText ? "grid" : "none";
+        if (openClawRegSection) {
+          openClawRegSection.style.display = inviteText ? "" : "none";
+        }
+      }
+
+      async function readOpenClawError(response, fallbackMessage) {
+        try {
+          const payload = await response.json();
+          if (payload && typeof payload.error === "string") {
+            return payload.error;
+          }
+        } catch (_error) {
+          // Fall back to the generic message when the response body is not JSON.
+        }
+
+        return fallbackMessage;
       }
 
       function renderDiscussionAccess(isOwner, isAuthenticated) {
@@ -1598,6 +1646,104 @@ export function buildSharedArtifactHtml(
             await loadOpenClawStatus();
           } catch (_error) {
             // Keep the pending state visible until the owner retries.
+          }
+        });
+      }
+
+      if (openClawRegButton && openClawRegResult) {
+        openClawRegButton.addEventListener("click", async () => {
+          openClawRegButton.disabled = true;
+          openClawRegResult.style.display = "none";
+          try {
+            const res = await fetch("/api/openclaw/registration-token", {
+              method: "POST",
+              credentials: "include",
+            });
+            if (res.ok) {
+              const { registration_token, expires_at } = await res.json();
+              openClawRegResult.innerHTML =
+                '<p class="oc-reg-warn">Shown once · Expires ' + escHtml(fmtRelative(expires_at)) + " · Send only to your OpenClaw runtime.</p>" +
+                '<code class="oc-reg-token-block">' + escHtml(registration_token) + "</code>" +
+                '<button id="oc-reg-copy" type="button">Copy token</button>';
+              openClawRegResult.style.display = "";
+              const copyBtn = document.getElementById("oc-reg-copy");
+              if (copyBtn) {
+                copyBtn.addEventListener("click", async () => {
+                  try {
+                    await navigator.clipboard.writeText(registration_token);
+                    copyBtn.textContent = "Copied";
+                  } catch (_error) {
+                    copyBtn.textContent = "Copy failed";
+                  }
+                });
+              }
+            } else if (res.status === 409) {
+              const { expires_at } = await res.json();
+              openClawRegResult.innerHTML =
+                '<p class="oc-reg-warn">You already have an active registration token' +
+                (expires_at ? " expiring " + escHtml(fmtRelative(expires_at)) : "") + '.</p>' +
+                '<button id="oc-reg-replace" type="button">Replace token</button>';
+              openClawRegResult.style.display = "";
+              const replaceBtn = document.getElementById("oc-reg-replace");
+              if (replaceBtn) {
+                replaceBtn.addEventListener("click", async () => {
+                  replaceBtn.disabled = true;
+                  try {
+                    const r2 = await fetch("/api/openclaw/registration-token", {
+                      method: "POST",
+                      credentials: "include",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ force: true }),
+                    });
+                    if (r2.ok) {
+                      const { registration_token: tok2, expires_at: expiresAt2 } = await r2.json();
+                      openClawRegResult.innerHTML =
+                        '<p class="oc-reg-warn">Shown once · Expires ' + escHtml(fmtRelative(expiresAt2)) + " · Send only to your OpenClaw runtime.</p>" +
+                        '<code class="oc-reg-token-block">' + escHtml(tok2) + "</code>" +
+                        '<button id="oc-reg-copy2" type="button">Copy token</button>';
+                      openClawRegResult.style.display = "";
+                      const copyBtn2 = document.getElementById("oc-reg-copy2");
+                      if (copyBtn2) {
+                        copyBtn2.addEventListener("click", async () => {
+                          try {
+                            await navigator.clipboard.writeText(tok2);
+                            copyBtn2.textContent = "Copied";
+                          } catch (_error) {
+                            copyBtn2.textContent = "Copy failed";
+                          }
+                        });
+                      }
+                    } else {
+                      const errorMessage = await readOpenClawError(
+                        r2,
+                        "Failed to replace token. Try again."
+                      );
+                      openClawRegResult.innerHTML =
+                        '<p class="oc-reg-warn">' + escHtml(errorMessage) + "</p>";
+                      openClawRegResult.style.display = "";
+                    }
+                  } catch (_error) {
+                    openClawRegResult.innerHTML = '<p class="oc-reg-warn">Failed to replace token. Try again.</p>';
+                    openClawRegResult.style.display = "";
+                  } finally {
+                    replaceBtn.disabled = false;
+                  }
+                });
+              }
+            } else {
+              const errorMessage = await readOpenClawError(
+                res,
+                "Failed to generate token. Try again."
+              );
+              openClawRegResult.innerHTML =
+                '<p class="oc-reg-warn">' + escHtml(errorMessage) + "</p>";
+              openClawRegResult.style.display = "";
+            }
+          } catch (_error) {
+            openClawRegResult.innerHTML = '<p class="oc-reg-warn">Failed to generate token. Try again.</p>';
+            openClawRegResult.style.display = "";
+          } finally {
+            openClawRegButton.disabled = false;
           }
         });
       }

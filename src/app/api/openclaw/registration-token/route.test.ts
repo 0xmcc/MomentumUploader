@@ -13,8 +13,15 @@ jest.mock("@/lib/memo-api-auth", () => ({
 jest.mock("@/lib/supabase");
 
 describe("POST /api/openclaw/registration-token", () => {
+    function mockEnsureUserRecord(error: unknown = null): jest.Mock {
+        const upsert = jest.fn().mockResolvedValue({ error });
+        (supabaseAdmin.from as jest.Mock).mockReturnValue({ upsert });
+        return upsert;
+    }
+
     beforeEach(() => {
         jest.clearAllMocks();
+        mockEnsureUserRecord();
     });
 
     function makeRequest(body?: Record<string, unknown>): NextRequest {
@@ -115,5 +122,86 @@ describe("POST /api/openclaw/registration-token", () => {
                 p_force: true,
             })
         );
+    });
+
+    it("provisions the authenticated user before issuing a registration token", async () => {
+        (resolveMemoUserId as jest.Mock).mockResolvedValue("user_123");
+        const upsert = jest.fn().mockResolvedValue({ error: null });
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            expect(table).toBe("users");
+            return { upsert };
+        });
+        (supabaseAdmin.rpc as jest.Mock).mockImplementation(async () => {
+            if (upsert.mock.calls.length === 0) {
+                return {
+                    data: null,
+                    error: {
+                        code: "23503",
+                        message:
+                            'insert or update on table "openclaw_registration_tokens" violates foreign key constraint "openclaw_registration_tokens_owner_user_id_fkey"',
+                    },
+                };
+            }
+
+            return {
+                data: [
+                    {
+                        status: "created",
+                        expires_at: "2026-03-25T00:00:00.000Z",
+                    },
+                ],
+                error: null,
+            };
+        });
+
+        const res = await POST(makeRequest());
+        const body = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(body.expires_at).toBe("2026-03-25T00:00:00.000Z");
+        expect(upsert).toHaveBeenCalledWith(
+            { id: "user_123" },
+            { onConflict: "id", ignoreDuplicates: true }
+        );
+    });
+
+    it("returns a migration hint when the OpenClaw registration schema is unavailable", async () => {
+        (resolveMemoUserId as jest.Mock).mockResolvedValue("user_123");
+        (supabaseAdmin.rpc as jest.Mock).mockResolvedValue({
+            data: null,
+            error: {
+                code: "PGRST202",
+                message: 'Could not find the function public.issue_openclaw_registration_token',
+            },
+        });
+
+        const res = await POST(makeRequest());
+        const body = await res.json();
+
+        expect(res.status).toBe(503);
+        expect(body).toEqual({
+            error: "OpenClaw registration tokens are unavailable until the latest database migration is applied.",
+        });
+    });
+
+    it("returns a migration hint when the OpenClaw registration function is on the broken pre-patch version", async () => {
+        (resolveMemoUserId as jest.Mock).mockResolvedValue("user_123");
+        (supabaseAdmin.rpc as jest.Mock).mockResolvedValue({
+            data: null,
+            error: {
+                code: "42702",
+                message: 'column reference "status" is ambiguous',
+                details:
+                    "It could refer to either a PL/pgSQL variable or a table column.",
+            },
+        });
+
+        const res = await POST(makeRequest());
+        const body = await res.json();
+
+        expect(res.status).toBe(503);
+        expect(body).toEqual({
+            error: "OpenClaw registration tokens are unavailable until the latest database migration is applied.",
+        });
     });
 });

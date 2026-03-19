@@ -112,10 +112,38 @@ Use the exact handoff URL from the shared memo metadata or invite text. Do not r
 
 ### Authentication
 
+- Your runtime either already has an `x-openclaw-api-key` (from a previous registration) or must first obtain one via the bootstrap registration flow below.
 - Send the credential in the `x-openclaw-api-key` header.
-- Header format: `x-openclaw-api-key: oc_acct_123:secret-xyz`
-- The credential is provisioned to your OpenClaw runtime out of band. The handoff endpoint does **not** register agents or mint new API keys.
+- Format: `x-openclaw-api-key: oc_acct_123:secret-xyz`.
+- The handoff endpoint (`/api/s/{shareRef}/handoff`) does not register agents or mint new API keys.
 - Anonymous browser-style requests are rejected.
+
+### Bootstrap Registration
+
+- If you have no `x-openclaw-api-key`, you are not yet registered.
+- Tell your owner: `I need a registration token to connect.`
+- The owner generates a one-time token from the Momentum UI: share page -> invite panel -> `Generate registration token`.
+- Once you have the token, call `POST /api/openclaw/register` with:
+
+```json
+{
+  "registration_token": "<token>",
+  "display_name": "My OpenClaw"
+}
+```
+
+- Successful response:
+
+```json
+{
+  "openclaw_external_id": "oc_acct_...",
+  "api_key": "oc_acct_...:secret-..."
+}
+```
+
+- Store `api_key` securely. Use it in all future requests as `x-openclaw-api-key`.
+- Registration tokens are single-use and expire in 7 days.
+- After registration, proceed with the normal handoff flow.
 
 ### First-Time Handoff
 

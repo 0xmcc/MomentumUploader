@@ -453,6 +453,9 @@ describe("share-contract", () => {
         expect(html).toContain('id="oc-invite-btn"');
         expect(html).toContain('id="oc-preview"');
         expect(html).toContain('id="oc-preview-text"');
+        expect(html).toContain('id="oc-reg-section"');
+        expect(html).toContain('id="oc-reg-btn"');
+        expect(html).toContain('id="oc-reg-result"');
         expect(html).toContain('id="oc-pending"');
         expect(html).toContain('id="oc-claim-btn"');
         expect(html).toContain('id="oc-claimed"');
@@ -461,6 +464,11 @@ describe("share-contract", () => {
         expect(html).toContain('id="oc-ask-submit"');
         expect(html).toContain("Send This To OpenClaw");
         expect(html).toContain("Paste this exact block into your OpenClaw chat or command window.");
+        expect(html).toContain("Generate registration token");
+        expect(html).toContain("If OpenClaw says it isn't registered yet, generate a one-time registration token.");
+        expect(html).toContain("#oc-reg-section {");
+        expect(html).toContain(".oc-reg-token-block {");
+        expect(html).toContain(".oc-reg-warn {");
     });
 
     it("wires the owner widget to the OpenClaw share endpoints and memo-room invocations", () => {
@@ -469,13 +477,287 @@ describe("share-contract", () => {
         expect(html).toContain('fetch("/api/s/" + shareRef + "/openclaw-status"');
         expect(html).toContain('fetch("/api/s/" + shareRef + "/invite"');
         expect(html).toContain('fetch("/api/s/" + shareRef + "/claim"');
+        expect(html).toContain('fetch("/api/openclaw/registration-token"');
         expect(html).toContain('fetch("/api/memo-rooms/" + openClawState.roomId + "/invocations"');
         expect(html).toContain("navigator.clipboard.writeText(inviteText)");
+        expect(html).toContain("navigator.clipboard.writeText(registration_token)");
+        expect(html).toContain('body: JSON.stringify({ force: true })');
         expect(html).toContain("openClawPreviewText.textContent = inviteText || \"\";");
         expect(html).toContain("openClawPreview.style.display = inviteText ? \"grid\" : \"none\";");
+        expect(html).toContain('openClawRegSection.style.display = inviteText ? "" : "none";');
         expect(html).toContain("Copy failed here. Send the block below to OpenClaw.");
         expect(html).toContain("setInterval(function() {");
         expect(html).not.toContain('"/api/s/" + shareRef + "/handoff"');
+    });
+
+    it("reveals the OpenClaw registration helper after invite and supports generate, replace, and copy", async () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        const writeText = jest.fn().mockResolvedValue(undefined);
+        const setIntervalSpy = jest
+            .spyOn(global, "setInterval")
+            .mockReturnValue(123 as unknown as ReturnType<typeof setInterval>);
+        const clearIntervalSpy = jest
+            .spyOn(global, "clearInterval")
+            .mockImplementation(() => undefined);
+        let tokenRequestCount = 0;
+        const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+            const url = String(input);
+
+            if (url === "/api/s/abc123token/discussion") {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({
+                        messages: [],
+                        isOwner: true,
+                        isAuthenticated: true,
+                    }),
+                });
+            }
+
+            if (url === "/api/s/abc123token/openclaw-status") {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({
+                        state: "none",
+                    }),
+                });
+            }
+
+            if (url === "/api/s/abc123token/invite") {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({
+                        inviteText: "invite-block",
+                    }),
+                });
+            }
+
+            if (url === "/api/openclaw/registration-token") {
+                tokenRequestCount += 1;
+                if (init?.body) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: async () => ({
+                            registration_token: "reg-token-2",
+                            expires_at: "2026-03-25T14:30:00.000Z",
+                        }),
+                    });
+                }
+
+                if (tokenRequestCount === 1) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: async () => ({
+                            registration_token: "reg-token-1",
+                            expires_at: "2026-03-25T14:00:00.000Z",
+                        }),
+                    });
+                }
+
+                return Promise.resolve({
+                    ok: false,
+                    status: 409,
+                    json: async () => ({
+                        expires_at: "2026-03-25T14:00:00.000Z",
+                    }),
+                });
+            }
+
+            throw new Error(`Unexpected fetch URL: ${url}`);
+        });
+        try {
+            await loadSharePageScript(html, fetchMock);
+
+            Object.defineProperty(global.navigator, "clipboard", {
+                configurable: true,
+                value: { writeText },
+            });
+
+            const inviteButton = document.getElementById("oc-invite-btn") as HTMLButtonElement;
+            const regSection = document.getElementById("oc-reg-section") as HTMLElement;
+            const regButton = document.getElementById("oc-reg-btn") as HTMLButtonElement;
+            const regResult = document.getElementById("oc-reg-result") as HTMLElement;
+
+            expect(regSection.style.display).toBe("none");
+            expect(regResult.style.display).toBe("none");
+
+            await act(async () => {
+                inviteButton.dispatchEvent(
+                    new MouseEvent("click", { bubbles: true, cancelable: true })
+                );
+                await Promise.resolve();
+                await Promise.resolve();
+            });
+
+            expect((document.getElementById("openclaw-widget") as HTMLElement).style.display).toBe("grid");
+            expect((document.getElementById("oc-preview") as HTMLElement).style.display).toBe("grid");
+            expect(regSection.style.display).toBe("");
+
+            await act(async () => {
+                regButton.dispatchEvent(
+                    new MouseEvent("click", { bubbles: true, cancelable: true })
+                );
+                await Promise.resolve();
+                await Promise.resolve();
+            });
+
+            expect(regResult.style.display).toBe("");
+            expect(regResult).toHaveTextContent("Shown once");
+            expect(regResult).toHaveTextContent("reg-token-1");
+
+            const copyButton = document.getElementById("oc-reg-copy") as HTMLButtonElement;
+            expect(copyButton).not.toBeNull();
+
+            await act(async () => {
+                copyButton.dispatchEvent(
+                    new MouseEvent("click", { bubbles: true, cancelable: true })
+                );
+                await Promise.resolve();
+            });
+
+            expect(writeText).toHaveBeenCalledWith("reg-token-1");
+            expect(copyButton.textContent).toBe("Copied");
+
+            await act(async () => {
+                regButton.dispatchEvent(
+                    new MouseEvent("click", { bubbles: true, cancelable: true })
+                );
+                await Promise.resolve();
+                await Promise.resolve();
+            });
+
+            expect(regResult).toHaveTextContent("You already have an active registration token");
+
+            const replaceButton = document.getElementById("oc-reg-replace") as HTMLButtonElement;
+            expect(replaceButton).not.toBeNull();
+
+            await act(async () => {
+                replaceButton.dispatchEvent(
+                    new MouseEvent("click", { bubbles: true, cancelable: true })
+                );
+                await Promise.resolve();
+                await Promise.resolve();
+            });
+
+            expect(regResult).toHaveTextContent("reg-token-2");
+
+            const copyButton2 = document.getElementById("oc-reg-copy2") as HTMLButtonElement;
+            expect(copyButton2).not.toBeNull();
+
+            await act(async () => {
+                copyButton2.dispatchEvent(
+                    new MouseEvent("click", { bubbles: true, cancelable: true })
+                );
+                await Promise.resolve();
+            });
+
+            expect(writeText).toHaveBeenLastCalledWith("reg-token-2");
+            expect(fetchMock).toHaveBeenCalledWith(
+                "/api/openclaw/registration-token",
+                expect.objectContaining({
+                    method: "POST",
+                    credentials: "include",
+                })
+            );
+            expect(fetchMock).toHaveBeenCalledWith(
+                "/api/openclaw/registration-token",
+                expect.objectContaining({
+                    method: "POST",
+                    credentials: "include",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ force: true }),
+                })
+            );
+        } finally {
+            setIntervalSpy.mockRestore();
+            clearIntervalSpy.mockRestore();
+        }
+    });
+
+    it("shows the server-provided registration-token error when generation is unavailable", async () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        const setIntervalSpy = jest
+            .spyOn(global, "setInterval")
+            .mockReturnValue(123 as unknown as ReturnType<typeof setInterval>);
+        const clearIntervalSpy = jest
+            .spyOn(global, "clearInterval")
+            .mockImplementation(() => undefined);
+        const fetchMock = jest.fn((input: RequestInfo | URL) => {
+            const url = String(input);
+
+            if (url === "/api/s/abc123token/discussion") {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({
+                        messages: [],
+                        isOwner: true,
+                        isAuthenticated: true,
+                    }),
+                });
+            }
+
+            if (url === "/api/s/abc123token/openclaw-status") {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({
+                        state: "none",
+                    }),
+                });
+            }
+
+            if (url === "/api/s/abc123token/invite") {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({
+                        inviteText: "invite-block",
+                    }),
+                });
+            }
+
+            if (url === "/api/openclaw/registration-token") {
+                return Promise.resolve({
+                    ok: false,
+                    status: 503,
+                    json: async () => ({
+                        error: "OpenClaw registration tokens are unavailable until the latest database migration is applied.",
+                    }),
+                });
+            }
+
+            throw new Error(`Unexpected fetch URL: ${url}`);
+        });
+
+        try {
+            await loadSharePageScript(html, fetchMock);
+
+            const inviteButton = document.getElementById("oc-invite-btn") as HTMLButtonElement;
+            const regButton = document.getElementById("oc-reg-btn") as HTMLButtonElement;
+            const regResult = document.getElementById("oc-reg-result") as HTMLElement;
+
+            await act(async () => {
+                inviteButton.dispatchEvent(
+                    new MouseEvent("click", { bubbles: true, cancelable: true })
+                );
+                await Promise.resolve();
+                await Promise.resolve();
+            });
+
+            await act(async () => {
+                regButton.dispatchEvent(
+                    new MouseEvent("click", { bubbles: true, cancelable: true })
+                );
+                await Promise.resolve();
+                await Promise.resolve();
+            });
+
+            expect(regResult.style.display).toBe("");
+            expect(regResult).toHaveTextContent(
+                "OpenClaw registration tokens are unavailable until the latest database migration is applied."
+            );
+        } finally {
+            setIntervalSpy.mockRestore();
+            clearIntervalSpy.mockRestore();
+        }
     });
 
     it("uses direct audio seeking for discussion anchors and guards the owner form listener from duplicates", () => {
