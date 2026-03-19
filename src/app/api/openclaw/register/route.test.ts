@@ -5,11 +5,17 @@ import { NextRequest } from "next/server";
 import { POST } from "./route";
 import { supabaseAdmin } from "@/lib/supabase";
 
-jest.mock("@/lib/supabase");
+jest.mock("@/lib/supabase", () => ({
+    supabaseAdmin: {
+        rpc: jest.fn(),
+        from: jest.fn(),
+    },
+}));
 
 describe("POST /api/openclaw/register", () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        (supabaseAdmin.from as jest.Mock).mockReset();
     });
 
     function makeRequest(
@@ -73,6 +79,55 @@ describe("POST /api/openclaw/register", () => {
 
         expect(res.status).toBe(409);
         expect(body.error).toBe("active_runtime_exists");
+    });
+
+    it("returns a rotated api key when registration replaces an existing runtime", async () => {
+        const runtimeMaybeSingle = jest.fn().mockResolvedValue({
+            data: {
+                openclaw_external_id: "oc_acct_existing",
+            },
+            error: null,
+        });
+        const runtimeStatusEq = jest.fn(() => ({ maybeSingle: runtimeMaybeSingle }));
+        const runtimeOwnerEq = jest.fn(() => ({ eq: runtimeStatusEq }));
+        const runtimeSelect = jest.fn(() => ({ eq: runtimeOwnerEq }));
+
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "openclaw_runtimes") {
+                return { select: runtimeSelect };
+            }
+
+            throw new Error(`Unexpected table ${table}`);
+        });
+
+        (supabaseAdmin.rpc as jest.Mock)
+            .mockResolvedValueOnce({
+                data: [{ allowed: true, retry_after_seconds: 0 }],
+                error: null,
+            })
+            .mockResolvedValueOnce({
+                data: [
+                    {
+                        status: "rotated_existing_runtime",
+                        owner_user_id: "user-owner",
+                        openclaw_external_id: "oc_acct_existing",
+                    },
+                ],
+                error: null,
+            });
+
+        const res = await POST(
+            makeRequest({ registration_token: "raw-token", display_name: "Recovered OpenClaw" })
+        );
+        const body = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(body.openclaw_external_id).toBe("oc_acct_existing");
+        expect(body.api_key).toMatch(/^oc_acct_existing:[0-9a-f]{64}$/);
+        expect(supabaseAdmin.from).toHaveBeenCalledWith("openclaw_runtimes");
+
+        const [accountId] = (body.api_key as string).split(":");
+        expect(accountId).toBe(body.openclaw_external_id);
     });
 
     it("creates a runtime and returns the issued api key", async () => {

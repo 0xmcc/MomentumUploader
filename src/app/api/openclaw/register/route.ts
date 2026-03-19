@@ -12,7 +12,12 @@ type RegisterBody = {
 };
 
 type RegisterRpcRow = {
-    status: "registered" | "token_not_found" | "active_runtime_exists";
+    status:
+        | "registered"
+        | "token_not_found"
+        | "active_runtime_exists"
+        | "rotated_existing_runtime";
+    owner_user_id: string | null;
 };
 
 type RegisterRateLimitRpcRow = {
@@ -57,6 +62,32 @@ async function consumeRegisterAttempt(
         allowed: result.allowed,
         retryAfterSeconds: result.retry_after_seconds,
     };
+}
+
+async function resolveIssuedOpenClawExternalId(
+    result: RegisterRpcRow,
+    generatedOpenclawExternalId: string
+): Promise<string | null> {
+    if (result.status !== "rotated_existing_runtime") {
+        return generatedOpenclawExternalId;
+    }
+
+    if (!result.owner_user_id) {
+        return null;
+    }
+
+    const { data, error } = await supabaseAdmin
+        .from("openclaw_runtimes")
+        .select("openclaw_external_id")
+        .eq("owner_user_id", result.owner_user_id)
+        .eq("status", "active")
+        .maybeSingle();
+
+    if (error || !data) {
+        return null;
+    }
+
+    return (data as { openclaw_external_id: string }).openclaw_external_id;
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -133,8 +164,19 @@ export async function POST(req: NextRequest): Promise<Response> {
         );
     }
 
+    const issuedOpenclawExternalId = await resolveIssuedOpenClawExternalId(
+        result,
+        openclawExternalId
+    );
+    if (!issuedOpenclawExternalId) {
+        return Response.json(
+            { error: "Failed to register OpenClaw runtime." },
+            { status: 500 }
+        );
+    }
+
     return Response.json({
-        openclaw_external_id: openclawExternalId,
-        api_key: `${openclawExternalId}:${secret}`,
+        openclaw_external_id: issuedOpenclawExternalId,
+        api_key: `${issuedOpenclawExternalId}:${secret}`,
     });
 }
