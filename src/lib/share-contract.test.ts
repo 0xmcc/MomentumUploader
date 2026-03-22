@@ -1225,6 +1225,84 @@ describe("share-contract", () => {
         });
     });
 
+    it("refreshes discussion for the owner so newly posted notes appear without a full page reload", async () => {
+        jest.useFakeTimers();
+        const html = buildSharedArtifactHtml(basePayload);
+        const discussionFetchUrl = "/api/s/abc123token/discussion";
+        let discussionFetchCount = 0;
+        const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+            const url = String(input);
+            if (url !== discussionFetchUrl) {
+                throw new Error(`Unexpected fetch URL: ${url}`);
+            }
+
+            discussionFetchCount += 1;
+
+            return {
+                ok: true,
+                json: async () => ({
+                    messages:
+                        discussionFetchCount === 1
+                            ? [
+                                  {
+                                      id: "message-1",
+                                      authorName: "Marko Ivanovic",
+                                      authorAvatarUrl: "https://img.example.com/marko.png",
+                                      authorIsOwner: true,
+                                      content: "First note.",
+                                      anchorStartMs: null,
+                                      createdAt: "2026-03-17T10:00:00.000Z",
+                                  },
+                              ]
+                            : [
+                                  {
+                                      id: "message-1",
+                                      authorName: "Marko Ivanovic",
+                                      authorAvatarUrl: "https://img.example.com/marko.png",
+                                      authorIsOwner: true,
+                                      content: "First note.",
+                                      anchorStartMs: null,
+                                      createdAt: "2026-03-17T10:00:00.000Z",
+                                  },
+                                  {
+                                      id: "message-2",
+                                      authorName: "Taylor",
+                                      authorAvatarUrl: null,
+                                      authorIsOwner: false,
+                                      content: "Second note without refresh.",
+                                      anchorStartMs: null,
+                                      createdAt: "2026-03-17T10:00:05.000Z",
+                                  },
+                              ],
+                    isOwner: true,
+                    isAuthenticated: true,
+                }),
+            };
+        });
+
+        try {
+            await loadSharePageScript(html, fetchMock);
+
+            expect(document.getElementById("disc-list")?.textContent).toContain("First note.");
+            expect(document.getElementById("disc-list")?.textContent).not.toContain(
+                "Second note without refresh."
+            );
+
+            await act(async () => {
+                jest.advanceTimersByTime(3000);
+                await Promise.resolve();
+                await Promise.resolve();
+            });
+
+            expect(document.getElementById("disc-list")?.textContent).toContain(
+                "Second note without refresh."
+            );
+            expect(fetchMock.mock.calls.filter(([url]) => String(url) === discussionFetchUrl)).toHaveLength(2);
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
     describe("transcript keyword search", () => {
         it("renders search input as type=text not type=search to prevent browser clear-button from wiping the query", () => {
             const html = buildSharedArtifactHtml(basePayload);
@@ -1250,7 +1328,7 @@ describe("share-contract", () => {
             expect(html).toContain("sessionStorage.removeItem");
         });
 
-        it("keeps discussion mounted while live polling replaces only the transcript", async () => {
+        it("keeps discussion mounted while live polling refreshes transcript and discussion independently", async () => {
             jest.useFakeTimers();
             const html = buildSharedArtifactHtml({
                 ...basePayload,
@@ -1325,7 +1403,7 @@ describe("share-contract", () => {
                 expect(document.getElementById("disc-list")?.textContent).toContain(
                     "Keep this note mounted."
                 );
-                expect(fetchMock.mock.calls.filter(([url]) => String(url) === discussionFetchUrl)).toHaveLength(1);
+                expect(fetchMock.mock.calls.filter(([url]) => String(url) === discussionFetchUrl)).toHaveLength(2);
                 expect(fetchMock.mock.calls.filter(([url]) => String(url) === transcriptFetchUrl)).toHaveLength(1);
             } finally {
                 jest.useRealTimers();

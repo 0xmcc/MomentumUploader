@@ -1488,11 +1488,33 @@ export function buildSharedArtifactHtml(
         roomId: null,
         pollId: null,
       };
+      const discussionState = {
+        pollId: null,
+        loadInFlight: null,
+      };
+      const sharePagePollingState =
+        window.__momentumSharePagePolling ||
+        (window.__momentumSharePagePolling = {
+          instanceId: 0,
+          discussionPollId: null,
+          openClawPollId: null,
+        });
+      sharePagePollingState.instanceId += 1;
+      const sharePageInstanceId = sharePagePollingState.instanceId;
 
       function stopOpenClawPolling() {
         if (openClawState.pollId != null) {
           clearInterval(openClawState.pollId);
           openClawState.pollId = null;
+          sharePagePollingState.openClawPollId = null;
+        }
+      }
+
+      function stopDiscussionPolling() {
+        if (discussionState.pollId != null) {
+          clearInterval(discussionState.pollId);
+          discussionState.pollId = null;
+          sharePagePollingState.discussionPollId = null;
         }
       }
 
@@ -1563,8 +1585,12 @@ export function buildSharedArtifactHtml(
       function startOpenClawPolling() {
         stopOpenClawPolling();
         openClawState.pollId = setInterval(function() {
+          if (sharePagePollingState.instanceId !== sharePageInstanceId) {
+            return;
+          }
           void loadOpenClawStatus();
         }, 3000);
+        sharePagePollingState.openClawPollId = openClawState.pollId;
       }
 
       function renderOpenClawInvitePreview(inviteText) {
@@ -1637,20 +1663,51 @@ export function buildSharedArtifactHtml(
         }
       }
 
-      async function loadDiscussion() {
-        try {
-          const res = await fetch("/api/s/" + shareRef + "/discussion");
-          if (!res.ok) {
-            throw new Error("Failed to load discussion");
-          }
-
-          const { messages, isOwner, isAuthenticated } = await res.json();
-          renderDiscussion(messages);
-          renderDiscussionAccess(isOwner, isAuthenticated);
-
-        } catch (_error) {
-          discussionList.innerHTML = '<p class="disc-error">Could not load discussion.</p>';
+      async function loadDiscussion(showError = true) {
+        if (discussionState.loadInFlight) {
+          return discussionState.loadInFlight;
         }
+
+        const loadPromise = (async () => {
+          try {
+            const res = await fetch("/api/s/" + shareRef + "/discussion");
+            if (!res.ok) {
+              throw new Error("Failed to load discussion");
+            }
+
+            const { messages, isOwner, isAuthenticated } = await res.json();
+            renderDiscussion(messages);
+            renderDiscussionAccess(isOwner, isAuthenticated);
+          } catch (_error) {
+            if (showError) {
+              discussionList.innerHTML = '<p class="disc-error">Could not load discussion.</p>';
+            }
+          }
+        })();
+
+        discussionState.loadInFlight = loadPromise;
+
+        try {
+          await loadPromise;
+        } finally {
+          if (discussionState.loadInFlight === loadPromise) {
+            discussionState.loadInFlight = null;
+          }
+        }
+      }
+
+      function startDiscussionPolling() {
+        if (discussionState.pollId != null) {
+          return;
+        }
+
+        discussionState.pollId = setInterval(function() {
+          if (sharePagePollingState.instanceId !== sharePageInstanceId) {
+            return;
+          }
+          void loadDiscussion(false);
+        }, 3000);
+        sharePagePollingState.discussionPollId = discussionState.pollId;
       }
 
       if (openClawInviteButton && openClawCopied) {
@@ -1925,7 +1982,8 @@ export function buildSharedArtifactHtml(
         });
       }
 
-      loadDiscussion();
+      void loadDiscussion();
+      startDiscussionPolling();
     })();
 
     (() => {
