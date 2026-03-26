@@ -1,4 +1,5 @@
 import { useEffect, useRef, type MutableRefObject } from "react";
+import { supabase } from "@/lib/supabase";
 
 const CHUNK_UPLOAD_INTERVAL_MS = 30_000;
 const FIRST_UPLOAD_DELAY_MS = 15_000;
@@ -33,6 +34,12 @@ function delay(ms: number) {
 function logChunkUpload(event: string, payload: Record<string, unknown>) {
     console.log("[chunk-upload]", event, payload);
 }
+
+type PrepareChunkUploadResponse = {
+    ok?: boolean;
+    path?: unknown;
+    token?: unknown;
+};
 
 export function useChunkUpload({
     audioChunksRef,
@@ -154,13 +161,9 @@ export function useChunkUpload({
                 ? [webmHeaderSourceRef.current.current, ...chunkBatch]
                 : chunkBatch;
         const file = new Blob(blobParts, { type: mimeTypeSourceRef.current.current });
-        const formData = new FormData();
-        formData.append("memoId", nextMemoId);
-        formData.append("startIndex", String(startIndex));
-        formData.append("endIndex", String(endIndex));
-        formData.append("file", file, `${String(startIndex).padStart(7, "0")}-${String(endIndex).padStart(7, "0")}.webm`);
+        const contentType = mimeTypeSourceRef.current.current || "audio/webm";
 
-        logChunkUpload("uploadChunkRange:fetch", {
+        logChunkUpload("uploadChunkRange:prepare", {
             memoId: nextMemoId,
             startIndex,
             endIndex,
@@ -170,11 +173,44 @@ export function useChunkUpload({
 
         const response = await fetch("/api/transcribe/upload-chunks", {
             method: "POST",
-            body: formData,
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                memoId: nextMemoId,
+                startIndex,
+                endIndex,
+                contentType,
+            }),
         });
 
         if (!response.ok) {
             throw new Error(`Chunk upload failed: ${response.status}`);
+        }
+
+        const prepared = (await response.json()) as PrepareChunkUploadResponse;
+        const uploadPath =
+            typeof prepared.path === "string" && prepared.path.trim().length > 0
+                ? prepared.path
+                : null;
+        const uploadToken =
+            typeof prepared.token === "string" && prepared.token.trim().length > 0
+                ? prepared.token
+                : null;
+
+        if (!uploadPath || !uploadToken) {
+            throw new Error("Chunk upload failed: missing signed upload payload");
+        }
+
+        const { error } = await supabase.storage
+            .from("voice-memos")
+            .uploadToSignedUrl(uploadPath, uploadToken, file, {
+                upsert: true,
+                contentType,
+            });
+
+        if (error) {
+            throw new Error(`Chunk upload failed: ${error.message}`);
         }
 
         lastUploadedIndexRef.current = endIndex;

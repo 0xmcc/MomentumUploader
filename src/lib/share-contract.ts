@@ -1219,12 +1219,36 @@ export function buildSharedArtifactHtml(
         return '<div class="transcript" id="transcript-content">' + escapedTranscript + "</div>";
       }
 
+      function hasActiveTranscriptSelection(transcriptEl) {
+        const selection = typeof window.getSelection === "function" ? window.getSelection() : null;
+        if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+          return false;
+        }
+
+        const anchorNode = selection.anchorNode;
+        const focusNode = selection.focusNode;
+        return !!(
+          (anchorNode && transcriptEl.contains(anchorNode)) ||
+          (focusNode && transcriptEl.contains(focusNode))
+        );
+      }
+
       function replaceTranscript(artifact) {
         const current = document.getElementById("transcript-content");
         if (!current) return;
+        if (hasActiveTranscriptSelection(current)) return;
         const nextMarkup = renderTranscriptMarkup(artifact);
         if (current.outerHTML === nextMarkup) return;
+        const previousScrollTop = current.scrollTop;
+        const wasNearBottom =
+          current.scrollHeight - current.clientHeight - current.scrollTop <= 24;
         current.outerHTML = nextMarkup;
+        const next = document.getElementById("transcript-content");
+        if (next) {
+          next.scrollTop = wasNearBottom
+            ? Math.max(0, next.scrollHeight - next.clientHeight)
+            : previousScrollTop;
+        }
         document.dispatchEvent(new CustomEvent("share:transcript-updated"));
       }
 
@@ -1232,6 +1256,30 @@ export function buildSharedArtifactHtml(
 
       const transcriptUrl = shareBoot.canonicalUrl + ".json";
       let pollingStopped = false;
+      let pendingArtifact = null;
+
+      function isTerminalTranscriptState(artifact) {
+        return artifact &&
+          (artifact.isLiveRecording === false ||
+            artifact.transcriptStatus === "complete" ||
+            artifact.transcriptStatus === "failed");
+      }
+
+      function flushPendingTranscript() {
+        if (!pendingArtifact) return;
+        const current = document.getElementById("transcript-content");
+        if (!current || hasActiveTranscriptSelection(current)) return;
+
+        const artifact = pendingArtifact;
+        pendingArtifact = null;
+        replaceTranscript(artifact);
+        if (isTerminalTranscriptState(artifact)) {
+          pollingStopped = true;
+          clearInterval(intervalId);
+        }
+      }
+
+      document.addEventListener("selectionchange", flushPendingTranscript);
 
       async function pollTranscript() {
         if (pollingStopped) return;
@@ -1246,9 +1294,16 @@ export function buildSharedArtifactHtml(
           const artifact = json && json.artifact ? json.artifact : null;
           if (!artifact) return;
 
+          const current = document.getElementById("transcript-content");
+          if (current && hasActiveTranscriptSelection(current)) {
+            pendingArtifact = artifact;
+            return;
+          }
+
+          pendingArtifact = null;
           replaceTranscript(artifact);
 
-          if (artifact.isLiveRecording === false || artifact.transcriptStatus === "complete" || artifact.transcriptStatus === "failed") {
+          if (isTerminalTranscriptState(artifact)) {
             pollingStopped = true;
             clearInterval(intervalId);
           }

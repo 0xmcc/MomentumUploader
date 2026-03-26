@@ -1,9 +1,12 @@
 import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { supabase } from "@/lib/supabase";
 import AudioRecorder, {
     type AudioInputPayload,
     type UploadCompletePayload,
 } from "./AudioRecorder";
+
+jest.mock("@/lib/supabase");
 
 jest.mock("framer-motion", () => {
     const motion = new Proxy(
@@ -59,6 +62,33 @@ async function flushMicrotasks(count = 4) {
     }
 }
 
+function padChunkIndex(index: number) {
+    return String(index).padStart(7, "0");
+}
+
+function readPrepareRequest(init?: RequestInit) {
+    return JSON.parse(String(init?.body ?? "{}")) as {
+        memoId: string;
+        startIndex: number;
+        endIndex: number;
+        contentType: string;
+    };
+}
+
+function signedUploadResponse(init?: RequestInit) {
+    const body = readPrepareRequest(init);
+    return {
+        ok: true,
+        json: async () => ({
+            ok: true,
+            path:
+                `audio/chunks/${body.memoId}/` +
+                `${padChunkIndex(body.startIndex)}-${padChunkIndex(body.endIndex)}.webm`,
+            token: `signed-upload-token-${body.startIndex}-${body.endIndex}`,
+        }),
+    };
+}
+
 function uploadCalls(fetchMock: jest.Mock) {
     return fetchMock.mock.calls.filter(
         ([url]: [unknown]) => url === "/api/transcribe/upload-chunks"
@@ -78,8 +108,15 @@ function directTranscribeCalls(fetchMock: jest.Mock) {
 }
 
 describe("AudioRecorder pipeline coverage", () => {
+    const uploadToSignedUrl = jest.fn();
+
     beforeEach(() => {
         jest.useFakeTimers();
+        uploadToSignedUrl.mockReset();
+        uploadToSignedUrl.mockResolvedValue({ data: { path: "" }, error: null });
+        (supabase.storage.from as jest.Mock).mockReturnValue({
+            uploadToSignedUrl,
+        });
 
         Object.defineProperty(global, "MediaRecorder", {
             writable: true,
@@ -136,7 +173,7 @@ describe("AudioRecorder pipeline coverage", () => {
         const memoId = "memo-long-recording";
         const onUploadComplete = jest.fn<(payload: UploadCompletePayload) => void>();
 
-        (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
             if (url === "/api/memos/live") {
                 return {
                     ok: true,
@@ -159,10 +196,7 @@ describe("AudioRecorder pipeline coverage", () => {
             }
 
             if (url === "/api/transcribe/upload-chunks") {
-                return {
-                    ok: true,
-                    json: async () => ({ ok: true }),
-                };
+                return signedUploadResponse(init);
             }
 
             if (url === "/api/transcribe/finalize") {
@@ -216,14 +250,7 @@ describe("AudioRecorder pipeline coverage", () => {
 
         expect(chunkCalls.length).toBeGreaterThanOrEqual(2);
 
-        const ranges = chunkCalls.map(([, init]) => {
-            const formData = (init as RequestInit).body as FormData;
-            return {
-                startIndex: Number(formData.get("startIndex")),
-                endIndex: Number(formData.get("endIndex")),
-                memoId: String(formData.get("memoId")),
-            };
-        });
+        const ranges = chunkCalls.map(([, init]) => readPrepareRequest(init as RequestInit));
 
         expect(ranges[0]?.startIndex).toBe(0);
         for (let index = 1; index < ranges.length; index += 1) {
@@ -237,6 +264,7 @@ describe("AudioRecorder pipeline coverage", () => {
             provisionalTranscript: "partial transcript",
         });
         expect(directTranscribeCalls(fetchMock)).toHaveLength(0);
+        expect(uploadToSignedUrl).toHaveBeenCalledTimes(chunkCalls.length);
 
         await waitFor(() => {
             expect(onUploadComplete).toHaveBeenCalledWith({
@@ -253,7 +281,7 @@ describe("AudioRecorder pipeline coverage", () => {
         const memoId = "memo-short-recording";
         const onUploadComplete = jest.fn<(payload: UploadCompletePayload) => void>();
 
-        (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
             if (url === "/api/memos/live") {
                 return {
                     ok: true,
@@ -276,10 +304,7 @@ describe("AudioRecorder pipeline coverage", () => {
             }
 
             if (url === "/api/transcribe/upload-chunks") {
-                return {
-                    ok: true,
-                    json: async () => ({ ok: true }),
-                };
+                return signedUploadResponse(init);
             }
 
             if (url === "/api/transcribe/finalize") {
@@ -328,17 +353,17 @@ describe("AudioRecorder pipeline coverage", () => {
             totalChunks: number;
             provisionalTranscript: string;
         };
-        const firstUploadedBatch = chunkCalls[0]?.[1]?.body as FormData;
-        const secondUploadedBatch = chunkCalls[1]?.[1]?.body as FormData;
-        const firstUploadedEndIndex = Number(firstUploadedBatch.get("endIndex"));
-        const finalUploadedEndIndex = Number(secondUploadedBatch.get("endIndex"));
+        const firstUploadedBatch = readPrepareRequest(chunkCalls[0]?.[1] as RequestInit);
+        const secondUploadedBatch = readPrepareRequest(chunkCalls[1]?.[1] as RequestInit);
+        const firstUploadedEndIndex = firstUploadedBatch.endIndex;
+        const finalUploadedEndIndex = secondUploadedBatch.endIndex;
 
         expect(chunkCalls).toHaveLength(2);
         expect(directTranscribeCalls(fetchMock)).toHaveLength(0);
-        expect(firstUploadedBatch.get("startIndex")).toBe("0");
+        expect(firstUploadedBatch.startIndex).toBe(0);
         expect(firstUploadedEndIndex).toBeGreaterThanOrEqual(1);
         expect(firstUploadedEndIndex).toBeLessThan(finalUploadedEndIndex);
-        expect(secondUploadedBatch.get("startIndex")).toBe(String(firstUploadedEndIndex));
+        expect(secondUploadedBatch.startIndex).toBe(firstUploadedEndIndex);
         expect(finalizeBody).toEqual({
             memoId,
             totalChunks: finalUploadedEndIndex,
@@ -363,7 +388,7 @@ describe("AudioRecorder pipeline coverage", () => {
             resolveLive = resolve;
         });
 
-        (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
             if (url === "/api/memos/live") {
                 return livePromise;
             }
@@ -374,7 +399,7 @@ describe("AudioRecorder pipeline coverage", () => {
                 return { ok: true, json: async () => ({ text: "partial" }) };
             }
             if (url === "/api/transcribe/upload-chunks") {
-                return { ok: true, json: async () => ({ ok: true }) };
+                return signedUploadResponse(init);
             }
             if (url === "/api/transcribe/finalize") {
                 return {
@@ -419,7 +444,7 @@ describe("AudioRecorder pipeline coverage", () => {
     it("falls back to a single transcribe POST when recording stops before the live memo id exists", async () => {
         const pendingLiveMemo = new Promise<never>(() => {});
 
-        (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
             if (url === "/api/memos/live") {
                 return pendingLiveMemo;
             }
@@ -503,7 +528,7 @@ describe("AudioRecorder pipeline coverage", () => {
             resolveFinalize = resolve;
         });
 
-        (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
             if (url === "/api/memos/live") {
                 return {
                     ok: true,
@@ -526,10 +551,7 @@ describe("AudioRecorder pipeline coverage", () => {
             }
 
             if (url === "/api/transcribe/upload-chunks") {
-                return {
-                    ok: true,
-                    json: async () => ({ ok: true }),
-                };
+                return signedUploadResponse(init);
             }
 
             if (url === "/api/transcribe/finalize") {

@@ -1410,6 +1410,148 @@ describe("share-contract", () => {
             }
         });
 
+        it("does not replace the transcript while the user is selecting text from a live share", async () => {
+            jest.useFakeTimers();
+            const initialTranscript = "Initial live transcript with text the user is copying.";
+            const updatedTranscript = "Updated live transcript that should wait until selection ends.";
+            const html = buildSharedArtifactHtml({
+                ...basePayload,
+                isLiveRecording: true,
+                transcript: initialTranscript,
+            });
+            const transcriptFetchUrl = "https://example.com/s/abc123token.json";
+            const discussionFetchUrl = "/api/s/abc123token/discussion";
+            const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+                const url = String(input);
+                if (url === discussionFetchUrl) {
+                    return emptyDiscussionResponse;
+                }
+
+                if (url === transcriptFetchUrl) {
+                    return {
+                        ok: true,
+                        json: async () => ({
+                            artifact: {
+                                ...buildSharedArtifactJson(basePayload).artifact,
+                                transcript: updatedTranscript,
+                                transcriptSegments: null,
+                            },
+                        }),
+                    };
+                }
+
+                throw new Error(`Unexpected fetch URL: ${url}`);
+            });
+
+            try {
+                await loadSharePageScript(html, fetchMock);
+
+                const transcriptBlock = document.querySelector(
+                    "#transcript-content .transcript-block"
+                );
+                expect(transcriptBlock?.textContent).toContain(initialTranscript);
+
+                const selection = window.getSelection();
+                const range = document.createRange();
+                range.selectNodeContents(transcriptBlock as Node);
+                selection?.removeAllRanges();
+                selection?.addRange(range);
+                expect(selection?.isCollapsed).toBe(false);
+
+                await act(async () => {
+                    jest.advanceTimersByTime(3000);
+                    await Promise.resolve();
+                    await Promise.resolve();
+                });
+
+                expect(document.getElementById("transcript-content")?.textContent).toContain(
+                    initialTranscript
+                );
+                expect(document.getElementById("transcript-content")?.textContent).not.toContain(
+                    updatedTranscript
+                );
+
+                selection?.removeAllRanges();
+
+                await act(async () => {
+                    jest.advanceTimersByTime(3000);
+                    await Promise.resolve();
+                    await Promise.resolve();
+                });
+
+                expect(document.getElementById("transcript-content")?.textContent).toContain(
+                    updatedTranscript
+                );
+            } finally {
+                window.getSelection()?.removeAllRanges();
+                jest.useRealTimers();
+            }
+        });
+
+        it("preserves transcript scroll position when live polling updates the transcript", async () => {
+            jest.useFakeTimers();
+            const initialTranscript = "Initial transcript.";
+            const updatedTranscript = "Updated transcript after polling.";
+            const html = buildSharedArtifactHtml({
+                ...basePayload,
+                isLiveRecording: true,
+                transcript: initialTranscript,
+            });
+            const transcriptFetchUrl = "https://example.com/s/abc123token.json";
+            const discussionFetchUrl = "/api/s/abc123token/discussion";
+            const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+                const url = String(input);
+                if (url === discussionFetchUrl) {
+                    return emptyDiscussionResponse;
+                }
+
+                if (url === transcriptFetchUrl) {
+                    return {
+                        ok: true,
+                        json: async () => ({
+                            artifact: {
+                                ...buildSharedArtifactJson(basePayload).artifact,
+                                transcript: updatedTranscript,
+                                transcriptSegments: null,
+                            },
+                        }),
+                    };
+                }
+
+                throw new Error(`Unexpected fetch URL: ${url}`);
+            });
+
+            try {
+                await loadSharePageScript(html, fetchMock);
+
+                const transcriptEl = document.getElementById("transcript-content") as HTMLDivElement;
+                Object.defineProperty(transcriptEl, "scrollHeight", {
+                    configurable: true,
+                    value: 500,
+                });
+                Object.defineProperty(transcriptEl, "clientHeight", {
+                    configurable: true,
+                    value: 200,
+                });
+                transcriptEl.scrollTop = 120;
+
+                await act(async () => {
+                    jest.advanceTimersByTime(3000);
+                    await Promise.resolve();
+                    await Promise.resolve();
+                });
+
+                expect(document.getElementById("transcript-content")?.textContent).toContain(
+                    updatedTranscript
+                );
+                expect(
+                    (document.getElementById("transcript-content") as HTMLDivElement).scrollTop
+                ).toBe(120);
+            } finally {
+                jest.useRealTimers();
+            }
+        });
+
         it("restores saved query on page load by reading sessionStorage before attaching listeners", () => {
             const html = buildSharedArtifactHtml(basePayload);
             const script = html.slice(html.indexOf("<script>"));

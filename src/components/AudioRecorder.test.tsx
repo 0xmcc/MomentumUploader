@@ -1,6 +1,9 @@
 import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { supabase } from "@/lib/supabase";
 import AudioRecorder from "./AudioRecorder";
+
+jest.mock("@/lib/supabase");
 
 jest.mock("framer-motion", () => {
     const motion = new Proxy(
@@ -52,15 +55,54 @@ class MockMediaRecorder {
     }
 }
 
+function padChunkIndex(index: number) {
+    return String(index).padStart(7, "0");
+}
+
+function readPrepareRequest(init?: RequestInit) {
+    return JSON.parse(String(init?.body ?? "{}")) as {
+        memoId: string;
+        startIndex: number;
+        endIndex: number;
+        contentType: string;
+    };
+}
+
+function signedUploadResponse(init?: RequestInit) {
+    const body = readPrepareRequest(init);
+    return {
+        ok: true,
+        json: async () => ({
+            ok: true,
+            path:
+                `audio/chunks/${body.memoId}/` +
+                `${padChunkIndex(body.startIndex)}-${padChunkIndex(body.endIndex)}.webm`,
+            token: `signed-upload-token-${body.startIndex}-${body.endIndex}`,
+        }),
+    };
+}
+
 describe("AudioRecorder live transcript cadence", () => {
+    const uploadToSignedUrl = jest.fn();
+
     beforeEach(() => {
         jest.useFakeTimers();
+        uploadToSignedUrl.mockReset();
+        uploadToSignedUrl.mockResolvedValue({ data: { path: "" }, error: null });
+        (supabase.storage.from as jest.Mock).mockReturnValue({
+            uploadToSignedUrl,
+        });
 
         Object.defineProperty(global, "fetch", {
             writable: true,
-            value: jest.fn().mockResolvedValue({
-                ok: true,
-                json: async () => ({ text: "partial transcript" }),
+            value: jest.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+                if (url === "/api/transcribe/upload-chunks") {
+                    return signedUploadResponse(init);
+                }
+                return {
+                    ok: true,
+                    json: async () => ({ text: "partial transcript" }),
+                };
             }),
         });
 
@@ -187,10 +229,7 @@ describe("AudioRecorder live transcript cadence", () => {
             }
 
             if (url === "/api/transcribe/upload-chunks") {
-                return {
-                    ok: true,
-                    json: async () => ({ ok: true }),
-                };
+                return signedUploadResponse(init);
             }
 
             if (url === "/api/transcribe/finalize") {
@@ -257,11 +296,22 @@ describe("AudioRecorder live transcript cadence", () => {
             ([url]: [unknown]) => url === "/api/transcribe/finalize"
         );
 
-        const chunkUploadBody = chunkUploadCalls[0]?.[1]?.body as FormData;
-        expect(chunkUploadBody.get("memoId")).toBe(memoId);
-        expect(chunkUploadBody.get("startIndex")).toBe("0");
-        expect(chunkUploadBody.get("endIndex")).toBe("2");
-        expect(chunkUploadBody.get("file")).toBeInstanceOf(Blob);
+        expect(readPrepareRequest(chunkUploadCalls[0]?.[1] as RequestInit)).toEqual({
+            memoId,
+            startIndex: 0,
+            endIndex: 2,
+            contentType: expect.stringContaining("audio/webm"),
+        });
+        const [uploadPath, uploadToken, uploadBlob, uploadOptions] = uploadToSignedUrl.mock.calls[0] ?? [];
+        expect(uploadPath).toBe("audio/chunks/memo-stop-finalize/0000000-0000002.webm");
+        expect(uploadToken).toBe("signed-upload-token-0-2");
+        expect(uploadBlob).toBeInstanceOf(Blob);
+        expect(uploadOptions).toEqual(
+            expect.objectContaining({
+                contentType: expect.stringContaining("audio/webm"),
+                upsert: true,
+            })
+        );
 
         expect(JSON.parse(String(finalizeCalls[0]?.[1]?.body))).toEqual({
             memoId,

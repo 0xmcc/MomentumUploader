@@ -1,18 +1,60 @@
 import { act, renderHook } from "@testing-library/react";
+import { supabase } from "@/lib/supabase";
 import { useChunkUpload } from "./useChunkUpload";
+
+jest.mock("@/lib/supabase", () => ({
+    supabase: {
+        storage: {
+            from: jest.fn(),
+        },
+    },
+}));
+
+function padChunkIndex(index: number) {
+    return String(index).padStart(7, "0");
+}
+
+function readPrepareRequest(init?: RequestInit) {
+    return JSON.parse(String(init?.body ?? "{}")) as {
+        memoId: string;
+        startIndex: number;
+        endIndex: number;
+        contentType: string;
+    };
+}
+
+function signedUploadResponse(init?: RequestInit) {
+    const body = readPrepareRequest(init);
+    return {
+        ok: true,
+        json: async () => ({
+            ok: true,
+            path:
+                `audio/chunks/${body.memoId}/` +
+                `${padChunkIndex(body.startIndex)}-${padChunkIndex(body.endIndex)}.webm`,
+            token: `signed-upload-token-${body.startIndex}-${body.endIndex}`,
+        }),
+    };
+}
 
 describe("useChunkUpload", () => {
     let consoleLogSpy: jest.SpyInstance;
+    const uploadToSignedUrl = jest.fn();
 
     beforeEach(() => {
         jest.useFakeTimers();
         consoleLogSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+        uploadToSignedUrl.mockReset();
+        uploadToSignedUrl.mockResolvedValue({
+            data: { path: "audio/chunks/memo-1/0000000-0000035.webm" },
+            error: null,
+        });
+        (supabase.storage.from as jest.Mock).mockReturnValue({
+            uploadToSignedUrl,
+        });
         Object.defineProperty(global, "fetch", {
             writable: true,
-            value: jest.fn().mockResolvedValue({
-                ok: true,
-                json: async () => ({ ok: true }),
-            }),
+            value: jest.fn().mockImplementation(async (_url: string, init?: RequestInit) => signedUploadResponse(init)),
         });
     });
 
@@ -22,7 +64,7 @@ describe("useChunkUpload", () => {
         jest.useRealTimers();
     });
 
-    it("uploads pending chunks and prunes older audio from memory after a successful interval flush", async () => {
+    it("requests a signed upload URL and sends pending chunks directly to storage after a successful interval flush", async () => {
         const audioChunksRef = {
             current: Array.from(
                 { length: 35 },
@@ -54,15 +96,27 @@ describe("useChunkUpload", () => {
             "/api/transcribe/upload-chunks",
             expect.objectContaining({
                 method: "POST",
-                body: expect.any(FormData),
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    memoId: "memo-1",
+                    startIndex: 0,
+                    endIndex: 35,
+                    contentType: "audio/webm",
+                }),
             })
         );
 
-        const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
-        expect(formData.get("memoId")).toBe("memo-1");
-        expect(formData.get("startIndex")).toBe("0");
-        expect(formData.get("endIndex")).toBe("35");
-        expect(formData.get("file")).toBeInstanceOf(Blob);
+        expect(uploadToSignedUrl).toHaveBeenCalledWith(
+            "audio/chunks/memo-1/0000000-0000035.webm",
+            "signed-upload-token-0-35",
+            expect.any(Blob),
+            expect.objectContaining({
+                contentType: "audio/webm",
+                upsert: true,
+            })
+        );
 
         expect(result.current.chunkPruneOffsetRef.current).toBe(5);
         expect(audioChunksRef.current).toHaveLength(30);
@@ -77,7 +131,7 @@ describe("useChunkUpload", () => {
         };
         const webmHeaderRef = { current: new Blob(["header"], { type: "audio/webm" }) };
         const mimeTypeRef = { current: "audio/webm" };
-        const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+        const fetchMock = jest.fn().mockImplementation(async (_url: string, init?: RequestInit) => signedUploadResponse(init));
         Object.defineProperty(global, "fetch", { writable: true, value: fetchMock });
 
         const { result, rerender } = renderHook(
@@ -103,8 +157,19 @@ describe("useChunkUpload", () => {
 
         expect(fetchMock).toHaveBeenCalledWith(
             "/api/transcribe/upload-chunks",
-            expect.objectContaining({ method: "POST", body: expect.any(FormData) })
+            expect.objectContaining({
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+            })
         );
+        expect(readPrepareRequest(fetchMock.mock.calls[0]?.[1])).toEqual({
+            memoId: "memo-late",
+            startIndex: 0,
+            endIndex: 14,
+            contentType: "audio/webm",
+        });
     });
 
     it("uploads within 2s when many chunks already exist on the initial render (readiness poll)", async () => {
@@ -116,7 +181,7 @@ describe("useChunkUpload", () => {
         };
         const webmHeaderRef = { current: new Blob(["header"], { type: "audio/webm" }) };
         const mimeTypeRef = { current: "audio/webm" };
-        const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+        const fetchMock = jest.fn().mockImplementation(async (_url: string, init?: RequestInit) => signedUploadResponse(init));
         Object.defineProperty(global, "fetch", { writable: true, value: fetchMock });
 
         renderHook(() =>
@@ -137,13 +202,19 @@ describe("useChunkUpload", () => {
 
         expect(fetchMock).toHaveBeenCalledWith(
             "/api/transcribe/upload-chunks",
-            expect.objectContaining({ method: "POST", body: expect.any(FormData) })
+            expect.objectContaining({
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+            })
         );
-
-        const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
-        expect(formData.get("memoId")).toBe("memo-initial-ready");
-        expect(formData.get("startIndex")).toBe("0");
-        expect(formData.get("endIndex")).toBe("15");
+        expect(readPrepareRequest(fetchMock.mock.calls[0]?.[1])).toEqual({
+            memoId: "memo-initial-ready",
+            startIndex: 0,
+            endIndex: 15,
+            contentType: "audio/webm",
+        });
     });
 
     it("uploads within 2s once 3 chunks are buffered (readiness poll threshold)", async () => {
@@ -155,7 +226,7 @@ describe("useChunkUpload", () => {
         };
         const webmHeaderRef = { current: new Blob(["header"], { type: "audio/webm" }) };
         const mimeTypeRef = { current: "audio/webm" };
-        const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+        const fetchMock = jest.fn().mockImplementation(async (_url: string, init?: RequestInit) => signedUploadResponse(init));
         Object.defineProperty(global, "fetch", { writable: true, value: fetchMock });
 
         renderHook(() =>
@@ -174,10 +245,12 @@ describe("useChunkUpload", () => {
             await Promise.resolve();
         });
 
-        expect(fetchMock).toHaveBeenCalledWith(
-            "/api/transcribe/upload-chunks",
-            expect.objectContaining({ method: "POST", body: expect.any(FormData) })
-        );
+        expect(readPrepareRequest(fetchMock.mock.calls[0]?.[1])).toEqual({
+            memoId: "memo-short-recording",
+            startIndex: 0,
+            endIndex: 3,
+            contentType: "audio/webm",
+        });
     });
 
     it("uploads within 2s when enabled is set true after chunks already exist", async () => {
@@ -189,7 +262,7 @@ describe("useChunkUpload", () => {
         };
         const webmHeaderRef = { current: new Blob(["header"], { type: "audio/webm" }) };
         const mimeTypeRef = { current: "audio/webm" };
-        const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+        const fetchMock = jest.fn().mockImplementation(async (_url: string, init?: RequestInit) => signedUploadResponse(init));
         Object.defineProperty(global, "fetch", { writable: true, value: fetchMock });
 
         const { rerender } = renderHook(
@@ -219,22 +292,19 @@ describe("useChunkUpload", () => {
             await Promise.resolve();
         });
 
-        expect(fetchMock).toHaveBeenCalledWith(
-            "/api/transcribe/upload-chunks",
-            expect.objectContaining({ method: "POST", body: expect.any(FormData) })
-        );
-
-        const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
-        expect(formData.get("memoId")).toBe("memo-enabled-late");
-        expect(formData.get("startIndex")).toBe("0");
-        expect(formData.get("endIndex")).toBe("14");
+        expect(readPrepareRequest(fetchMock.mock.calls[0]?.[1])).toEqual({
+            memoId: "memo-enabled-late",
+            startIndex: 0,
+            endIndex: 14,
+            contentType: "audio/webm",
+        });
     });
 
     it("bootstraps the first upload promptly when memoId arrives late and chunks are already trickling in", async () => {
         const audioChunksRef = { current: [] as Blob[] };
         const webmHeaderRef = { current: new Blob(["header"], { type: "audio/webm" }) };
         const mimeTypeRef = { current: "audio/webm" };
-        const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+        const fetchMock = jest.fn().mockImplementation(async (_url: string, init?: RequestInit) => signedUploadResponse(init));
         Object.defineProperty(global, "fetch", { writable: true, value: fetchMock });
 
         const { rerender } = renderHook(
@@ -277,22 +347,19 @@ describe("useChunkUpload", () => {
             await Promise.resolve();
         });
 
-        expect(fetchMock).toHaveBeenCalledWith(
-            "/api/transcribe/upload-chunks",
-            expect.objectContaining({ method: "POST", body: expect.any(FormData) })
-        );
-
-        const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
-        expect(formData.get("memoId")).toBe("memo-growing-after-live-id");
-        expect(formData.get("startIndex")).toBe("0");
-        expect(formData.get("endIndex")).toBe("2");
+        expect(readPrepareRequest(fetchMock.mock.calls[0]?.[1])).toEqual({
+            memoId: "memo-growing-after-live-id",
+            startIndex: 0,
+            endIndex: 2,
+            contentType: "audio/webm",
+        });
     });
 
     it("uploads on a later poll when chunks are appended to the same audioChunksRef after mount", async () => {
         const audioChunksRef = { current: [] as Blob[] };
         const webmHeaderRef = { current: new Blob(["header"], { type: "audio/webm" }) };
         const mimeTypeRef = { current: "audio/webm" };
-        const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+        const fetchMock = jest.fn().mockImplementation(async (_url: string, init?: RequestInit) => signedUploadResponse(init));
         Object.defineProperty(global, "fetch", { writable: true, value: fetchMock });
 
         renderHook(() =>
@@ -325,15 +392,12 @@ describe("useChunkUpload", () => {
             await Promise.resolve();
         });
 
-        expect(fetchMock).toHaveBeenCalledWith(
-            "/api/transcribe/upload-chunks",
-            expect.objectContaining({ method: "POST", body: expect.any(FormData) })
-        );
-
-        const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
-        expect(formData.get("memoId")).toBe("memo-same-ref-growth");
-        expect(formData.get("startIndex")).toBe("0");
-        expect(formData.get("endIndex")).toBe("14");
+        expect(readPrepareRequest(fetchMock.mock.calls[0]?.[1])).toEqual({
+            memoId: "memo-same-ref-growth",
+            startIndex: 0,
+            endIndex: 14,
+            contentType: "audio/webm",
+        });
     });
 
     it("uploads from a replacement audioChunksRef after a rerender swaps ref identities mid-recording", async () => {
@@ -346,7 +410,7 @@ describe("useChunkUpload", () => {
         };
         const webmHeaderRef = { current: new Blob(["header"], { type: "audio/webm" }) };
         const mimeTypeRef = { current: "audio/webm" };
-        const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+        const fetchMock = jest.fn().mockImplementation(async (_url: string, init?: RequestInit) => signedUploadResponse(init));
         Object.defineProperty(global, "fetch", { writable: true, value: fetchMock });
 
         const { rerender } = renderHook(
@@ -369,15 +433,12 @@ describe("useChunkUpload", () => {
             await Promise.resolve();
         });
 
-        expect(fetchMock).toHaveBeenCalledWith(
-            "/api/transcribe/upload-chunks",
-            expect.objectContaining({ method: "POST", body: expect.any(FormData) })
-        );
-
-        const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
-        expect(formData.get("memoId")).toBe("memo-ref-swap");
-        expect(formData.get("startIndex")).toBe("0");
-        expect(formData.get("endIndex")).toBe("14");
+        expect(readPrepareRequest(fetchMock.mock.calls[0]?.[1])).toEqual({
+            memoId: "memo-ref-swap",
+            startIndex: 0,
+            endIndex: 14,
+            contentType: "audio/webm",
+        });
     });
 
     it("logs when the upload effect is skipped before memoId exists and when it later starts", () => {

@@ -1,5 +1,8 @@
 import { act, renderHook } from "@testing-library/react";
+import { supabase } from "@/lib/supabase";
 import { useChunkUpload } from "./useChunkUpload";
+
+jest.mock("@/lib/supabase");
 
 async function flushMicrotasks(count = 4) {
     for (let index = 0; index < count; index += 1) {
@@ -14,9 +17,43 @@ function buildAudioChunks(count: number, startIndex = 0) {
     );
 }
 
+function padChunkIndex(index: number) {
+    return String(index).padStart(7, "0");
+}
+
+function readPrepareRequest(init?: RequestInit) {
+    return JSON.parse(String(init?.body ?? "{}")) as {
+        memoId: string;
+        startIndex: number;
+        endIndex: number;
+        contentType: string;
+    };
+}
+
+function signedUploadResponse(init?: RequestInit) {
+    const body = readPrepareRequest(init);
+    return {
+        ok: true,
+        json: async () => ({
+            ok: true,
+            path:
+                `audio/chunks/${body.memoId}/` +
+                `${padChunkIndex(body.startIndex)}-${padChunkIndex(body.endIndex)}.webm`,
+            token: `signed-upload-token-${body.startIndex}-${body.endIndex}`,
+        }),
+    };
+}
+
 describe("useChunkUpload retry and pruning behavior", () => {
+    const uploadToSignedUrl = jest.fn();
+
     beforeEach(() => {
         jest.useFakeTimers();
+        uploadToSignedUrl.mockReset();
+        uploadToSignedUrl.mockResolvedValue({ data: { path: "" }, error: null });
+        (supabase.storage.from as jest.Mock).mockReturnValue({
+            uploadToSignedUrl,
+        });
     });
 
     afterEach(() => {
@@ -60,10 +97,7 @@ describe("useChunkUpload retry and pruning behavior", () => {
     it("prunes uploaded audio while preserving enough buffered chunks to continue from the next true index", async () => {
         Object.defineProperty(global, "fetch", {
             writable: true,
-            value: jest.fn().mockResolvedValue({
-                ok: true,
-                json: async () => ({ ok: true }),
-            }),
+            value: jest.fn().mockImplementation(async (_url: string, init?: RequestInit) => signedUploadResponse(init)),
         });
 
         const audioChunksRef = {
@@ -99,22 +133,19 @@ describe("useChunkUpload retry and pruning behavior", () => {
         });
 
         const fetchMock = global.fetch as jest.Mock;
-        const uploadBodies = fetchMock.mock.calls.map(([, init]) => (init as RequestInit).body as FormData);
+        const uploadBodies = fetchMock.mock.calls.map(([, init]) => readPrepareRequest(init as RequestInit));
 
         expect(uploadBodies).toHaveLength(2);
-        expect(uploadBodies[0]?.get("startIndex")).toBe("0");
-        expect(uploadBodies[0]?.get("endIndex")).toBe("60");
-        expect(uploadBodies[1]?.get("startIndex")).toBe("60");
-        expect(uploadBodies[1]?.get("endIndex")).toBe("65");
+        expect(uploadBodies[0]?.startIndex).toBe(0);
+        expect(uploadBodies[0]?.endIndex).toBe(60);
+        expect(uploadBodies[1]?.startIndex).toBe(60);
+        expect(uploadBodies[1]?.endIndex).toBe(65);
     });
 
     it("includes the header blob in the first uploaded batch", async () => {
         Object.defineProperty(global, "fetch", {
             writable: true,
-            value: jest.fn().mockResolvedValue({
-                ok: true,
-                json: async () => ({ ok: true }),
-            }),
+            value: jest.fn().mockImplementation(async (_url: string, init?: RequestInit) => signedUploadResponse(init)),
         });
 
         const initialChunks = buildAudioChunks(35);
@@ -144,11 +175,14 @@ describe("useChunkUpload retry and pruning behavior", () => {
         const fetchMock = global.fetch as jest.Mock;
         expect(fetchMock).toHaveBeenCalledTimes(1);
 
-        const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
-        const file = formData.get("file") as Blob;
+        const file = uploadToSignedUrl.mock.calls[0]?.[2] as Blob;
 
-        expect(formData.get("startIndex")).toBe("0");
-        expect(formData.get("endIndex")).toBe("35");
+        expect(readPrepareRequest(fetchMock.mock.calls[0]?.[1])).toEqual({
+            memoId: "memo-first-batch",
+            startIndex: 0,
+            endIndex: 35,
+            contentType: "audio/webm",
+        });
         expect(file.size).toBe(
             new Blob([webmHeaderRef.current as Blob, ...initialChunks], {
                 type: mimeTypeRef.current,
@@ -160,10 +194,7 @@ describe("useChunkUpload retry and pruning behavior", () => {
         const fetchMock = jest
             .fn()
             .mockRejectedValueOnce(new Error("network down"))
-            .mockResolvedValue({
-                ok: true,
-                json: async () => ({ ok: true }),
-            });
+            .mockImplementation(async (_url: string, init?: RequestInit) => signedUploadResponse(init));
 
         Object.defineProperty(global, "fetch", {
             writable: true,
@@ -205,9 +236,9 @@ describe("useChunkUpload retry and pruning behavior", () => {
         expect(result.current.chunkPruneOffsetRef.current).toBe(30);
         expect(audioChunksRef.current).toHaveLength(30);
 
-        const firstSuccessBody = fetchMock.mock.calls[1]?.[1]?.body as FormData;
-        expect(firstSuccessBody.get("startIndex")).toBe("0");
-        expect(firstSuccessBody.get("endIndex")).toBe("60");
+        const firstSuccessBody = readPrepareRequest(fetchMock.mock.calls[1]?.[1]);
+        expect(firstSuccessBody.startIndex).toBe(0);
+        expect(firstSuccessBody.endIndex).toBe(60);
 
         warnSpy.mockRestore();
     });
@@ -225,10 +256,7 @@ describe("useChunkUpload retry and pruning behavior", () => {
                 status: 500,
                 json: async () => ({ ok: false }),
             })
-            .mockResolvedValueOnce({
-                ok: true,
-                json: async () => ({ ok: true }),
-            });
+            .mockImplementation(async (_url: string, init?: RequestInit) => signedUploadResponse(init));
 
         Object.defineProperty(global, "fetch", {
             writable: true,
@@ -278,18 +306,15 @@ describe("useChunkUpload retry and pruning behavior", () => {
             await flushPromise;
         });
 
-        const finalBody = fetchMock.mock.calls[2]?.[1]?.body as FormData;
-        expect(finalBody.get("startIndex")).toBe("0");
-        expect(finalBody.get("endIndex")).toBe("12");
+        const finalBody = readPrepareRequest(fetchMock.mock.calls[2]?.[1]);
+        expect(finalBody.startIndex).toBe(0);
+        expect(finalBody.endIndex).toBe(12);
     });
 
     it("does not issue a second upload when flushRemainingChunks runs after everything is already uploaded", async () => {
         Object.defineProperty(global, "fetch", {
             writable: true,
-            value: jest.fn().mockResolvedValue({
-                ok: true,
-                json: async () => ({ ok: true }),
-            }),
+            value: jest.fn().mockImplementation(async (_url: string, init?: RequestInit) => signedUploadResponse(init)),
         });
 
         const audioChunksRef = {
