@@ -23,6 +23,8 @@ type FinalizeRequestBody = {
     memoId?: unknown;
     totalChunks?: unknown;
     provisionalTranscript?: unknown;
+    uploadContentType?: unknown;
+    uploadFileExtension?: unknown;
 };
 
 type ChunkBatch = {
@@ -67,6 +69,17 @@ function readTotalChunks(value: unknown): number | null {
 
 function readProvisionalTranscript(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readUploadContentType(value: unknown): string | null {
+    return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readUploadFileExtension(value: unknown): string | null {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim().toLowerCase();
+    if (!/^[a-z0-9]+$/.test(trimmed)) return null;
+    return trimmed;
 }
 
 function validateChunkContinuity(batches: ChunkBatch[], totalChunks: number) {
@@ -117,6 +130,8 @@ export async function POST(req: NextRequest) {
         const memoId = readMemoId(body.memoId);
         const totalChunks = readTotalChunks(body.totalChunks);
         const provisionalTranscript = readProvisionalTranscript(body.provisionalTranscript);
+        const uploadContentType = readUploadContentType(body.uploadContentType) ?? "audio/webm";
+        const uploadFileExtension = readUploadFileExtension(body.uploadFileExtension) ?? "webm";
 
         if (!memoId || totalChunks == null) {
             return withCors(
@@ -165,8 +180,8 @@ export async function POST(req: NextRequest) {
         }
 
         const audioBuffer = Buffer.concat(buffers);
-        const fileName = `${Date.now()}_${memoId}.webm`;
-        await uploadAudio(audioBuffer, fileName, "audio/webm");
+        const fileName = `${Date.now()}_${memoId}.${uploadFileExtension}`;
+        await uploadAudio(audioBuffer, fileName, uploadContentType);
         const {
             data: { publicUrl: fileUrl },
         } = supabase.storage.from("voice-memos").getPublicUrl(`audio/${fileName}`);
@@ -211,10 +226,10 @@ export async function POST(req: NextRequest) {
                 {
                     memoId: resolvedMemoId,
                     provisionalTranscript,
-                    file: new File([audioBuffer], fileName, { type: "audio/webm" }),
+                    file: new File([audioBuffer], fileName, { type: uploadContentType }),
                     fileName,
                     audioBuffer,
-                    uploadContentType: "audio/webm",
+                    uploadContentType,
                     fileUrl,
                 },
                 nvidiaApiKey

@@ -1,3 +1,5 @@
+import { supabase } from "@/lib/supabase";
+
 export const DEFAULT_PENDING_MIME_TYPE = "audio/webm";
 export const MANUAL_UPLOAD_ACCEPT =
   ".mp3,.m4a,audio/mpeg,audio/mp3,audio/mp4,audio/x-m4a";
@@ -8,10 +10,22 @@ function clampUploadPercent(value: number) {
 }
 
 type UploadProgressCallback = (percent: number) => void;
+type PrepareSignedUploadResponse = {
+  ok?: boolean;
+  path?: unknown;
+  token?: unknown;
+};
+type CreateLiveMemoResponse = {
+  memoId?: unknown;
+};
 
 function parseJsonResponse(responseText: string) {
   if (!responseText) return null;
   return JSON.parse(responseText) as unknown;
+}
+
+function readSignedUploadValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
 async function uploadViaFetch(formData: FormData) {
@@ -70,6 +84,77 @@ export async function uploadAudioForTranscription(
 
     xhr.send(formData);
   });
+}
+
+export async function uploadManualAudioBySignedUrl(
+  file: File,
+  mimeType: string,
+) {
+  const liveMemoResponse = await fetch("/api/memos/live", {
+    method: "POST",
+  });
+  if (!liveMemoResponse.ok) {
+    throw new Error("Failed to create memo");
+  }
+
+  const liveMemoPayload =
+    (await liveMemoResponse.json()) as CreateLiveMemoResponse;
+  const memoId = readSignedUploadValue(liveMemoPayload.memoId);
+  if (!memoId) {
+    throw new Error("Failed to create memo");
+  }
+
+  const prepareResponse = await fetch("/api/transcribe/upload-chunks", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      memoId,
+      startIndex: 0,
+      endIndex: 1,
+      contentType: mimeType,
+    }),
+  });
+  if (!prepareResponse.ok) {
+    throw new Error("Upload failed");
+  }
+
+  const prepared =
+    (await prepareResponse.json()) as PrepareSignedUploadResponse;
+  const uploadPath = readSignedUploadValue(prepared.path);
+  const uploadToken = readSignedUploadValue(prepared.token);
+  if (!uploadPath || !uploadToken) {
+    throw new Error("Upload failed");
+  }
+
+  const { error } = await supabase.storage
+    .from("voice-memos")
+    .uploadToSignedUrl(uploadPath, uploadToken, file, {
+      upsert: true,
+      contentType: mimeType,
+    });
+  if (error) {
+    throw new Error(`Upload failed: ${error.message}`);
+  }
+
+  const finalizeResponse = await fetch("/api/transcribe/finalize", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      memoId,
+      totalChunks: 1,
+      uploadContentType: mimeType,
+      uploadFileExtension: getFileExtensionFromMime(mimeType),
+    }),
+  });
+  if (!finalizeResponse.ok) {
+    throw new Error("Upload failed");
+  }
+
+  return (await finalizeResponse.json()) as unknown;
 }
 
 export function resolveUploadMimeType(file: File): string | null {

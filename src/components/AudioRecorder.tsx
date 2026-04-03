@@ -5,6 +5,7 @@ import { useTheme } from "./ThemeProvider";
 import {
     getFileExtensionFromMime,
     resolveUploadMimeType,
+    uploadManualAudioBySignedUrl,
 } from "@/lib/audio-upload";
 import { SHOW_ARTIFACTS_IN_UI } from "@/lib/feature-flags";
 import { useAudioRecording } from "@/hooks/useAudioRecording";
@@ -240,7 +241,21 @@ export default function AudioRecorder({
             return;
         }
 
-        void handleUpload(file, mimeType, file.name);
+        setIsUploading(true);
+        void uploadManualAudioBySignedUrl(file, mimeType)
+            .then((data) => {
+                const payload = data as Omit<UploadCompletePayload, "durationSeconds">;
+                onUploadComplete?.({
+                    ...payload,
+                    durationSeconds: 0,
+                });
+            })
+            .catch((error) => {
+                console.error("Upload error:", error);
+            })
+            .finally(() => {
+                setIsUploading(false);
+            });
     };
 
     const shouldShowLiveShare =

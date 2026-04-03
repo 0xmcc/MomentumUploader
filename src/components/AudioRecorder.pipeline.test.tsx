@@ -681,15 +681,34 @@ describe("AudioRecorder pipeline coverage", () => {
         expect(directTranscribeCalls(fetchMock)).toHaveLength(0);
     });
 
-    it("keeps manual file uploads on the single POST /api/transcribe path", async () => {
+    it("uploads manual files directly to signed storage before finalizing transcription", async () => {
         const onUploadComplete = jest.fn<(payload: UploadCompletePayload) => void>();
+        const memoId = "manual-upload-1";
 
-        (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
-            if (url === "/api/transcribe") {
+        (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+            if (url === "/api/memos/live") {
+                return {
+                    ok: true,
+                    json: async () => ({ memoId }),
+                };
+            }
+
+            if (url === `/api/memos/${memoId}/share`) {
+                return {
+                    ok: true,
+                    json: async () => ({ shareUrl: `https://example.com/s/${memoId}` }),
+                };
+            }
+
+            if (url === "/api/transcribe/upload-chunks") {
+                return signedUploadResponse(init);
+            }
+
+            if (url === "/api/transcribe/finalize") {
                 return {
                     ok: true,
                     json: async () => ({
-                        id: "manual-upload-1",
+                        id: memoId,
                         success: true,
                         text: "manual transcript",
                         transcriptStatus: "complete",
@@ -711,21 +730,48 @@ describe("AudioRecorder pipeline coverage", () => {
         fireEvent.change(uploadInput, { target: { files: [mp3] } });
 
         await waitFor(() => {
-            expect(directTranscribeCalls(global.fetch as jest.Mock)).toHaveLength(1);
+            expect(finalizeCalls(global.fetch as jest.Mock)).toHaveLength(1);
         });
 
         const fetchMock = global.fetch as jest.Mock;
-        expect(uploadCalls(fetchMock)).toHaveLength(0);
-        expect(finalizeCalls(fetchMock)).toHaveLength(0);
+        expect(directTranscribeCalls(fetchMock)).toHaveLength(0);
+        expect(uploadCalls(fetchMock)).toHaveLength(1);
+        expect(uploadToSignedUrl).toHaveBeenCalledTimes(1);
 
-        const formData = directTranscribeCalls(fetchMock)[0]?.[1]?.body as FormData;
-        const uploadedFile = formData.get("file");
-        expect(uploadedFile).toBeInstanceOf(Blob);
-        expect((uploadedFile as Blob).size).toBe(mp3.size);
+        expect(uploadCalls(fetchMock)[0]).toEqual([
+            "/api/transcribe/upload-chunks",
+            expect.objectContaining({
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+            }),
+        ]);
+        expect(readPrepareRequest(uploadCalls(fetchMock)[0]?.[1])).toEqual({
+            memoId,
+            startIndex: 0,
+            endIndex: 1,
+            contentType: "audio/mpeg",
+        });
+        expect(uploadToSignedUrl).toHaveBeenCalledWith(
+            `audio/chunks/${memoId}/0000000-0000001.webm`,
+            "signed-upload-token-0-1",
+            mp3,
+            {
+                upsert: true,
+                contentType: "audio/mpeg",
+            }
+        );
+        expect(
+            JSON.parse(String(finalizeCalls(fetchMock)[0]?.[1]?.body ?? "{}"))
+        ).toEqual({
+            memoId,
+            totalChunks: 1,
+            uploadContentType: "audio/mpeg",
+            uploadFileExtension: "mp3",
+        });
 
         await waitFor(() => {
             expect(onUploadComplete).toHaveBeenCalledWith({
-                id: "manual-upload-1",
+                id: memoId,
                 success: true,
                 text: "manual transcript",
                 transcriptStatus: "complete",

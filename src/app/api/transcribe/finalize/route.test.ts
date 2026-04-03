@@ -261,4 +261,56 @@ describe("POST /api/transcribe/finalize", () => {
         expect(transcribeUploadedAudio).not.toHaveBeenCalled();
         expect(updateMemoFinal).not.toHaveBeenCalled();
     });
+
+    it("preserves the uploaded audio content type and extension for single-file manual uploads", async () => {
+        const originalApiKey = process.env.NVIDIA_API_KEY;
+        process.env.NVIDIA_API_KEY = "nvidia-test-key";
+
+        try {
+            download.mockReset();
+            remove.mockReset();
+            list.mockResolvedValue({
+                data: [{ name: "0000000-0000001.webm" }],
+                error: null,
+            });
+            download.mockResolvedValueOnce({
+                data: {
+                    arrayBuffer: async () =>
+                        Uint8Array.from(Buffer.from("manual-mp3-audio")).buffer,
+                },
+                error: null,
+            });
+            remove.mockResolvedValue({ error: null });
+
+            const req = {
+                json: async () => ({
+                    memoId: "memo-1",
+                    totalChunks: 1,
+                    uploadContentType: "audio/mpeg",
+                    uploadFileExtension: "mp3",
+                }),
+            } as unknown as NextRequest;
+
+            const res = await POST(req);
+
+            expect(res.status).toBe(200);
+            expect(uploadAudio).toHaveBeenCalledWith(
+                Buffer.from("manual-mp3-audio"),
+                expect.stringMatching(/memo-1\.mp3$/),
+                "audio/mpeg"
+            );
+            expect(transcribeUploadedAudio).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    fileName: expect.stringMatching(/memo-1\.mp3$/),
+                    uploadContentType: "audio/mpeg",
+                    file: expect.objectContaining({
+                        type: "audio/mpeg",
+                    }),
+                }),
+                "nvidia-test-key"
+            );
+        } finally {
+            process.env.NVIDIA_API_KEY = originalApiKey;
+        }
+    });
 });
