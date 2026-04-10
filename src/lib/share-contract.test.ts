@@ -293,7 +293,7 @@ describe("share-contract", () => {
         expect(html).toContain("<h2>Outline</h2>");
     });
 
-    it("renders transcript export controls in the shared html page", () => {
+    it("renders transcript copy controls in the shared html page", () => {
         const html = buildSharedArtifactHtml(basePayload);
 
         expect(html).toContain('id="copy-transcript-btn"');
@@ -320,13 +320,13 @@ describe("share-contract", () => {
     it("renders the comments root inside the article shell", () => {
         const html = buildSharedArtifactHtml(basePayload);
         const commentsRootIndex = html.indexOf('<section id="comments-root">');
-        const articleCloseIndex = html.indexOf("</div>\n    </div>\n  </div>");
+        const articleCloseIndex = html.indexOf("</article>");
 
         expect(commentsRootIndex).toBeGreaterThan(-1);
         expect(commentsRootIndex).toBeLessThan(articleCloseIndex);
     });
 
-    it.skip("styles the canonical url link from the active theme instead of a hardcoded share color", () => {
+    it("styles the canonical url link from the active theme instead of a hardcoded share color", () => {
         const html = buildSharedArtifactHtml(basePayload);
 
         expect(html).toContain("p.meta a {");
@@ -1122,7 +1122,7 @@ describe("share-contract", () => {
 
         await loadSharePageScript(html, fetchMock);
 
-        const audio = (document.querySelector("audio.share-audio") || document.querySelector("#native-audio")) as HTMLAudioElement;
+        const audio = document.querySelector("#native-audio") as HTMLAudioElement;
         const play = jest.fn().mockResolvedValue(undefined);
         Object.defineProperty(audio, "play", {
             configurable: true,
@@ -1215,7 +1215,7 @@ describe("share-contract", () => {
         expect(submitButton.disabled).toBe(false);
         expect(discussionList).toHaveTextContent("This should stay visible.");
 
-        (resolveReload as any)?.({
+        resolveReload?.({
             ok: true,
             json: async () => ({
                 messages: [],
@@ -1572,9 +1572,9 @@ describe("share-contract", () => {
             transcript: "Sentence one is here. Sentence two keeps the idea moving. Sentence three starts another thought. Sentence four closes it cleanly.",
         });
 
-        // expect(html).toContain("height: 60vh;");
+        expect(html).toContain("max-height: 65vh;");
         expect(html).toContain("overflow-y: auto;");
-        // expect(html).toContain("overflow-wrap: anywhere;");
+        expect(html).toContain("overflow-wrap: anywhere;");
         expect(html).toContain('<div class="transcript-block">Sentence one is here. Sentence two keeps the idea moving. Sentence three starts another thought. Sentence four closes it cleanly.</div>');
     });
 
