@@ -454,35 +454,36 @@ export function buildSharedArtifactHtml(
     }
     body {
       margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: var(--background);
       color: var(--foreground);
-      line-height: 1.65;
+      line-height: 1.6;
       min-height: 100vh;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
     }
     main {
-      max-width: 680px;
+      max-width: 640px;
       margin: 0 auto;
-      padding: 3rem 1.25rem 5rem;
+      padding: 4rem 1.5rem 6rem;
     }
     article {
       padding: 0;
       min-height: 80vh;
     }
     h1 {
-      margin: 0 0 0.5rem;
-      font-size: clamp(1.75rem, 5vw, 2.5rem);
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      line-height: 1.2;
+      margin: 0 0 0.75rem;
+      font-size: clamp(2rem, 6vw, 2.75rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
     }
     h2 { 
-      margin-top: 2rem; 
-      margin-bottom: 1rem; 
-      font-size: 1.25rem; 
-      font-weight: 600;
+      margin-top: 2.5rem; 
+      margin-bottom: 1.25rem; 
+      font-size: 1.35rem; 
+      font-weight: 700;
+      letter-spacing: -0.01em;
     }
     .artifact-panel {
       margin-top: 1rem;
@@ -566,29 +567,24 @@ export function buildSharedArtifactHtml(
       padding-bottom: 0;
       border-bottom: 0;
     }
-    .export-transcript-btn, .copy-transcript-btn {
-      border: 1px solid color-mix(in srgb, var(--border) 55%, var(--accent) 45%);
-      background: transparent;
+    .copy-transcript-btn {
+      border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+      background: color-mix(in srgb, var(--surface) 50%, transparent);
       color: var(--foreground);
       border-radius: 999px;
-      padding: .35rem .72rem;
-      font-size: .78rem;
+      padding: .4rem .85rem;
+      font-size: .8rem;
       font-weight: 600;
       cursor: pointer;
-    }
-    .export-transcript-btn:hover {
-      background: color-mix(in srgb, var(--foreground) 6%, transparent);
-      border-color: color-mix(in srgb, var(--border) 35%, var(--accent) 65%);
-    }
-    .export-transcript-btn:focus-visible, .copy-transcript-btn:focus-visible {
-      outline: 2px solid color-mix(in srgb, var(--accent) 70%, white 30%);
-      outline-offset: 2px;
-    }
-    .copy-transcript-btn {
-      background: transparent;
+      transition: all 0.2s ease;
     }
     .copy-transcript-btn:hover {
-      background: color-mix(in srgb, var(--foreground) 6%, transparent);
+      background: color-mix(in srgb, var(--foreground) 8%, transparent);
+      border-color: color-mix(in srgb, var(--border) 80%, transparent);
+    }
+    .copy-transcript-btn:focus-visible {
+      outline: 2px solid color-mix(in srgb, var(--accent) 70%, white 30%);
+      outline-offset: 2px;
     }
     .share-audio {
       width: 100%;
@@ -652,136 +648,70 @@ export function buildSharedArtifactHtml(
     dd a { color: var(--accent); text-decoration: none; }
     dd a:hover { text-decoration: underline; }
     .app-cta-footer {
-      margin: 5rem auto 2rem;
-      padding: 2rem;
-      max-width: 680px;
+      margin: 3rem 1rem 2rem;
+      padding: 1.5rem;
+      max-width: 640px;
       border-radius: 16px;
-      background: linear-gradient(135deg, color-mix(in srgb, var(--surface) 80%, transparent), color-mix(in srgb, var(--background) 50%, transparent));
-      border: 1px solid color-mix(in srgb, var(--border) 60%, var(--accent) 20%);
+      background: var(--surface);
+      border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
       display: flex;
       flex-direction: column;
       align-items: center;
       text-align: center;
-      gap: 1.5rem;
-      box-shadow: 0 12px 32px var(--theme-glow);
+      gap: 1.25rem;
+      box-shadow: 0 8px 24px color-mix(in srgb, black 10%, transparent);
     }
     @media (min-width: 600px) {
       .app-cta-footer {
+        margin: 4rem auto 2rem;
         flex-direction: row;
         text-align: left;
         justify-content: space-between;
         padding: 2.5rem 3rem;
+        border-radius: 20px;
       }
     }
     .cta-content h3 {
-      margin: 0 0 0.5rem;
-      font-size: 1.25rem;
-      font-weight: 600;
+      margin: 0 0 0.25rem;
+      font-size: 1.35rem;
+      font-weight: 700;
       color: var(--foreground);
     }
     .cta-content p {
       margin: 0;
-      font-size: 0.95rem;
+      font-size: 1rem;
       line-height: 1.5;
-      color: color-mix(in srgb, var(--foreground) 75%, transparent);
+      color: color-mix(in srgb, var(--foreground) 70%, transparent);
     }
     .primary-cta-btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      padding: 0.85rem 1.75rem;
-      border-radius: 999px;
-      background: var(--accent);
-      color: #fff;
+      padding: 1rem 2rem;
+      border-radius: 12px;
+      background: var(--foreground);
+      color: var(--background);
       font-weight: 600;
-      font-size: 1rem;
+      font-size: 1.05rem;
       text-decoration: none;
-      transition: background 0.2s, transform 0.1s;
+      transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
       white-space: nowrap;
-      box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 40%, transparent);
     }
     .primary-cta-btn:hover {
-      background: var(--accent-hover);
-      transform: translateY(-1px);
-      box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 50%, transparent);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px color-mix(in srgb, var(--foreground) 25%, transparent);
+      opacity: 0.95;
     }
     .primary-cta-btn:active {
-      transform: translateY(1px);
+      transform: translateY(0);
     }
-    .transcript-search-row {
-      display: flex;
-      align-items: center;
-      gap: .45rem;
-      margin: .6rem 0 .45rem;
-      flex-wrap: wrap;
-    }
-    .transcript-search-input {
-      flex: 1;
-      min-width: 0;
-      background: transparent;
-      border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-      border-radius: 999px;
-      padding: .32rem .8rem;
-      color: var(--foreground);
-      font-size: .87rem;
-      outline: none;
-      font-family: inherit;
-    }
-    .transcript-search-input::placeholder {
-      color: color-mix(in srgb, var(--foreground) 38%, transparent);
-    }
-    .transcript-search-input:focus {
-      border-color: color-mix(in srgb, var(--border) 35%, var(--accent) 65%);
-      background: color-mix(in srgb, var(--foreground) 4%, transparent);
-    }
-    .search-match-count {
-      font-size: .78rem;
-      color: var(--accent);
-      white-space: nowrap;
-      min-width: 4ch;
-      text-align: right;
-    }
-    .search-nav-btn {
-      border: 1px solid color-mix(in srgb, var(--border) 55%, var(--accent) 45%);
-      background: transparent;
-      color: var(--foreground);
-      border-radius: 999px;
-      width: 1.7rem;
-      height: 1.7rem;
-      font-size: .82rem;
-      cursor: pointer;
-      line-height: 1;
-      padding: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .search-nav-btn:hover {
-      background: color-mix(in srgb, var(--foreground) 6%, transparent);
-    }
-    .search-nav-btn:disabled { opacity: .35; cursor: default; }
-    .search-nav-btn:focus-visible {
-      outline: 2px solid color-mix(in srgb, var(--accent) 70%, white 30%);
-      outline-offset: 2px;
-    }
-    mark.search-hit {
-      background: color-mix(in srgb, var(--accent) 34%, transparent);
-      color: var(--foreground);
-      border-radius: 2px;
-      padding: 0 1px;
-    }
-    mark.search-hit-active {
-      background: color-mix(in srgb, var(--accent) 74%, black 26%);
-      color: var(--foreground);
-      border-radius: 2px;
-      padding: 0 1px;
-    }
+    
     .transcript-segment {
       display: flex;
-      gap: .65rem;
-      align-items: baseline;
-      padding: .6rem 0;
-      border-radius: 4px;
+      gap: 1rem;
+      align-items: flex-start;
+      padding: .75rem 0.5rem;
+      border-radius: 8px;
       transition: background .15s;
     }
     .transcript-segment.active {
@@ -790,20 +720,22 @@ export function buildSharedArtifactHtml(
     .ts-btn {
       flex-shrink: 0;
       font-family: ui-monospace, monospace;
-      font-size: .72rem;
+      font-size: .75rem;
       color: var(--accent);
-      background: transparent;
-      border: 1px solid color-mix(in srgb, var(--border) 55%, var(--accent) 45%);
-      border-radius: 4px;
-      padding: 1px 6px;
+      background: color-mix(in srgb, var(--accent) 10%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+      border-radius: 6px;
+      padding: 4px 8px;
       cursor: pointer;
       white-space: nowrap;
       line-height: 1.5;
+      transition: all 0.2s ease;
     }
     .ts-btn:hover {
-      background: color-mix(in srgb, var(--foreground) 6%, transparent);
+      background: color-mix(in srgb, var(--accent) 15%, transparent);
+      border-color: color-mix(in srgb, var(--accent) 45%, transparent);
     }
-    .seg-text { flex: 1; }
+    .seg-text { flex: 1; line-height: 1.6; font-size: 1.05rem; }
     .disc-section {
       margin-top: 3rem;
       padding-top: 2rem;
@@ -1083,14 +1015,7 @@ export function buildSharedArtifactHtml(
             <h2 id="transcript-heading">Transcript</h2>
             <div class="transcript-header-actions">
               <button type="button" id="copy-transcript-btn" class="copy-transcript-btn">Copy</button>
-              <button type="button" id="export-transcript-btn" class="export-transcript-btn">Export</button>
             </div>
-          </div>
-          <div class="transcript-search-row">
-            <input type="text" id="transcript-search" class="transcript-search-input" placeholder="Search transcript…" aria-label="Search transcript" autocomplete="off" />
-            <span id="search-match-count" class="search-match-count" aria-live="polite" aria-atomic="true"></span>
-            <button id="search-prev" class="search-nav-btn" aria-label="Previous match" disabled>↑</button>
-            <button id="search-next" class="search-nav-btn" aria-label="Next match" disabled>↓</button>
           </div>
         </section>
       </div>
@@ -1154,10 +1079,10 @@ export function buildSharedArtifactHtml(
   </main>
   <footer class="app-cta-footer" aria-label="MomentumUploader app call to action">
     <div class="cta-content">
-      <h3>Accurate memory & summaries</h3>
-      <p>Join MomentumUploader to record, transcribe, and remember everything.</p>
+      <h3>MomentumUploader</h3>
+      <p>Record, transcribe, and remember everything.</p>
     </div>
-    <a href="/sign-up" class="primary-cta-btn">Create account</a>
+    <a href="/sign-up" class="primary-cta-btn">Create your free account</a>
   </footer>
   <script id="share-boot" type="application/json">${serializedBootPayload}</script>
   <script>
@@ -1365,33 +1290,14 @@ export function buildSharedArtifactHtml(
     })();
 
     (() => {
-      const exportButton = document.getElementById("export-transcript-btn");
+
       const copyButton = document.getElementById("copy-transcript-btn");
       
       function getTranscriptContent() {
         return document.getElementById("transcript-content");
       }
 
-      if (exportButton) {
-        exportButton.addEventListener("click", () => {
-          const transcriptContent = getTranscriptContent();
-          if (!transcriptContent) return;
-          const transcript = transcriptContent.textContent || "";
-          const fileName =
-            shareBoot && typeof shareBoot.transcriptFileName === "string"
-              ? shareBoot.transcriptFileName
-              : "shared-transcript.txt";
-          const blob = new Blob([transcript], { type: "text/plain;charset=utf-8" });
-          const downloadUrl = URL.createObjectURL(blob);
-          const downloadLink = document.createElement("a");
-          downloadLink.href = downloadUrl;
-          downloadLink.download = fileName;
-          document.body.appendChild(downloadLink);
-          downloadLink.click();
-          downloadLink.remove();
-          URL.revokeObjectURL(downloadUrl);
-        });
-      }
+
 
       if (copyButton) {
         copyButton.addEventListener("click", () => {
@@ -2088,143 +1994,7 @@ export function buildSharedArtifactHtml(
       startDiscussionPolling();
     })();
 
-    (() => {
-      const searchInput = document.getElementById("transcript-search");
-      const matchCountEl = document.getElementById("search-match-count");
-      const prevBtn = document.getElementById("search-prev");
-      const nextBtn = document.getElementById("search-next");
-      if (!searchInput || !matchCountEl || !prevBtn || !nextBtn) return;
-      const SEARCH_KEY = "transcript-search-query";
-      let currentIndex = -1;
-
-      function getTranscriptEl() {
-        return document.getElementById("transcript-content");
-      }
-
-      function getBlocks() {
-        const transcriptEl = getTranscriptEl();
-        return transcriptEl
-          ? Array.from(transcriptEl.querySelectorAll(".transcript-block, .seg-text"))
-          : [];
-      }
-
-      function escHtml(s) {
-        return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-      }
-
-      function escRegExp(s) {
-        return s.replace(/[-\\/\\\\^$*+?.()|[\\]{}]/g, "\\\\$&");
-      }
-
-      function applySearch(query) {
-        const blocks = getBlocks();
-        const blockTexts = blocks.map(function(b) { return b.textContent || ""; });
-
-        if (!query) {
-          blocks.forEach(function(b, i) { b.innerHTML = escHtml(blockTexts[i]); });
-          matchCountEl.textContent = "";
-          prevBtn.disabled = true;
-          nextBtn.disabled = true;
-          currentIndex = -1;
-          return;
-        }
-
-        let totalCount = 0;
-        blocks.forEach(function(b, i) {
-          var html = "", last = 0;
-          var localRegex = new RegExp(escRegExp(query), "gi");
-          var m;
-          while ((m = localRegex.exec(blockTexts[i])) !== null) {
-            html += escHtml(blockTexts[i].slice(last, m.index));
-            html += '<mark class="search-hit">' + escHtml(m[0]) + "</mark>";
-            last = localRegex.lastIndex;
-            totalCount++;
-            if (localRegex.lastIndex === m.index) { localRegex.lastIndex++; }
-          }
-          html += escHtml(blockTexts[i].slice(last));
-          b.innerHTML = html;
-        });
-        var count = totalCount;
-
-        const hasMatches = count > 0;
-        matchCountEl.textContent = hasMatches ? "1 / " + count : "0 matches";
-        prevBtn.disabled = !hasMatches;
-        nextBtn.disabled = !hasMatches;
-        currentIndex = hasMatches ? 0 : -1;
-        updateActive();
-      }
-
-      function updateActive() {
-        const transcriptEl = getTranscriptEl();
-        if (!transcriptEl) {
-          matchCountEl.textContent = "";
-          return;
-        }
-        const marks = transcriptEl.querySelectorAll("mark.search-hit");
-        marks.forEach(function(mark, i) {
-          if (i === currentIndex) {
-            mark.classList.add("search-hit-active");
-            mark.scrollIntoView({ block: "nearest" });
-          } else {
-            mark.classList.remove("search-hit-active");
-          }
-        });
-        if (marks.length > 0 && currentIndex >= 0) {
-          matchCountEl.textContent = (currentIndex + 1) + " / " + marks.length;
-        }
-      }
-
-      const saved = sessionStorage.getItem(SEARCH_KEY);
-      if (saved) {
-        searchInput.value = saved;
-        applySearch(saved);
-      }
-
-      searchInput.addEventListener("input", function() {
-        const q = searchInput.value.trim();
-        if (q) { sessionStorage.setItem(SEARCH_KEY, q); }
-        else { sessionStorage.removeItem(SEARCH_KEY); }
-        currentIndex = 0;
-        applySearch(q);
-      });
-
-      nextBtn.addEventListener("click", function() {
-        const transcriptEl = getTranscriptEl();
-        if (!transcriptEl) return;
-        const marks = transcriptEl.querySelectorAll("mark.search-hit");
-        if (!marks.length) return;
-        currentIndex = (currentIndex + 1) % marks.length;
-        updateActive();
-      });
-
-      prevBtn.addEventListener("click", function() {
-        const transcriptEl = getTranscriptEl();
-        if (!transcriptEl) return;
-        const marks = transcriptEl.querySelectorAll("mark.search-hit");
-        if (!marks.length) return;
-        currentIndex = (currentIndex - 1 + marks.length) % marks.length;
-        updateActive();
-      });
-
-      searchInput.addEventListener("keydown", function(e) {
-        const transcriptEl = getTranscriptEl();
-        if (!transcriptEl) return;
-        const marks = transcriptEl.querySelectorAll("mark.search-hit");
-        if (e.key !== "Enter" || !marks.length) return;
-        if (e.shiftKey) {
-          currentIndex = (currentIndex - 1 + marks.length) % marks.length;
-        } else {
-          currentIndex = (currentIndex + 1) % marks.length;
-        }
-        updateActive();
-        e.preventDefault();
-      });
-
-      document.addEventListener("share:transcript-updated", function() {
-        applySearch(searchInput.value.trim());
-      });
-    })();
-
+    
     (() => {
       // Timestamp anchor: seek audio and highlight the active segment.
       const audio = document.querySelector("audio.share-audio");
