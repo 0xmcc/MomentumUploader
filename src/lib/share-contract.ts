@@ -454,23 +454,36 @@ export function buildSharedArtifactHtml(
     }
     body {
       margin: 0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       background: var(--background);
       color: var(--foreground);
-      line-height: 1.55;
+      line-height: 1.65;
       min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
     main {
-      max-width: 860px;
+      max-width: 680px;
       margin: 0 auto;
-      padding: 2rem 1.25rem 5rem;
+      padding: 3rem 1.25rem 5rem;
     }
     article {
-      padding: 1.25rem;
+      padding: 0;
       min-height: 80vh;
     }
-    h1 { margin: 0 0 .35rem; font-size: clamp(1.5rem, 4vw, 2.15rem); }
-    h2 { margin-top: 1.25rem; margin-bottom: .5rem; font-size: 1.1rem; }
+    h1 {
+      margin: 0 0 0.5rem;
+      font-size: clamp(1.75rem, 5vw, 2.5rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+    h2 { 
+      margin-top: 2rem; 
+      margin-bottom: 1rem; 
+      font-size: 1.25rem; 
+      font-weight: 600;
+    }
     .artifact-panel {
       margin-top: 1rem;
       padding: 1rem 1.1rem;
@@ -487,17 +500,17 @@ export function buildSharedArtifactHtml(
       margin: .3rem 0 0;
     }
     .transcript-header {
-      margin-top: 1.25rem;
-      margin-bottom: .5rem;
+      margin-top: 2.5rem;
+      margin-bottom: 1rem;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: .75rem;
+      gap: 1rem;
     }
     .transcript-header-actions {
       display: flex;
       align-items: center;
-      gap: .5rem;
+      gap: 0.6rem;
     }
     .transcript-header h2 { margin: 0; }
     p.meta {
@@ -522,19 +535,25 @@ export function buildSharedArtifactHtml(
       position: sticky;
       top: 0;
       z-index: 10;
-      background: var(--background);
-      padding: 0.5rem 0 1rem;
-      border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+      background: color-mix(in srgb, var(--background) 90%, transparent);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      padding: 1rem 0 1.5rem;
+      border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+      margin-bottom: 2rem;
     }
     .transcript {
-      max-width: 60ch;
-      margin: 1.5rem auto 0;
+      max-width: 100%;
+      margin: 0;
       padding: 0;
-      height: 60vh;
+      height: auto;
+      max-height: 65vh;
       overflow-y: auto;
       overflow-wrap: anywhere;
       word-break: break-word;
-      line-height: 1.7;
+      line-height: 1.75;
+      font-size: 1.05rem;
+      color: color-mix(in srgb, var(--foreground) 95%, transparent);
     }
     .transcript-block {
       padding: 0 0 12px;
@@ -573,10 +592,10 @@ export function buildSharedArtifactHtml(
     }
     .share-audio {
       width: 100%;
-      margin: 1rem 0 .65rem;
-      border-radius: 10px;
-      background: color-mix(in srgb, var(--surface) 55%, transparent);
-      border: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+      margin: 1.5rem 0 1rem;
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--surface) 70%, transparent);
+      border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
       accent-color: var(--accent);
       overflow: hidden;
     }
@@ -632,34 +651,63 @@ export function buildSharedArtifactHtml(
     dd { margin: 0; color: var(--foreground); overflow-wrap: anywhere; }
     dd a { color: var(--accent); text-decoration: none; }
     dd a:hover { text-decoration: underline; }
-    .promo {
-      position: fixed;
-      right: 12px;
-      bottom: 12px;
+    .app-cta-footer {
+      margin: 5rem auto 2rem;
+      padding: 2rem;
+      max-width: 680px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, color-mix(in srgb, var(--surface) 80%, transparent), color-mix(in srgb, var(--background) 50%, transparent));
+      border: 1px solid color-mix(in srgb, var(--border) 60%, var(--accent) 20%);
       display: flex;
+      flex-direction: column;
       align-items: center;
-      gap: .6rem;
-      background: var(--theme-glass-bg);
-      border: 1px solid color-mix(in srgb, var(--border) 55%, var(--accent) 45%);
-      border-radius: 999px;
-      padding: .42rem .42rem .42rem .72rem;
-      backdrop-filter: blur(8px);
+      text-align: center;
+      gap: 1.5rem;
+      box-shadow: 0 12px 32px var(--theme-glow);
     }
-    .promo small {
-      color: var(--foreground);
-      font-size: .75rem;
-      letter-spacing: .01em;
+    @media (min-width: 600px) {
+      .app-cta-footer {
+        flex-direction: row;
+        text-align: left;
+        justify-content: space-between;
+        padding: 2.5rem 3rem;
+      }
     }
-    .promo a {
-      border-radius: 999px;
-      padding: .35rem .7rem;
-      background: var(--accent);
-      color: var(--foreground);
-      text-decoration: none;
-      font-size: .78rem;
+    .cta-content h3 {
+      margin: 0 0 0.5rem;
+      font-size: 1.25rem;
       font-weight: 600;
+      color: var(--foreground);
     }
-    .promo a:hover { background: var(--accent-hover); }
+    .cta-content p {
+      margin: 0;
+      font-size: 0.95rem;
+      line-height: 1.5;
+      color: color-mix(in srgb, var(--foreground) 75%, transparent);
+    }
+    .primary-cta-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.85rem 1.75rem;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      font-size: 1rem;
+      text-decoration: none;
+      transition: background 0.2s, transform 0.1s;
+      white-space: nowrap;
+      box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 40%, transparent);
+    }
+    .primary-cta-btn:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 50%, transparent);
+    }
+    .primary-cta-btn:active {
+      transform: translateY(1px);
+    }
     .transcript-search-row {
       display: flex;
       align-items: center;
@@ -888,11 +936,7 @@ export function buildSharedArtifactHtml(
       font-size: 0.78rem;
     }
     #openclaw-widget {
-      margin-top: 1rem;
-      display: none;
-      gap: 0.8rem;
-      padding: 0.9rem 0;
-      border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      display: none !important;
     }
     .oc-widget {
       display: flex;
@@ -1108,10 +1152,13 @@ export function buildSharedArtifactHtml(
       
     </article>
   </main>
-  <header class="promo" aria-label="MomentumUploader app call to action">
-    <small>MomentumUploader</small>
-    <a href="/" rel="noopener">Use App</a>
-  </header>
+  <footer class="app-cta-footer" aria-label="MomentumUploader app call to action">
+    <div class="cta-content">
+      <h3>Accurate memory & summaries</h3>
+      <p>Join MomentumUploader to record, transcribe, and remember everything.</p>
+    </div>
+    <a href="/sign-up" class="primary-cta-btn">Create account</a>
+  </footer>
   <script id="share-boot" type="application/json">${serializedBootPayload}</script>
   <script>
     const shareBoot = (() => {
