@@ -658,47 +658,76 @@ export function buildSharedArtifactHtml(
     .primary-cta-btn:active {
       transform: translateY(0);
     }
-    .audio-footer {
-      position: sticky;
-      bottom: 0;
-      background: color-mix(in srgb, var(--background) 95%, transparent);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-      padding: 1.25rem 2rem;
-      box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
-      z-index: 100;
-      margin-top: 2rem;
-    }
-    .audio-container {
-      max-width: 48rem;
-      margin: 0 auto;
+    .waveform-player {
+      position: relative;
+      width: 100%;
+      height: 70px;
+      margin-bottom: 2rem;
       display: flex;
-      flex-direction: column;
-      gap: 1rem;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      user-select: none;
     }
-    .progress-wrapper { display: flex; flex-direction: column; gap: 0.5rem; }
-    .progress-bar-bg {
-      width: 100%; height: 0.375rem; background: color-mix(in srgb, var(--surface) 80%, transparent); border-radius: 9999px; cursor: pointer; position: relative;
+    .waveform-bars {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      inset: 0;
     }
-    .progress-bar-fill {
-      position: absolute; left: 0; top: 0; height: 100%; background: var(--accent); box-shadow: 0 0 12px var(--theme-glow); transition: width 0.1s linear; pointer-events: none;
+    .waveform-bar {
+      flex: 1;
+      background: color-mix(in srgb, var(--foreground) 30%, transparent);
+      border-radius: 2px;
+      transition: background 0.1s;
     }
-    .time-display {
-      display: flex; justify-content: space-between; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.6875rem; color: color-mix(in srgb, var(--foreground) 50%, transparent);
+    .waveform-bar.played {
+      background: color-mix(in srgb, var(--foreground) 70%, transparent);
     }
-    .play-controls { display: flex; justify-content: center; }
-    .play-btn {
-      position: relative; width: 4rem; height: 4rem; border-radius: 9999px; cursor: pointer; border: none; background: transparent; padding: 0; transition: transform 0.3s;
+    .waveform-center-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 50%;
+      height: 1px;
+      background: color-mix(in srgb, var(--foreground) 10%, transparent);
+      z-index: 1;
+      pointer-events: none;
     }
-    .play-btn:hover { transform: scale(1.05); }
-    .play-bg-base {
-      position: absolute; inset: 0; border-radius: 9999px; background: var(--background); border: 1px solid color-mix(in srgb, var(--border) 80%, transparent); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    .waveform-play-btn {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 3.5rem;
+      height: 3.5rem;
+      border-radius: 50%;
+      background: color-mix(in srgb, var(--foreground) 90%, transparent);
+      color: var(--background);
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 10;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      transition: transform 0.2s;
     }
-    .play-icon-container {
-      position: absolute; inset: 22%; border-radius: 9999px; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--foreground) 10%, transparent); color: var(--foreground); transition: all 0.3s;
+    .waveform-play-btn:hover {
+      transform: translate(-50%, -50%) scale(1.05);
     }
-    .play-btn:hover .play-icon-container { background: var(--foreground); color: var(--background); }
+    .waveform-time {
+      position: absolute;
+      bottom: -1.25rem;
+      right: 0;
+      font-size: 0.7rem;
+      color: color-mix(in srgb, var(--foreground) 50%, transparent);
+      font-family: var(--font-mono);
+      pointer-events: none;
+    }
     #native-audio { display: none; }
 
     
@@ -1005,6 +1034,19 @@ export function buildSharedArtifactHtml(
       ${outlineHtml}
       
       <div class="transcript-sticky-container">
+        ${payload.mediaUrl ? `
+        <div class="waveform-player" id="waveform-player">
+          <audio id="native-audio" src="${escapedAudioUrl}" preload="metadata"></audio>
+          <div class="waveform-bars" id="waveform-bars"></div>
+          <div class="waveform-center-line"></div>
+          <button id="play-btn" class="waveform-play-btn" aria-label="Play">
+            <svg id="play-icon-svg" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: translateX(2px);"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+          </button>
+          <div class="waveform-time">
+            <span id="time-current">0:00</span> / <span id="time-duration">--:--</span>
+          </div>
+        </div>
+        ` : ""}
         <section aria-labelledby="transcript-heading">
           <div class="transcript-header">
             <h2 id="transcript-heading">Transcript</h2>
@@ -1079,30 +1121,6 @@ export function buildSharedArtifactHtml(
     </div>
     <a href="/sign-up" class="primary-cta-btn">Create your free account</a>
   </footer>
-  ${payload.mediaUrl ? `
-  <audio id="native-audio" src="${escapedAudioUrl}" preload="metadata"></audio>
-  <div class="audio-footer">
-    <div class="audio-container">
-      <div class="progress-wrapper">
-        <div class="progress-bar-bg" id="progress-container">
-          <div class="progress-bar-fill" id="progress-fill" style="width: 0%"></div>
-        </div>
-        <div class="time-display">
-          <span id="time-current">0:00</span>
-          <span id="time-duration">--:--</span>
-        </div>
-      </div>
-      <div class="play-controls">
-        <button id="play-btn" class="play-btn">
-          <div class="play-bg-base"></div>
-          <div class="play-icon-container" id="play-icon-container">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: translateX(1px);"><polygon points="6 3 20 12 6 21 6 3"/></svg>
-          </div>
-        </button>
-      </div>
-    </div>
-  </div>
-  ` : ""}
   <script id="share-boot" type="application/json">${serializedBootPayload}</script>
   <script>
     const shareBoot = (() => {
@@ -2063,14 +2081,30 @@ export function buildSharedArtifactHtml(
       // Custom Audio Player Logic
       if (audio) {
         const playBtn = document.getElementById('play-btn');
-        const playIconContainer = document.getElementById('play-icon-container');
+        const playIconSvg = document.getElementById('play-icon-svg');
         const timeCurrent = document.getElementById('time-current');
         const timeDuration = document.getElementById('time-duration');
-        const progressContainer = document.getElementById('progress-container');
-        const progressFill = document.getElementById('progress-fill');
+        const waveformBarsContainer = document.getElementById('waveform-bars');
+        const waveformPlayer = document.getElementById('waveform-player');
         
-        const playIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: translateX(1px);"><polygon points="6 3 20 12 6 21 6 3"/></svg>';
-        const pauseIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="4" width="4" height="16"/><rect x="6" y="4" width="4" height="16"/></svg>';
+        const playIcon = '<polygon points="6 3 20 12 6 21 6 3"/>';
+        const pauseIcon = '<rect x="14" y="4" width="4" height="16"/><rect x="6" y="4" width="4" height="16"/>';
+
+        const numBars = 120;
+        const bars = [];
+        if (waveformBarsContainer) {
+          for (let i = 0; i < numBars; i++) {
+            const bar = document.createElement('div');
+            bar.className = 'waveform-bar';
+            let h = Math.abs(Math.sin(i * 0.1) * Math.cos(i * 0.03) * 80) + 20;
+            h += Math.random() * 15 - 7.5;
+            if (h > 100) h = 100;
+            if (h < 5) h = 5;
+            bar.style.height = h + '%';
+            waveformBarsContainer.appendChild(bar);
+            bars.push(bar);
+          }
+        }
 
         function formatTime(sec) {
           if (Number.isNaN(sec) || !isFinite(sec)) return '--:--';
@@ -2085,14 +2119,22 @@ export function buildSharedArtifactHtml(
 
         audio.addEventListener('timeupdate', function() {
           if (timeCurrent) timeCurrent.textContent = formatTime(audio.currentTime);
-          if (progressFill && isFinite(audio.duration) && audio.duration > 0) {
-            const percent = (audio.currentTime / audio.duration) * 100 || 0;
-            progressFill.style.width = percent + '%';
+          if (isFinite(audio.duration) && audio.duration > 0) {
+            const percent = (audio.currentTime / audio.duration);
+            const activeBars = Math.floor(percent * numBars);
+            bars.forEach(function(bar, idx) {
+              if (idx <= activeBars) {
+                bar.classList.add('played');
+              } else {
+                bar.classList.remove('played');
+              }
+            });
           }
         });
 
         if (playBtn) {
-          playBtn.addEventListener('click', function() {
+          playBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
             if (audio.paused) {
               audio.play().catch(function() {});
             } else {
@@ -2102,16 +2144,22 @@ export function buildSharedArtifactHtml(
         }
 
         audio.addEventListener('play', function() {
-          if (playIconContainer) playIconContainer.innerHTML = pauseIcon;
+          if (playIconSvg) {
+            playIconSvg.innerHTML = pauseIcon;
+            playIconSvg.style.transform = 'translateX(0)';
+          }
         });
 
         audio.addEventListener('pause', function() {
-          if (playIconContainer) playIconContainer.innerHTML = playIcon;
+          if (playIconSvg) {
+            playIconSvg.innerHTML = playIcon;
+            playIconSvg.style.transform = 'translateX(2px)';
+          }
         });
 
-        if (progressContainer) {
-          progressContainer.addEventListener('click', function(e) {
-            const rect = progressContainer.getBoundingClientRect();
+        if (waveformPlayer) {
+          waveformPlayer.addEventListener('click', function(e) {
+            const rect = waveformPlayer.getBoundingClientRect();
             const pos = (e.clientX - rect.left) / rect.width;
             if (isFinite(audio.duration) && audio.duration > 0) {
               audio.currentTime = pos * audio.duration;
