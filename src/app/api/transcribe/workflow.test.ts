@@ -335,6 +335,49 @@ describe("transcribe workflow legacy transcript_status fallback", () => {
         });
     });
 
+    it("returns a valid finalized memo response when audio_url is null", async () => {
+        const finalizeMemoUpdate = jest.fn(() =>
+            makeLegacyUpdateChain({
+                data: null,
+                error: null,
+            })
+        );
+
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "memo_transcript_segments") {
+                return {
+                    delete: jest.fn(() => ({
+                        eq: jest.fn(() => ({ eq: jest.fn().mockResolvedValue({ data: null, error: null }) })),
+                    })),
+                    insert: jest.fn().mockResolvedValue({ data: null, error: null }),
+                };
+            }
+
+            return {
+                update: finalizeMemoUpdate,
+            };
+        });
+
+        const response = await updateMemoFinal(
+            "memo-1",
+            "final transcript",
+            [],
+            null,
+            "user-1",
+            Date.now()
+        );
+        const body = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(body).toEqual({
+            success: true,
+            id: "memo-1",
+            text: "final transcript",
+            modelUsed: "nvidia/parakeet-rnnt-1.1b",
+            transcriptStatus: "complete",
+        });
+    });
+
     it("retries failed-transcript update without transcript_status on a legacy schema", async () => {
         const missingStatusUpdate = jest.fn(() =>
             makeLegacyUpdateChain({

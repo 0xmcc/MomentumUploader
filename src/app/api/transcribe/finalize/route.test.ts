@@ -121,7 +121,13 @@ describe("POST /api/transcribe/finalize", () => {
         }));
     });
 
-    it("uploads the concatenated audio and finalizes from the provisional transcript when provided", async () => {
+    it("finalizes from the provisional transcript without rebuilding canonical audio", async () => {
+        (updateMemoFinal as jest.Mock).mockResolvedValueOnce(makeResponse({
+            success: true,
+            id: "memo-1",
+            text: "final text",
+            transcriptStatus: "complete",
+        }));
         const req = {
             json: async () => ({
                 memoId: "memo-1",
@@ -138,33 +144,22 @@ describe("POST /api/transcribe/finalize", () => {
             success: true,
             id: "memo-1",
             text: "final text",
-            url: "https://example.com/audio/finalized.webm",
             transcriptStatus: "complete",
         });
-        expect(uploadAudio).toHaveBeenCalledWith(
-            Buffer.from("header-and-chunks-0-14chunks-15-29"),
-            expect.stringContaining("memo-1.webm"),
-            "audio/webm"
-        );
-        expect(persistMemoProvisional).toHaveBeenCalledWith(
-            "memo-1",
-            "https://example.com/audio/finalized.webm",
-            "user-1"
-        );
+        expect(list).not.toHaveBeenCalled();
+        expect(download).not.toHaveBeenCalled();
+        expect(persistMemoProvisional).not.toHaveBeenCalled();
         expect(promoteLiveSegmentsToFinal).toHaveBeenCalledWith("memo-1", "user-1");
         expect(updateMemoFinal).toHaveBeenCalledWith(
             "memo-1",
             "live transcript",
             [],
-            "https://example.com/audio/finalized.webm",
+            null,
             "user-1",
             expect.any(Number)
         );
         expect(transcribeUploadedAudio).not.toHaveBeenCalled();
-        expect(remove).toHaveBeenCalledWith([
-            "audio/chunks/memo-1/0000000-0000015.webm",
-            "audio/chunks/memo-1/0000015-0000030.webm",
-        ]);
+        expect(remove).not.toHaveBeenCalled();
     });
 
     it("returns 409 when the uploaded chunk ranges contain a gap", async () => {
@@ -190,7 +185,6 @@ describe("POST /api/transcribe/finalize", () => {
         expect(json).toEqual({
             error: "Chunk upload has a gap between 15 and 20.",
         });
-        expect(uploadAudio).not.toHaveBeenCalled();
         expect(updateMemoFinal).not.toHaveBeenCalled();
     });
 
@@ -257,7 +251,6 @@ describe("POST /api/transcribe/finalize", () => {
         expect(json).toEqual({
             error: "Chunk upload ended at 30, expected 25.",
         });
-        expect(uploadAudio).not.toHaveBeenCalled();
         expect(transcribeUploadedAudio).not.toHaveBeenCalled();
         expect(updateMemoFinal).not.toHaveBeenCalled();
     });

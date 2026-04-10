@@ -33,17 +33,20 @@ function isMissingClaimPendingMemoJobError(error: unknown): boolean {
 function successResponse(
     id: string,
     text: string,
-    url: string,
+    url: string | null,
     transcriptStatus: "complete" | "failed" = "complete"
 ): JsonResponse {
-    return NextResponse.json({
+    const body: Record<string, unknown> = {
         success: true,
         id,
         text,
-        url,
         modelUsed: TRANSCRIBE_MODEL,
         transcriptStatus,
-    });
+    };
+    if (typeof url === "string" && url.trim().length > 0) {
+        body.url = url;
+    }
+    return NextResponse.json(body);
 }
 
 export async function promoteLiveSegmentsToFinal(
@@ -104,7 +107,7 @@ export async function promoteLiveSegmentsToFinal(
 
 export async function persistMemoProvisional(
     memoId: string | null,
-    audioUrl: string,
+    audioUrl: string | null,
     userId: string
 ): Promise<StepResult<{ memoId: string }>> {
     LOG(
@@ -116,7 +119,10 @@ export async function persistMemoProvisional(
 
     const tryUpsert = async (): Promise<StepResult<{ memoId: string }>> => {
         const updateExistingMemo = (includeTranscriptStatus: boolean) => {
-            const payload: Record<string, unknown> = { audio_url: audioUrl };
+            const payload: Record<string, unknown> = {};
+            if (audioUrl !== null) {
+                payload.audio_url = audioUrl;
+            }
             if (includeTranscriptStatus) {
                 payload.transcript_status = "processing";
             }
@@ -134,9 +140,11 @@ export async function persistMemoProvisional(
             const payload: Record<string, unknown> = {
                 title: PROVISIONAL_MEMO_TITLE,
                 transcript: "",
-                audio_url: audioUrl,
                 user_id: userId,
             };
+            if (audioUrl !== null) {
+                payload.audio_url = audioUrl;
+            }
             if (includeTranscriptStatus) {
                 payload.transcript_status = "processing";
             }
@@ -220,7 +228,7 @@ export async function updateMemoFinal(
     memoId: string,
     transcript: string,
     segments: TranscriptSegment[],
-    audioUrl: string,
+    audioUrl: string | null,
     userId: string,
     startedAtMs: number
 ): Promise<JsonResponse> {
@@ -363,7 +371,7 @@ export async function updateMemoFinal(
 
 export async function updateMemoFailed(
     memoId: string,
-    audioUrl: string,
+    audioUrl: string | null,
     userId: string,
     startedAtMs: number
 ): Promise<JsonResponse> {

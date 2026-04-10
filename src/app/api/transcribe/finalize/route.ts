@@ -139,6 +139,21 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        if (provisionalTranscript) {
+            await promoteLiveSegmentsToFinal(memoId, userId);
+            const response = await updateMemoFinal(
+                memoId,
+                provisionalTranscript,
+                [],
+                null,
+                userId,
+                startedAtMs,
+            );
+
+            LOG("done", "Finalize completed from provisional transcript", { memoId });
+            return withCors(response);
+        }
+
         const chunkPrefix = `audio/chunks/${memoId}`;
         const storage = supabaseAdmin.storage.from("voice-memos");
         const { data: listedChunks, error: listError } = await storage.list(chunkPrefix, {
@@ -193,66 +208,47 @@ export async function POST(req: NextRequest) {
 
         const resolvedMemoId = provisional.data.memoId;
 
-        const finalizeFromTranscript = async (transcript: string) => {
-            await promoteLiveSegmentsToFinal(resolvedMemoId, userId);
-            return updateMemoFinal(
+        const nvidiaApiKey = process.env.NVIDIA_API_KEY?.trim();
+        if (!nvidiaApiKey) {
+            return withCors(
+                NextResponse.json(
+                    {
+                        error: "Transcription is not configured",
+                        detail: "NVIDIA_API_KEY is not set on the server.",
+                    },
+                    { status: 500 }
+                )
+            );
+        }
+
+        const transcription = await transcribeUploadedAudio(
+            {
+                memoId: resolvedMemoId,
+                provisionalTranscript,
+                file: new File([audioBuffer], fileName, { type: uploadContentType }),
+                fileName,
+                audioBuffer,
+                uploadContentType,
+                fileUrl,
+            },
+            nvidiaApiKey
+        );
+
+        const response = !transcription.ok
+            ? await updateMemoFailed(
                 resolvedMemoId,
-                transcript,
-                [],
+                fileUrl,
+                userId,
+                startedAtMs,
+            )
+            : await updateMemoFinal(
+                resolvedMemoId,
+                transcription.data.transcript,
+                transcription.data.segments,
                 fileUrl,
                 userId,
                 startedAtMs,
             );
-        };
-
-        let response: NextResponse;
-        if (provisionalTranscript) {
-            response = await finalizeFromTranscript(provisionalTranscript);
-        } else {
-            const nvidiaApiKey = process.env.NVIDIA_API_KEY?.trim();
-            if (!nvidiaApiKey) {
-                return withCors(
-                    NextResponse.json(
-                        {
-                            error: "Transcription is not configured",
-                            detail: "NVIDIA_API_KEY is not set on the server.",
-                        },
-                        { status: 500 }
-                    )
-                );
-            }
-
-            const transcription = await transcribeUploadedAudio(
-                {
-                    memoId: resolvedMemoId,
-                    provisionalTranscript,
-                    file: new File([audioBuffer], fileName, { type: uploadContentType }),
-                    fileName,
-                    audioBuffer,
-                    uploadContentType,
-                    fileUrl,
-                },
-                nvidiaApiKey
-            );
-
-            if (!transcription.ok) {
-                response = await updateMemoFailed(
-                    resolvedMemoId,
-                    fileUrl,
-                    userId,
-                    startedAtMs,
-                );
-            } else {
-                response = await updateMemoFinal(
-                    resolvedMemoId,
-                    transcription.data.transcript,
-                    transcription.data.segments,
-                    fileUrl,
-                    userId,
-                    startedAtMs,
-                );
-            }
-        }
 
         void deleteChunkFiles(chunkPaths);
 
