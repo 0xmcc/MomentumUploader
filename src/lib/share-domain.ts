@@ -3,6 +3,8 @@ import type { TranscriptSegment } from "@/lib/transcript";
 export type ResolvedMemoShare = {
   memoId: string;
   ownerUserId: string | null;
+  authorName: string;
+  authorAvatarUrl: string | null;
   shareToken: string;
   title: string;
   transcript: string;

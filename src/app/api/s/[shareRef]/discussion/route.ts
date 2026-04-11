@@ -1,4 +1,4 @@
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
 import {
   createMessageId,
   isMessageVisibleToParticipant,
@@ -12,6 +12,7 @@ import {
 } from "@/lib/memo-discussion";
 import { resolveSharedMemoForRoute } from "@/lib/share-route";
 import { supabaseAdmin } from "@/lib/supabase";
+import { resolveOwnerIdentity, type OwnerIdentity } from "@/lib/user-identity";
 
 type Params = { params: Promise<{ shareRef: string }> };
 
@@ -36,11 +37,6 @@ type DiscussionMessageRow = Omit<MemoMessageRow, "author_participant"> & {
     | undefined;
 };
 
-type OwnerIdentity = {
-  displayName: string;
-  avatarUrl: string | null;
-};
-
 function resolveAuthorParticipant(message: DiscussionMessageRow) {
   return Array.isArray(message.author_participant)
     ? message.author_participant[0] ?? null
@@ -63,29 +59,6 @@ function resolveAuthorName(message: DiscussionMessageRow): string {
   }
 
   return "Participant";
-}
-
-async function resolveOwnerIdentity(ownerUserId: string | null): Promise<OwnerIdentity | null> {
-  if (!ownerUserId) {
-    return null;
-  }
-
-  try {
-    const client = await clerkClient();
-    const owner = await client.users.getUser(ownerUserId);
-    const displayName =
-      owner.fullName?.trim() ||
-      [owner.firstName, owner.lastName].filter(Boolean).join(" ").trim() ||
-      owner.username?.trim() ||
-      "Memo owner";
-
-    return {
-      displayName,
-      avatarUrl: owner.imageUrl ?? null,
-    };
-  } catch {
-    return null;
-  }
 }
 
 function serializeDiscussionMessage(

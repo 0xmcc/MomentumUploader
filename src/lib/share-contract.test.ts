@@ -18,6 +18,8 @@ const basePayload: SharedArtifactPayload = {
     artifactId: "memo-123",
     shareToken: "abc123token",
     canonicalUrl: "https://example.com/s/abc123token",
+    authorName: "Marko Ivanovic",
+    authorAvatarUrl: "https://example.com/avatar.png",
     title: "Standup Notes",
     transcript: "Today we finished the uploader and fixed retries.",
     mediaUrl: "https://cdn.example.com/audio.webm",
@@ -29,6 +31,8 @@ const basePayload: SharedArtifactPayload = {
 const baseResolvedMemo: ResolvedMemoShare = {
     memoId: "memo-123",
     ownerUserId: "user-owner-id",
+    authorName: "Marko Ivanovic",
+    authorAvatarUrl: "https://example.com/avatar.png",
     shareToken: "abc123token",
     title: "Standup Notes",
     transcript: "Today we finished the uploader and fixed retries.",
@@ -148,6 +152,8 @@ describe("share-contract", () => {
             artifactType: "memo",
             artifactId: "memo-123",
             shareToken: "abc123token",
+            authorName: "Marko Ivanovic",
+            authorAvatarUrl: "https://example.com/avatar.png",
             canonicalUrl: "https://example.com/s/route-derived-token",
             title: "Standup Notes",
             transcript: "Today we finished the uploader and fixed retries.",
@@ -344,6 +350,14 @@ describe("share-contract", () => {
         expect(html).toContain("MomentumUploader");
         expect(html).toContain('href="/sign-in"');
         expect(html).toContain('href="/sign-up"');
+    });
+
+    it("renders the author name and avatar instead of generic placeholders", () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        
+        expect(html).toContain("Marko Ivanovic");
+        expect(html).toContain('src="https://example.com/avatar.png"');
+        expect(html).not.toContain("MomentumUploader User");
     });
 
     it("renders the engagement row with comment count and share actions", () => {

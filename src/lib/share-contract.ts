@@ -20,6 +20,8 @@ export type SharedArtifactPayload = {
   artifactType: string;
   artifactId: string;
   shareToken: string;
+  authorName: string;
+  authorAvatarUrl: string | null;
   canonicalUrl: string;
   title: string;
   transcript: string;
@@ -203,6 +205,8 @@ export function buildSharePageViewModel(
     artifactType: "memo",
     artifactId: memo.memoId,
     shareToken: memo.shareToken,
+    authorName: memo.authorName,
+    authorAvatarUrl: memo.authorAvatarUrl,
     canonicalUrl,
     title: memo.title,
     transcript: memo.transcript,
@@ -1210,10 +1214,13 @@ export function buildSharedArtifactHtml(
         <h1>${escapedTitle}</h1>
         <div class="byline-row">
           <div class="byline-avatar">
-            <span class="disc-avatar-fallback" aria-hidden="true">M</span>
+            ${payload.authorAvatarUrl
+              ? `<img src="${escapeHtml(payload.authorAvatarUrl)}" alt="" style="width:100%;height:100%;border-radius:999px;object-fit:cover;" />`
+              : `<span class="disc-avatar-fallback" aria-hidden="true">${escapeHtml(payload.authorName.charAt(0).toUpperCase())}</span>`
+            }
           </div>
           <div class="byline-info">
-            <div class="byline-author">MomentumUploader User</div>
+            <div class="byline-author">${escapeHtml(payload.authorName)}</div>
             <div class="byline-date">${formattedDate}</div>
           </div>
         </div>

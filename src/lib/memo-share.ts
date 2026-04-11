@@ -3,6 +3,7 @@ import { LIVE_MEMO_TITLE } from "@/lib/live-memo";
 import type { ResolvedMemoShare } from "@/lib/share-domain";
 import { isExpired, isRevoked, normalizeTimestamp, resolveExpiration } from "@/lib/share-access";
 import type { TranscriptSegment } from "@/lib/transcript";
+import { resolveOwnerIdentity } from "@/lib/user-identity";
 
 type MemoShareState =
     | { status: "ok"; memo: ResolvedMemoShare }
@@ -27,7 +28,9 @@ function isMissingColumnError(error: unknown): boolean {
 function buildResolvedMemo(
     row: MemoShareRow,
     shareToken: string,
-    transcriptSegments: TranscriptSegment[] | null
+    transcriptSegments: TranscriptSegment[] | null,
+    authorName: string,
+    authorAvatarUrl: string | null
 ): ResolvedMemoShare {
     const createdAt = normalizeTimestamp(row.created_at) ?? new Date().toISOString();
     const sharedAt = normalizeTimestamp(row.shared_at);
@@ -39,6 +42,8 @@ function buildResolvedMemo(
     return {
         memoId: readString(row.id) ?? "",
         ownerUserId: readString(row.user_id),
+        authorName,
+        authorAvatarUrl,
         shareToken,
         title,
         transcript: readString(row.transcript) ?? "",
@@ -103,8 +108,13 @@ export async function resolveMemoShare(shareToken: string): Promise<MemoShareSta
               }))
             : null;
 
+    const ownerUserId = readString(row.user_id);
+    const ownerIdentity = await resolveOwnerIdentity(ownerUserId);
+    const authorName = ownerIdentity?.displayName ?? "MomentumUploader User";
+    const authorAvatarUrl = ownerIdentity?.avatarUrl ?? null;
+
     return {
         status: "ok",
-        memo: buildResolvedMemo(row, shareToken, transcriptSegments),
+        memo: buildResolvedMemo(row, shareToken, transcriptSegments, authorName, authorAvatarUrl),
     };
 }
