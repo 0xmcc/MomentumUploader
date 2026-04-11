@@ -1648,4 +1648,63 @@ describe("share-contract", () => {
             expect(html).toContain("audio.currentTime");
         });
     });
+
+    describe("waveform interactions", () => {
+        it("allows scrubbing the waveform to seek audio", async () => {
+            const html = buildSharedArtifactHtml(basePayload);
+            const fetchMock = jest.fn().mockResolvedValue(emptyDiscussionResponse);
+
+            await loadSharePageScript(html, fetchMock);
+
+            const waveformPlayer = document.getElementById("waveform-player") as HTMLElement;
+            const audio = document.getElementById("native-audio") as HTMLAudioElement;
+
+            Object.defineProperty(audio, "duration", {
+                configurable: true,
+                value: 100,
+            });
+
+            // Mock getBoundingClientRect
+            waveformPlayer.getBoundingClientRect = () => ({
+                left: 0,
+                right: 1000,
+                top: 0,
+                bottom: 50,
+                width: 1000,
+                height: 50,
+                x: 0,
+                y: 0,
+                toJSON: () => {}
+            });
+
+            expect(audio.currentTime).toBe(0);
+
+            // Pointer down at 10%
+            await act(async () => {
+                waveformPlayer.dispatchEvent(
+                    new MouseEvent("pointerdown", { bubbles: true, cancelable: true, clientX: 100 })
+                );
+                await Promise.resolve();
+            });
+
+            // Pointer move to 50%
+            await act(async () => {
+                window.dispatchEvent(
+                    new MouseEvent("pointermove", { bubbles: true, cancelable: true, clientX: 500 })
+                );
+                await Promise.resolve();
+            });
+
+            // Expect audio currentTime to be scrubbed (50 seconds)
+            expect(audio.currentTime).toBe(50);
+
+            // Pointer up
+            await act(async () => {
+                window.dispatchEvent(
+                    new MouseEvent("pointerup", { bubbles: true, cancelable: true })
+                );
+                await Promise.resolve();
+            });
+        });
+    });
 });
