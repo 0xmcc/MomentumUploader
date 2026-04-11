@@ -285,7 +285,6 @@ export default function AudioRecorder({
                 newWordStartIndex={liveTranscription.newWordStartIndex}
                 recordingTime={recording.recordingTime}
                 micError={recording.micError}
-                liveDebug={liveTranscription.liveDebug}
                 transcriptScrollRef={liveTranscription.transcriptScrollRef}
             />
             {SHOW_ARTIFACTS_IN_UI && <OutlinePanel artifacts={artifacts} />}

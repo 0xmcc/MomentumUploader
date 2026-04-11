@@ -1,9 +1,7 @@
 import { Mic } from "lucide-react";
 import { motion } from "framer-motion";
 import type { MutableRefObject } from "react";
-import LiveTranscriptionDebugPanel from "@/components/audio-recorder/LiveTranscriptionDebugPanel";
 import StatusDot from "@/components/StatusDot";
-import type { LiveTranscriptionDebugState } from "@/hooks/useLiveTranscription";
 
 type LiveTranscriptViewProps = {
     isRecording: boolean;
@@ -14,7 +12,6 @@ type LiveTranscriptViewProps = {
     newWordStartIndex: number;
     recordingTime: number;
     micError: string | null;
-    liveDebug: LiveTranscriptionDebugState;
     transcriptScrollRef: MutableRefObject<HTMLDivElement | null>;
 };
 
@@ -27,14 +24,21 @@ export default function LiveTranscriptView({
     newWordStartIndex,
     recordingTime,
     micError,
-    liveDebug,
     transcriptScrollRef,
 }: LiveTranscriptViewProps) {
     return (
         <div ref={transcriptScrollRef} className="flex-1 overflow-y-auto flex flex-col">
             <div className={`flex-1 max-w-7xl mx-auto w-full px-8 py-10 flex flex-col ${(isRecording || isUploadActive) ? "justify-end" : "justify-center items-center"}`}>
                 {isRecording || isUploadActive ? (
-                    <div className="grid items-start gap-8 xl:grid-cols-[minmax(0,1.5fr)_minmax(360px,0.9fr)]">
+                    <div className="mx-auto flex w-full max-w-4xl flex-col">
+                        <div className="mb-5 flex items-center gap-3 text-[11px] font-mono uppercase tracking-[0.18em] text-white/45">
+                            <span
+                                aria-hidden="true"
+                                className="h-2 w-2 rounded-full bg-accent/70 shadow-[0_0_12px_rgba(255,255,255,0.16)]"
+                            />
+                            <span>Live transcription</span>
+                        </div>
+
                         <div className="text-lg leading-relaxed">
                             {liveTranscript ? (
                                 <p className="text-white/80 whitespace-pre-wrap">
@@ -95,10 +99,6 @@ export default function LiveTranscriptView({
                                 )
                             )}
                         </div>
-
-                        <aside className="xl:sticky xl:top-6">
-                            <LiveTranscriptionDebugPanel liveDebug={liveDebug} />
-                        </aside>
                     </div>
                 ) : (
                     <div className="flex flex-col items-center text-white/10 select-none">

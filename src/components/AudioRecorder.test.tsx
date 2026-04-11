@@ -403,7 +403,7 @@ describe("AudioRecorder live transcript cadence", () => {
         expect(screen.getByRole("button", { name: /upload mp3\/m4a/i })).toBeDisabled();
     });
 
-    it("shows live transcription diagnostics and updates tab visibility", async () => {
+    it("shows a live transcription label without diagnostics chrome while recording", async () => {
         render(<AudioRecorder />);
 
         fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
@@ -412,16 +412,13 @@ describe("AudioRecorder live transcript cadence", () => {
         await act(async () => { jest.advanceTimersByTime(1500); });
         await act(async () => { await Promise.resolve(); });
 
-        expect(screen.getByText(/live transcription diagnostics/i)).toBeInTheDocument();
-        expect(screen.getByText("Visible")).toBeInTheDocument();
-        expect(screen.getByText(/chunk window/i)).toBeInTheDocument();
-
-        await act(async () => { simulateVisibilityChange("hidden"); });
-
-        expect(screen.getByText("Hidden")).toBeInTheDocument();
+        expect(screen.getByText("Live transcription")).toBeInTheDocument();
+        expect(screen.queryByText(/live transcription diagnostics/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/chunk window/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/latest asr hypothesis/i)).not.toBeInTheDocument();
     });
 
-    it("shows tail-update diagnostics after the live buffer exceeds the segment window", async () => {
+    it("keeps the live transcription label visible during longer live sessions", async () => {
         render(<AudioRecorder />);
 
         fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
@@ -433,8 +430,8 @@ describe("AudioRecorder live transcript cadence", () => {
             await act(async () => { await Promise.resolve(); });
         }
 
-        expect(screen.getByText(/tail update/i)).toBeInTheDocument();
-        expect(screen.getByText(/chunk window/i)).toBeInTheDocument();
+        expect(screen.getByText("Live transcription")).toBeInTheDocument();
+        expect(screen.queryByText(/live transcription diagnostics/i)).not.toBeInTheDocument();
     });
 
     it("accepts m4a files even when browser MIME type is empty", async () => {
