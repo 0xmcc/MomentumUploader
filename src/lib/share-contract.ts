@@ -2158,11 +2158,37 @@ export function buildSharedArtifactHtml(
         });
 
         if (waveformPlayer) {
-          waveformPlayer.addEventListener('click', function(e) {
+          let isDragging = false;
+
+          function updateAudioPosition(e) {
             const rect = waveformPlayer.getBoundingClientRect();
-            const pos = (e.clientX - rect.left) / rect.width;
+            let pos = (e.clientX - rect.left) / rect.width;
+            pos = Math.max(0, Math.min(1, pos));
             if (isFinite(audio.duration) && audio.duration > 0) {
               audio.currentTime = pos * audio.duration;
+            }
+          }
+
+          waveformPlayer.addEventListener('pointerdown', function(e) {
+            isDragging = true;
+            if (waveformPlayer.setPointerCapture && e.pointerId !== undefined) {
+              try { waveformPlayer.setPointerCapture(e.pointerId); } catch(err) {}
+            }
+            updateAudioPosition(e);
+          });
+
+          window.addEventListener('pointermove', function(e) {
+            if (isDragging) {
+              updateAudioPosition(e);
+            }
+          });
+
+          window.addEventListener('pointerup', function(e) {
+            if (isDragging) {
+              isDragging = false;
+              if (waveformPlayer.releasePointerCapture && e.pointerId !== undefined) {
+                try { waveformPlayer.releasePointerCapture(e.pointerId); } catch(err) {}
+              }
             }
           });
         }
