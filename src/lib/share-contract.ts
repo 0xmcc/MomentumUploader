@@ -556,8 +556,106 @@ export function buildSharedArtifactHtml(
       border: 0;
       height: 1px;
       background: color-mix(in srgb, var(--border) 60%, transparent);
-      margin: 2rem 0;
+      margin: 1.5rem 0 2rem;
       width: 100%;
+    }
+    .share-navbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: color-mix(in srgb, var(--background) 95%, transparent);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1.5rem;
+      height: 60px;
+      box-sizing: border-box;
+    }
+    .share-navbar-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--foreground);
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 1.1rem;
+      letter-spacing: -0.02em;
+    }
+    .share-navbar-logo svg {
+      color: var(--accent);
+    }
+    .share-navbar-right {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+    }
+    .share-navbar-signin {
+      color: color-mix(in srgb, var(--foreground) 80%, transparent);
+      text-decoration: none;
+      font-size: 0.95rem;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    .share-navbar-signin:hover {
+      color: var(--foreground);
+    }
+    .share-navbar-signup {
+      background: var(--accent);
+      color: var(--background);
+      text-decoration: none;
+      padding: 0.45rem 1rem;
+      border-radius: 999px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .share-navbar-signup:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+    .engagement-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 1.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
+    }
+    .engagement-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: transparent;
+      border: none;
+      color: color-mix(in srgb, var(--foreground) 65%, transparent);
+      font-size: 0.95rem;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      padding: 0.4rem 0.5rem;
+      border-radius: 8px;
+      transition: all 0.2s;
+      text-decoration: none;
+    }
+    .engagement-btn:hover {
+      background: color-mix(in srgb, var(--foreground) 5%, transparent);
+      color: var(--foreground);
+    }
+    .engagement-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+    .engagement-btn.share-btn {
+      border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+      padding: 0.35rem 0.85rem;
+      border-radius: 999px;
+      font-size: 0.85rem;
+    }
+    .engagement-btn.share-btn:hover {
+      background: color-mix(in srgb, var(--foreground) 8%, transparent);
     }
     h2 { 
       margin-top: 2.5rem; 
@@ -1096,6 +1194,16 @@ export function buildSharedArtifactHtml(
   </style>
 </head>
 <body>
+  <nav class="share-navbar">
+    <a href="/" class="share-navbar-logo" aria-label="MomentumUploader home">
+      <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+      <span>MomentumUploader</span>
+    </a>
+    <div class="share-navbar-right">
+      <a href="/sign-in" class="share-navbar-signin">Sign in</a>
+      <a href="/sign-up" class="share-navbar-signup">Subscribe</a>
+    </div>
+  </nav>
   <main>
     <article>
       <header class="hero-header">
@@ -1108,12 +1216,16 @@ export function buildSharedArtifactHtml(
             <div class="byline-author">MomentumUploader User</div>
             <div class="byline-date">${formattedDate}</div>
           </div>
-          <div class="byline-actions">
-            <button type="button" class="copy-link-btn" aria-label="Copy canonical URL" data-url="${escapedCanonicalUrl}">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 1 0 7.07 7.07l1.71-1.71"></path></svg>
-              <span>Copy Link</span>
-            </button>
-          </div>
+        </div>
+        <div class="engagement-row">
+          <a href="#comments-root" class="engagement-btn comment-btn" aria-label="View comments">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+            <span id="engagement-comment-count">0</span>
+          </a>
+          <button type="button" class="engagement-btn share-btn copy-link-btn" aria-label="Copy canonical URL" data-url="${escapedCanonicalUrl}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+            <span>Share</span>
+          </button>
         </div>
       </header>
       <hr class="hero-divider" />
@@ -1615,12 +1727,20 @@ export function buildSharedArtifactHtml(
         );
       }
 
+      function updateCommentCount(count) {
+        const countSpan = document.getElementById("engagement-comment-count");
+        if (countSpan) {
+          countSpan.textContent = String(count);
+        }
+      }
+
       function renderDiscussion(messages) {
         discussionList.innerHTML = messages.length === 0
           ? '<p class="disc-empty">No notes yet.</p>'
           : messages.map((message) => renderDiscussionMessage(message)).join("");
 
         bindDiscussionAnchors(discussionList);
+        updateCommentCount(messages.length);
       }
 
       function appendDiscussionMessage(message) {
@@ -1633,6 +1753,12 @@ export function buildSharedArtifactHtml(
         const appendedMessage = discussionList.lastElementChild;
         if (appendedMessage) {
           bindDiscussionAnchors(appendedMessage);
+        }
+        
+        const countSpan = document.getElementById("engagement-comment-count");
+        if (countSpan) {
+          const currentCount = parseInt(countSpan.textContent || "0", 10);
+          countSpan.textContent = String(currentCount + 1);
         }
       }
 

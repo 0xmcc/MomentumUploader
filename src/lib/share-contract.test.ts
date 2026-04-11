@@ -337,6 +337,24 @@ describe("share-contract", () => {
         expect(html).not.toContain(`style="color:#fdba74"`);
     });
 
+    it("renders the sticky top navbar with acquisition CTAs", () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        
+        expect(html).toContain('class="share-navbar"');
+        expect(html).toContain("MomentumUploader");
+        expect(html).toContain('href="/sign-in"');
+        expect(html).toContain('href="/sign-up"');
+    });
+
+    it("renders the engagement row with comment count and share actions", () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        
+        expect(html).toContain('class="engagement-row"');
+        expect(html).toContain('class="engagement-btn comment-btn"');
+        expect(html).toContain('share-btn');
+        expect(html).toContain("Share");
+    });
+
     it("applies the saved memo theme from localStorage to the share page", async () => {
         const blueTheme = THEMES.find((theme) => theme.id === "blue");
         const html = buildSharedArtifactHtml(basePayload);
