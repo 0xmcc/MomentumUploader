@@ -1204,6 +1204,10 @@ export function buildSharedArtifactHtml(
       <span>MomentumUploader</span>
     </a>
     <div class="share-navbar-right">
+      <button type="button" id="theme-toggle-btn" class="engagement-btn" aria-label="Toggle light/dark mode" style="padding: 0.45rem; border-radius: 999px;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="theme-icon-light"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="theme-icon-dark" style="display:none;"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+      </button>
       <a href="/sign-in" class="share-navbar-signin">Sign in</a>
       <a href="/sign-up" class="share-navbar-signup">Subscribe</a>
     </div>
@@ -1362,6 +1366,14 @@ export function buildSharedArtifactHtml(
         root.style.setProperty("--theme-glass-bg", theme.vars.glassBg);
         root.style.setProperty("--theme-neo-blur", theme.vars.neoBlur);
 
+        const isLight = theme.id === "light";
+        const iconLight = document.querySelector(".theme-icon-light");
+        const iconDark = document.querySelector(".theme-icon-dark");
+        if (iconLight && iconDark) {
+          iconLight.style.display = isLight ? "none" : "block";
+          iconDark.style.display = isLight ? "block" : "none";
+        }
+
         return theme.id;
       }
 
@@ -1388,6 +1400,21 @@ export function buildSharedArtifactHtml(
       }
 
       applyShareTheme(resolveInitialThemeId());
+
+      const themeToggleBtn = document.getElementById("theme-toggle-btn");
+      if (themeToggleBtn) {
+        themeToggleBtn.addEventListener("click", () => {
+          const root = document.documentElement;
+          const currentTheme = root.dataset.shareTheme;
+          const nextTheme = currentTheme === "light" ? defaultThemeId : "light";
+          applyShareTheme(nextTheme);
+          try {
+            window.localStorage.setItem(themeStorageKey, nextTheme);
+          } catch (_error) {
+            // Ignore storage errors
+          }
+        });
+      }
     })();
 
     (() => {

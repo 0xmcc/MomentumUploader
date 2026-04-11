@@ -213,7 +213,7 @@ describe("share route /s/[shareRef]", () => {
         expect(res.headers.get("content-type")).toContain("text/html");
         expect(body).toContain("<h1>Weekly Sync</h1>");
         expect(body).toContain("/s/token123");
-        expect(body).toContain("Export");
+        expect(body).toContain("Share");
     });
 
     it("renders transcript-only live refresh behavior for in-progress shares", async () => {

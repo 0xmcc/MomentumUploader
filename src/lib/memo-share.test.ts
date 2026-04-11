@@ -85,6 +85,8 @@ describe("resolveMemoShare", () => {
     expect(result.memo).toEqual({
       memoId: "memo-123",
       ownerUserId: "user-abc",
+      authorName: "MomentumUploader User",
+      authorAvatarUrl: null,
       shareToken: "token1234",
       title: "Weekly Sync",
       transcript: "We reviewed the roadmap.",

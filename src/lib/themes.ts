@@ -5,7 +5,8 @@ export type ThemeId =
   | "crimson"
   | "amber"
   | "ocean"
-  | "orange";
+  | "orange"
+  | "light";
 
 export interface Theme {
   id: ThemeId;
@@ -135,6 +136,22 @@ export const THEMES: Theme[] = [
       glow: "rgba(249,115,22,0.18)",
       glassBg: "rgba(24,15,3,0.65)",
       neoBlur: "rgba(249,115,22,0.18)",
+    },
+  },
+  {
+    id: "light",
+    name: "Clean Light",
+    swatch: "#ffffff",
+    vars: {
+      background: "#ffffff",
+      foreground: "#000000",
+      accent: "#000000",
+      accentHover: "#333333",
+      surface: "#f9fafb",
+      border: "#e2e8f0",
+      glow: "rgba(0,0,0,0.05)",
+      glassBg: "rgba(255,255,255,0.85)",
+      neoBlur: "rgba(0,0,0,0.05)",
     },
   },
 ];
