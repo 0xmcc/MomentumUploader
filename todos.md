@@ -1,20 +1,22 @@
 # Voice Memos Product Todo
 
+
+
 ## P0: Acquisition and first impression
 
-- redesign the share page so the first impression feels polished and intentional
-- replace the tiny `Create account` CTA with a large, high-visibility primary button
-- remove the live transcription diagnostics UI from the share page
-- keep the `Live transcription` label on the signed-out share page
-- fix signed-out live transcription so it works without authentication
-- make the share page mobile-responsive
+-✅ redesign the share page so the first impression feels polished and intentional  
+-✅replace the tiny `Create account` CTA with a large, high-visibility primary button  
+-✅ remove the live transcription diagnostics UI from the share page  
+-✅ keep the `Live transcription` label on the signed-out share page  
+-✅ fix signed-out live transcription so it works without authentication  
+-✅ make the share page mobile-responsive
 
 ## P1: Activation and retention
 
-- if a user visits a share page, remember it and surface it later in their side menu
-- add a clean way for users to save a share page into their account
-- preferred product direction: let users fork/copy the shared item into their own workspace rather than vaguely "attach" it to the account
-- add voiceover playback to the shared page
+- **Signed in:** save/bookmark shared memos in **Supabase** (RLS per user); surface bookmarks in the side menu
+- **Signed out:** track **recently viewed share pages** in local storage (share token / stable route id + optional cached title from last visit); show them in the same side menu with copy that implies **this device only**
+- **Sidebar row UX:** memo title with **creator avatar** and **creator display name** underneath (fallback when anonymous); only expose fields that are already OK on public share payloads
+- **Fork/copy (separate from bookmark):** let users copy a shared memo into their own workspace when you want full ownership/editing, not just a pointer
 
 ## P1: Core product reliability
 
