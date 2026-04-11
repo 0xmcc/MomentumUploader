@@ -574,9 +574,16 @@ export function buildSharedArtifactHtml(
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0.75rem 1.5rem;
+      padding: 0.75rem 1rem;
       height: 60px;
       box-sizing: border-box;
+      gap: 0.5rem;
+    }
+    @media (min-width: 600px) {
+      .share-navbar {
+        padding: 0.75rem 1.5rem;
+        gap: 1rem;
+      }
     }
     .share-navbar-logo {
       display: flex;
@@ -587,14 +594,33 @@ export function buildSharedArtifactHtml(
       font-weight: 700;
       font-size: 1.1rem;
       letter-spacing: -0.02em;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+    .share-navbar-logo span {
+      display: none;
+    }
+    @media (min-width: 400px) {
+      .share-navbar-logo span {
+        display: inline;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
     }
     .share-navbar-logo svg {
       color: var(--accent);
+      flex-shrink: 0;
     }
     .share-navbar-right {
       display: flex;
       align-items: center;
-      gap: 1.25rem;
+      gap: 0.75rem;
+      flex-shrink: 0;
+    }
+    @media (min-width: 600px) {
+      .share-navbar-right {
+        gap: 1.25rem;
+      }
     }
     .share-navbar-signin {
       color: color-mix(in srgb, var(--foreground) 80%, transparent);
@@ -602,6 +628,7 @@ export function buildSharedArtifactHtml(
       font-size: 0.95rem;
       font-weight: 500;
       transition: color 0.2s;
+      white-space: nowrap;
     }
     .share-navbar-signin:hover {
       color: var(--foreground);
@@ -610,11 +637,18 @@ export function buildSharedArtifactHtml(
       background: var(--accent);
       color: var(--background);
       text-decoration: none;
-      padding: 0.45rem 1rem;
+      padding: 0.4rem 0.85rem;
       border-radius: 999px;
-      font-size: 0.95rem;
+      font-size: 0.9rem;
       font-weight: 600;
       transition: background 0.2s, transform 0.1s;
+      white-space: nowrap;
+    }
+    @media (min-width: 600px) {
+      .share-navbar-signup {
+        padding: 0.45rem 1rem;
+        font-size: 0.95rem;
+      }
     }
     .share-navbar-signup:hover {
       background: var(--accent-hover);
