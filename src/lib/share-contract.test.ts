@@ -329,10 +329,10 @@ describe("share-contract", () => {
     it("styles the canonical url link from the active theme instead of a hardcoded share color", () => {
         const html = buildSharedArtifactHtml(basePayload);
 
-        expect(html).toContain("p.meta a {");
-        expect(html).toContain("color: var(--accent);");
+        expect(html).not.toContain("p.meta a {");
+        expect(html).toContain(".copy-link-btn");
         expect(html).toContain(
-            `<a href="${basePayload.canonicalUrl}">${basePayload.canonicalUrl}</a>`
+            `data-url="${basePayload.canonicalUrl}"`
         );
         expect(html).not.toContain(`style="color:#fdba74"`);
     });

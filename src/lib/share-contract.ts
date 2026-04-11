@@ -409,6 +409,12 @@ export function buildSharedArtifactHtml(
     mediaUrl: payload.mediaUrl,
   });
   const serializedAgentHandoffPayload = serializeEmbeddedJson(agentHandoffPayload);
+  
+  const dateObj = new Date(payload.createdAt);
+  const formattedDate = !Number.isNaN(dateObj.getTime())
+    ? dateObj.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })
+    : "";
+
   const liveStatusNotice = isLiveRecording
     ? "<p class=\"live-status\">Live recording in progress. Transcript updates automatically every 3 seconds.</p>"
     : "";
@@ -472,11 +478,86 @@ export function buildSharedArtifactHtml(
       min-height: 80vh;
     }
     h1 {
-      margin: 0 0 0.75rem;
+      margin: 0 0 1.5rem;
       font-size: clamp(2rem, 6vw, 2.75rem);
       font-weight: 800;
       letter-spacing: -0.03em;
       line-height: 1.15;
+    }
+    .hero-header {
+      margin-bottom: 2rem;
+    }
+    .byline-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    .byline-avatar {
+      width: 2.75rem;
+      height: 2.75rem;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 85%, var(--accent) 15%);
+      border: 1px solid color-mix(in srgb, var(--border) 60%, var(--accent) 40%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--foreground);
+      font-weight: 700;
+      font-size: 1.1rem;
+      flex-shrink: 0;
+    }
+    .byline-info {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      flex-grow: 1;
+    }
+    .byline-author {
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: var(--foreground);
+      line-height: 1.4;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .byline-date {
+      font-size: 0.85rem;
+      color: color-mix(in srgb, var(--foreground) 60%, transparent);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-top: 0.15rem;
+    }
+    .byline-actions {
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .copy-link-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: transparent;
+      border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+      color: var(--foreground);
+      border-radius: 999px;
+      padding: 0.4rem 0.8rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .copy-link-btn:hover {
+      background: color-mix(in srgb, var(--foreground) 8%, transparent);
+    }
+    .copy-link-btn svg {
+      color: color-mix(in srgb, var(--foreground) 70%, transparent);
+    }
+    .hero-divider {
+      border: 0;
+      height: 1px;
+      background: color-mix(in srgb, var(--border) 60%, transparent);
+      margin: 2rem 0;
+      width: 100%;
     }
     h2 { 
       margin-top: 2.5rem; 
@@ -514,16 +595,6 @@ export function buildSharedArtifactHtml(
       gap: 0.6rem;
     }
     .transcript-header h2 { margin: 0; }
-    p.meta {
-      margin: 0 0 1rem;
-      color: color-mix(in srgb, var(--foreground) 82%, var(--accent) 18%);
-      font-size: .92rem;
-    }
-    p.meta a {
-      color: var(--accent);
-      text-decoration: none;
-    }
-    p.meta a:hover { text-decoration: underline; }
     p.live-status {
       margin: 0 0 1rem;
       color: color-mix(in srgb, var(--foreground) 74%, var(--accent) 26%);
@@ -1027,8 +1098,25 @@ export function buildSharedArtifactHtml(
 <body>
   <main>
     <article>
-      <h1>${escapedTitle}</h1>
-      <p class="meta">Shared ${escapedArtifactType} • canonical URL: <a href="${escapedCanonicalUrl}">${escapedCanonicalUrl}</a></p>
+      <header class="hero-header">
+        <h1>${escapedTitle}</h1>
+        <div class="byline-row">
+          <div class="byline-avatar">
+            <span class="disc-avatar-fallback" aria-hidden="true">M</span>
+          </div>
+          <div class="byline-info">
+            <div class="byline-author">MomentumUploader User</div>
+            <div class="byline-date">${formattedDate}</div>
+          </div>
+          <div class="byline-actions">
+            <button type="button" class="copy-link-btn" aria-label="Copy canonical URL" data-url="${escapedCanonicalUrl}">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 1 0 7.07 7.07l1.71-1.71"></path></svg>
+              <span>Copy Link</span>
+            </button>
+          </div>
+        </div>
+      </header>
+      <hr class="hero-divider" />
       ${liveStatusNotice}
       ${summaryHtml}
       ${outlineHtml}
@@ -1327,6 +1415,27 @@ export function buildSharedArtifactHtml(
     })();
 
     (() => {
+
+      const copyLinkBtn = document.querySelector(".copy-link-btn");
+      if (copyLinkBtn) {
+        copyLinkBtn.addEventListener("click", () => {
+          const url = copyLinkBtn.getAttribute("data-url");
+          if (!url) return;
+          const textSpan = copyLinkBtn.querySelector("span");
+          
+          navigator.clipboard.writeText(url).then(() => {
+            if (textSpan) {
+              const originalText = textSpan.textContent;
+              textSpan.textContent = "Copied!";
+              setTimeout(() => {
+                textSpan.textContent = originalText;
+              }, 2000);
+            }
+          }).catch(err => {
+            console.error("Failed to copy link: ", err);
+          });
+        });
+      }
 
       const copyButton = document.getElementById("copy-transcript-btn");
       
