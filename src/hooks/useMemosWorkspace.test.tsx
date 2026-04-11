@@ -150,6 +150,153 @@ describe("useMemosWorkspace", () => {
     expect(openSignIn).toHaveBeenCalledTimes(1);
   });
 
+  it("loads bookmarked shared memos alongside owned memos", async () => {
+    const mockFetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+      if (url === "/api/memos") {
+        return {
+          ok: true,
+          json: async () => ({ memos: [] }),
+        };
+      }
+
+      if (url === "/api/shared-memo-bookmarks") {
+        return {
+          ok: true,
+          json: async () => ({
+            bookmarks: [
+              {
+                memoId: "memo-bookmark-1",
+                shareToken: "sharetoken1234",
+                title: "Shared product review",
+                authorName: "Taylor Jones",
+                authorAvatarUrl: "https://img.example.com/taylor.png",
+                createdAt: "2026-04-10T12:00:00.000Z",
+                bookmarkedAt: "2026-04-11T09:00:00.000Z",
+              },
+            ],
+          }),
+        };
+      }
+
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    Object.defineProperty(global, "fetch", { writable: true, value: mockFetch });
+
+    const { result } = renderHook(() =>
+      useMemosWorkspace({
+        isLoaded: true,
+        isSignedIn: true,
+        openSignIn: jest.fn(),
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.filteredBookmarkedMemos).toEqual([
+      {
+        memoId: "memo-bookmark-1",
+        shareToken: "sharetoken1234",
+        title: "Shared product review",
+        authorName: "Taylor Jones",
+        authorAvatarUrl: "https://img.example.com/taylor.png",
+        createdAt: "2026-04-10T12:00:00.000Z",
+        bookmarkedAt: "2026-04-11T09:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("clears stale bookmarked shared memos when the bookmark refresh fails", async () => {
+    let bookmarkRequestCount = 0;
+    const mockFetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+      if (url === "/api/memos") {
+        return {
+          ok: true,
+          json: async () => ({ memos: [] }),
+        };
+      }
+
+      if (url === "/api/shared-memo-bookmarks") {
+        bookmarkRequestCount += 1;
+
+        if (bookmarkRequestCount === 1) {
+          return {
+            ok: true,
+            json: async () => ({
+              bookmarks: [
+                {
+                  memoId: "memo-bookmark-1",
+                  shareToken: "sharetoken1234",
+                  title: "Shared product review",
+                  authorName: "Taylor Jones",
+                  authorAvatarUrl: "https://img.example.com/taylor.png",
+                  createdAt: "2026-04-10T12:00:00.000Z",
+                  bookmarkedAt: "2026-04-11T09:00:00.000Z",
+                },
+              ],
+            }),
+          };
+        }
+
+        throw new Error("bookmark refresh failed");
+      }
+
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    Object.defineProperty(global, "fetch", { writable: true, value: mockFetch });
+
+    const { result, rerender } = renderHook(
+      ({ isLoaded }) =>
+        useMemosWorkspace({
+          isLoaded,
+          isSignedIn: true,
+          openSignIn: jest.fn(),
+        }),
+      {
+        initialProps: { isLoaded: true },
+      }
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.filteredBookmarkedMemos).toHaveLength(1);
+
+    await act(async () => {
+      rerender({ isLoaded: false });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      rerender({ isLoaded: true });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(bookmarkRequestCount).toBe(2);
+    });
+
+    await waitFor(() => {
+      expect(result.current.filteredBookmarkedMemos).toEqual([]);
+    });
+  });
+
   it("surfaces upload-in-progress state and still allows selecting existing memos", async () => {
     const transcriptText = "transcribed upload";
     let resolveTranscribe: (() => void) | null = null;

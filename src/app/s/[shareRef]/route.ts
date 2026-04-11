@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import {
     buildArtifactMap,
     createEmptyArtifactMap,
@@ -72,6 +73,19 @@ async function fetchArtifactMap(memoId: string, source: ArtifactSource): Promise
     return buildArtifactMap(artifactRows as Parameters<typeof buildArtifactMap>[0]);
 }
 
+async function fetchBookmarkCount(memoId: string): Promise<number> {
+    const { count, error } = await supabaseAdmin
+        .from("shared_memo_bookmarks")
+        .select("*", { count: "exact", head: true })
+        .eq("memo_id", memoId);
+
+    if (error || typeof count !== "number" || !Number.isFinite(count)) {
+        return 0;
+    }
+
+    return Math.max(0, count);
+}
+
 export async function GET(req: Request, { params }: Params): Promise<Response> {
     const { shareRef } = await params;
     const url = new URL(req.url);
@@ -114,10 +128,14 @@ export async function GET(req: Request, { params }: Params): Promise<Response> {
     }
 
     const memo = share.memo;
+    const { userId } = await auth();
     const artifactSource: ArtifactSource = memo.transcriptStatus === "complete" ? "final" : "live";
     const artifactMap = await fetchArtifactMap(memo.memoId, artifactSource);
+    const bookmarkCount = await fetchBookmarkCount(memo.memoId);
     const linkHeader = buildLinkHeader(canonicalUrl);
-    const viewModel = buildSharePageViewModel(memo, canonicalUrl, artifactMap);
+    const viewModel = buildSharePageViewModel(memo, canonicalUrl, artifactMap, {
+        bookmarkCount,
+    });
 
     if (format === "json") {
         return Response.json(buildSharedArtifactJson(viewModel), {
@@ -134,7 +152,11 @@ export async function GET(req: Request, { params }: Params): Promise<Response> {
         });
     }
 
-    return new Response(buildSharedArtifactHtml(viewModel), {
+    return new Response(buildSharedArtifactHtml(viewModel, {
+        viewer: {
+            isAuthenticated: userId != null,
+        },
+    }), {
         headers: {
             "content-type": "text/html; charset=utf-8",
             Link: linkHeader,

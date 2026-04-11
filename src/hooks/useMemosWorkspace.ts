@@ -6,6 +6,7 @@ import type {
 import {
   MEMO_RECONCILE_DELAY_MS,
   type Memo,
+  type SharedMemoBookmark,
   type TranscriptStatus,
 } from "@/lib/memo-ui";
 import {
@@ -33,6 +34,7 @@ export function useMemosWorkspace({
   openSignIn,
 }: UseMemosWorkspaceArgs) {
   const [memos, setMemos] = useState<Memo[]>([]);
+  const [bookmarkedMemos, setBookmarkedMemos] = useState<SharedMemoBookmark[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMemoId, setSelectedMemoId] = useState<string | null>(null);
@@ -55,8 +57,31 @@ export function useMemosWorkspace({
 
   const fetchMemos = useCallback(async () => {
     try {
-      const res = await fetch("/api/memos");
-      const json = await res.json();
+      const [memosRes, bookmarksRes] = await Promise.allSettled([
+        fetch("/api/memos"),
+        isSignedIn ? fetch("/api/shared-memo-bookmarks") : Promise.resolve(null),
+      ]);
+
+      if (bookmarksRes.status === "fulfilled" && bookmarksRes.value) {
+        try {
+          const bookmarksJson = await bookmarksRes.value.json();
+          if (Array.isArray(bookmarksJson.bookmarks)) {
+            setBookmarkedMemos(bookmarksJson.bookmarks as SharedMemoBookmark[]);
+          } else {
+            setBookmarkedMemos([]);
+          }
+        } catch (_error) {
+          setBookmarkedMemos([]);
+        }
+      } else {
+        setBookmarkedMemos([]);
+      }
+
+      if (memosRes.status !== "fulfilled") {
+        throw memosRes.reason;
+      }
+
+      const json = await memosRes.value.json();
       if (Array.isArray(json.memos)) {
         const fetchedMemos = json.memos as Memo[];
         const fetchedIds = new Set(fetchedMemos.map((memo) => memo.id));
@@ -282,6 +307,10 @@ export function useMemosWorkspace({
   const filteredMemos = memos.filter((memo) =>
     memo.transcript.toLowerCase().includes(normalizedQuery)
   );
+  const filteredBookmarkedMemos = bookmarkedMemos.filter((memo) => {
+    const haystack = `${memo.title} ${memo.authorName}`.toLowerCase();
+    return haystack.includes(normalizedQuery);
+  });
   const selectedMemo = selectedMemoId
     ? memos.find((memo) => memo.id === selectedMemoId) ?? null
     : null;
@@ -332,6 +361,7 @@ export function useMemosWorkspace({
   );
 
   return {
+    filteredBookmarkedMemos,
     filteredMemos,
     handleAudioInput,
     handleUploadComplete,

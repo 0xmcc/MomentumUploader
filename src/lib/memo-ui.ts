@@ -1,4 +1,5 @@
 import type { TranscriptSegment } from "@/lib/transcript";
+export type { SharedMemoBookmark } from "@/lib/shared-memo-bookmarks";
 
 export type TranscriptStatus = "processing" | "complete" | "failed";
 

@@ -2,6 +2,7 @@ import React from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import {
   MemoDetailView,
+  MemoSidebar,
   MemoTranscriptPanel,
 } from "./MemoStudioSections";
 import type { useAudioPlayback as UseAudioPlayback } from "@/hooks/useMemoPlayback";
@@ -365,5 +366,68 @@ describe("MemoDetailView", () => {
 
     expect(screen.getByText("0:42")).toBeInTheDocument();
     expect(onRender).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("MemoSidebar", () => {
+  it("renders bookmarked shared memos with creator avatar and display name", () => {
+    render(
+      <MemoSidebar
+        filteredMemos={[]}
+        filteredBookmarkedMemos={[
+          {
+            memoId: "memo-bookmark-1",
+            shareToken: "sharetoken1234",
+            title: "Shared customer interview",
+            authorName: "Taylor Jones",
+            authorAvatarUrl: "https://img.example.com/taylor.png",
+            createdAt: "2026-04-10T12:00:00.000Z",
+            bookmarkedAt: "2026-04-11T09:00:00.000Z",
+          },
+        ]}
+        isSignedIn
+        loading={false}
+        searchQuery=""
+        selectedMemoId={null}
+        onSearchQueryChange={jest.fn()}
+        onSelectMemo={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText("Saved shares")).toBeInTheDocument();
+    expect(screen.getByText("Shared customer interview")).toBeInTheDocument();
+    expect(screen.getByText("Taylor Jones")).toBeInTheDocument();
+    expect(screen.getByAltText("Taylor Jones")).toHaveAttribute(
+      "src",
+      "https://img.example.com/taylor.png"
+    );
+  });
+
+  it("falls back to the anonymous public-share label when creator identity is unavailable", () => {
+    render(
+      <MemoSidebar
+        filteredMemos={[]}
+        filteredBookmarkedMemos={[
+          {
+            memoId: "memo-bookmark-2",
+            shareToken: "sharetoken5678",
+            title: "Anonymous share",
+            authorName: "MomentumUploader User",
+            authorAvatarUrl: null,
+            createdAt: "2026-04-10T12:00:00.000Z",
+            bookmarkedAt: "2026-04-11T09:00:00.000Z",
+          },
+        ]}
+        isSignedIn
+        loading={false}
+        searchQuery=""
+        selectedMemoId={null}
+        onSearchQueryChange={jest.fn()}
+        onSelectMemo={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText("MomentumUploader User")).toBeInTheDocument();
+    expect(screen.getByText("M")).toBeInTheDocument();
   });
 });

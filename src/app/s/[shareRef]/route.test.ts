@@ -1,8 +1,13 @@
 /** @jest-environment node */
 
+import { auth } from "@clerk/nextjs/server";
 import { DELETE, GET, PATCH, POST, PUT } from "./route";
 import { supabaseAdmin } from "@/lib/supabase";
 import { LIVE_MEMO_TITLE } from "@/lib/live-memo";
+
+jest.mock("@clerk/nextjs/server", () => ({
+    auth: jest.fn(),
+}));
 
 jest.mock("@/lib/supabase", () => ({
     supabaseAdmin: {
@@ -25,11 +30,20 @@ type SharedMemoRow = {
     expires_at?: string | null;
 };
 
-function mockShareLookup(result: { data: SharedMemoRow | null; error: { message: string } | null }) {
+function mockShareLookup(
+    result: { data: SharedMemoRow | null; error: { message: string } | null },
+    options?: { bookmarkCount?: number }
+) {
     // Memos chain: .select().eq().maybeSingle()
     const maybeSingle = jest.fn().mockResolvedValue(result);
     const memoEq = jest.fn(() => ({ maybeSingle }));
     const memoSelect = jest.fn(() => ({ eq: memoEq }));
+
+    const bookmarkEq = jest.fn().mockResolvedValue({
+        count: options?.bookmarkCount ?? 0,
+        error: null,
+    });
+    const bookmarkSelect = jest.fn(() => ({ eq: bookmarkEq }));
 
     // Segment chain: .select().eq().eq().order() → resolves to empty segments (no anchors for test memos)
     const segmentOrder = jest.fn(() => Promise.resolve({ data: [], error: null }));
@@ -46,6 +60,7 @@ function mockShareLookup(result: { data: SharedMemoRow | null; error: { message:
     (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
         if (table === "memo_transcript_segments") return { select: segmentSelect };
         if (table === "memo_artifacts") return { select: artifactSelect };
+        if (table === "shared_memo_bookmarks") return { select: bookmarkSelect };
         return { select: memoSelect };
     });
 }
@@ -70,6 +85,7 @@ function makeReq(url: string): Request {
 describe("share route /s/[shareRef]", () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        (auth as jest.Mock).mockResolvedValue({ userId: null });
     });
 
     it("falls back when expires_at is missing from the active memo schema", async () => {
@@ -93,6 +109,9 @@ describe("share route /s/[shareRef]", () => {
                 })),
             })),
         }));
+        const legacyBookmarkSelect = jest.fn(() => ({
+            eq: jest.fn().mockResolvedValue({ count: 0, error: null }),
+        }));
 
         let memoSelectCallCount = 0;
         (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
@@ -101,6 +120,9 @@ describe("share route /s/[shareRef]", () => {
             }
             if (table === "memo_artifacts") {
                 return { select: legacyArtifactSelect };
+            }
+            if (table === "shared_memo_bookmarks") {
+                return { select: legacyBookmarkSelect };
             }
 
             return {
@@ -161,6 +183,9 @@ describe("share route /s/[shareRef]", () => {
                 })),
             })),
         }));
+        const bookmarkSelect = jest.fn(() => ({
+            eq: jest.fn().mockResolvedValue({ count: 0, error: null }),
+        }));
 
         const memoSelect = jest.fn((columns: string) => ({
             eq: jest.fn(() => ({
@@ -185,6 +210,9 @@ describe("share route /s/[shareRef]", () => {
             if (table === "memo_artifacts") {
                 return { select: artifactSelect };
             }
+            if (table === "shared_memo_bookmarks") {
+                return { select: bookmarkSelect };
+            }
 
             return { select: memoSelect };
         });
@@ -201,7 +229,7 @@ describe("share route /s/[shareRef]", () => {
     });
 
     it("serves html by default at the canonical share URL", async () => {
-        mockShareLookup({ data: activeMemo, error: null });
+        mockShareLookup({ data: activeMemo, error: null }, { bookmarkCount: 7 });
 
         const res = await GET(
             makeReq("https://example.com/s/token123"),
@@ -214,6 +242,39 @@ describe("share route /s/[shareRef]", () => {
         expect(body).toContain("<h1>Weekly Sync</h1>");
         expect(body).toContain("/s/token123");
         expect(body).toContain("Share");
+        expect(body).toContain('id="bookmark-share-count"');
+        expect(body).toContain(">7<");
+    });
+
+    it("renders a transcript export button with a memo-title markdown filename", async () => {
+        mockShareLookup({ data: activeMemo, error: null });
+
+        const res = await GET(
+            makeReq("https://example.com/s/token123"),
+            { params: Promise.resolve({ shareRef: "token123" }) }
+        );
+
+        const body = await res.text();
+        expect(res.status).toBe(200);
+        expect(body).toContain('id="export-transcript-btn"');
+        expect(body).toContain('data-filename="Weekly-Sync.md"');
+        expect(body).toContain(">Export<");
+    });
+
+    it("does not render signed-out CTAs for an authenticated share viewer", async () => {
+        mockShareLookup({ data: activeMemo, error: null });
+        (auth as jest.Mock).mockResolvedValue({ userId: "viewer-1" });
+
+        const res = await GET(
+            makeReq("https://example.com/s/token123"),
+            { params: Promise.resolve({ shareRef: "token123" }) }
+        );
+
+        const body = await res.text();
+        expect(res.status).toBe(200);
+        expect(body).not.toContain('class="share-navbar-signin"');
+        expect(body).not.toContain('id="bookmark-share-signin"');
+        expect(body).toContain('id="bookmark-share-btn"');
     });
 
     it("renders transcript-only live refresh behavior for in-progress shares", async () => {

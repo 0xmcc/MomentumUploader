@@ -303,6 +303,17 @@ describe("share-contract", () => {
         const html = buildSharedArtifactHtml(basePayload);
 
         expect(html).toContain('id="copy-transcript-btn"');
+        expect(html).toContain('id="export-transcript-btn"');
+        expect(html).toContain('id="send-to-ai-btn"');
+        expect(html).toContain('id="send-to-ai-dialog"');
+        expect(html).toContain("Send to AI");
+        expect(html).toContain("Copy transcript");
+        expect(html).toContain("Paste it");
+        expect(html).toContain("Now open your AI app");
+        expect(html).toContain('href="https://chatgpt.com/"');
+        expect(html).toContain('href="https://claude.ai/"');
+        expect(html).toContain('href="https://gemini.google.com/app"');
+        expect(html).toContain('href="https://grok.com/"');
         expect(html).toContain('id="transcript-content"');
     });
 
@@ -318,7 +329,7 @@ describe("share-contract", () => {
             shareToken: "abc123token",
             canonicalUrl: "https://example.com/s/abc123token",
             isLiveRecording: false,
-            transcriptFileName: "standup-notes-transcript.txt",
+            transcriptFileName: "Standup-Notes.md",
             mediaUrl: "https://cdn.example.com/audio?<unsafe>",
         });
     });
@@ -361,12 +372,32 @@ describe("share-contract", () => {
     });
 
     it("renders the engagement row with comment count and share actions", () => {
-        const html = buildSharedArtifactHtml(basePayload);
+        const html = buildSharedArtifactHtml({
+            ...basePayload,
+            bookmarkCount: 7,
+        } as SharedArtifactPayload);
         
         expect(html).toContain('class="engagement-row"');
         expect(html).toContain('class="engagement-btn comment-btn"');
         expect(html).toContain('share-btn');
         expect(html).toContain("Share");
+        expect(html).toContain('id="bookmark-share-btn"');
+        expect(html).toContain('id="bookmark-share-count"');
+        expect(html).toContain(">7<");
+        expect(html).toContain('id="bookmark-share-signin"');
+    });
+
+    it("renders the waveform above the transcript divider when shared audio is available", () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        const waveformIndex = html.indexOf('id="waveform-player"');
+        const dividerIndex = html.indexOf('class="hero-divider"');
+        const transcriptHeadingIndex = html.indexOf('id="transcript-heading"');
+
+        expect(waveformIndex).toBeGreaterThan(-1);
+        expect(dividerIndex).toBeGreaterThan(-1);
+        expect(transcriptHeadingIndex).toBeGreaterThan(-1);
+        expect(waveformIndex).toBeLessThan(dividerIndex);
+        expect(dividerIndex).toBeLessThan(transcriptHeadingIndex);
     });
 
     it("applies the saved memo theme from localStorage to the share page", async () => {
@@ -981,7 +1012,7 @@ describe("share-contract", () => {
         expect(html).toContain("const { messages, isOwner, isAuthenticated } = await res.json();");
     });
 
-    it.skip("drives transcript export from the embedded boot payload", () => {
+    it("drives transcript export from the embedded boot payload", async () => {
         const clickedDownloads: string[] = [];
         const html = buildSharedArtifactHtml(basePayload);
         const parsed = new DOMParser().parseFromString(html, "text/html");
@@ -1016,14 +1047,17 @@ describe("share-contract", () => {
 
         const exportButton = document.getElementById("export-transcript-btn");
         expect(exportButton).not.toBeNull();
-        expect(exportButton?.getAttribute("data-filename")).toBeNull();
+        expect(exportButton?.getAttribute("data-filename")).toBe("Standup-Notes.md");
 
         exportButton?.dispatchEvent(
             new MouseEvent("click", { bubbles: true, cancelable: true })
         );
 
-        expect(clickedDownloads).toEqual(["standup-notes-transcript.txt"]);
+        expect(clickedDownloads).toEqual(["Standup-Notes.md"]);
         expect(createObjectURL).toHaveBeenCalledTimes(1);
+        expect(createObjectURL.mock.calls[0]?.[0]).toMatchObject({
+            type: "text/markdown;charset=utf-8",
+        });
         expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock-export");
     });
 
@@ -1054,6 +1088,51 @@ describe("share-contract", () => {
         expect(writeText).not.toHaveBeenCalledWith(basePayload.canonicalUrl);
     });
 
+    it("opens the Send to AI popup and copies the transcript from the popup button", async () => {
+        const writeText = jest.fn().mockResolvedValue(undefined);
+        const html = buildSharedArtifactHtml(basePayload);
+        const fetchMock = jest.fn().mockResolvedValue(emptyDiscussionResponse);
+
+        await loadSharePageScript(html, fetchMock);
+
+        Object.defineProperty(global.navigator, "clipboard", {
+            configurable: true,
+            value: { writeText },
+        });
+
+        const openButton = document.getElementById("send-to-ai-btn") as HTMLButtonElement;
+        const dialog = document.getElementById("send-to-ai-dialog") as HTMLElement;
+        const popupCopyButton = document.getElementById("send-to-ai-copy-btn") as HTMLButtonElement;
+        const chatGptLink = document.getElementById("send-to-chatgpt-link") as HTMLAnchorElement;
+        const claudeLink = document.getElementById("send-to-claude-link") as HTMLAnchorElement;
+        const geminiLink = document.getElementById("send-to-gemini-link") as HTMLAnchorElement;
+        const grokLink = document.getElementById("send-to-grok-link") as HTMLAnchorElement;
+
+        expect(openButton).not.toBeNull();
+        expect(dialog).not.toBeNull();
+        expect(popupCopyButton).not.toBeNull();
+        expect(dialog.style.display).toBe("none");
+
+        openButton.click();
+
+        expect(dialog.style.display).toBe("grid");
+        expect(dialog).toHaveTextContent("Copy transcript");
+        expect(dialog).toHaveTextContent("Paste it");
+        expect(dialog).toHaveTextContent("Now open your AI app");
+        expect(chatGptLink.href).toBe("https://chatgpt.com/");
+        expect(claudeLink.href).toBe("https://claude.ai/");
+        expect(geminiLink.href).toBe("https://gemini.google.com/app");
+        expect(grokLink.href).toBe("https://grok.com/");
+
+        popupCopyButton.click();
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        expect(writeText).toHaveBeenCalledWith(basePayload.transcript);
+    });
+
     it("shows the sign-in hint for unauthenticated non-owners after discussion loads", async () => {
         const html = buildSharedArtifactHtml(basePayload);
         const fetchMock = jest.fn().mockResolvedValue({
@@ -1072,6 +1151,133 @@ describe("share-contract", () => {
         expect((document.getElementById("disc-owner-only") as HTMLElement).style.display).toBe(
             "none"
         );
+    });
+
+    it("keeps the authenticated bookmark shell visible when bookmark state refresh fails", async () => {
+        const html = buildSharedArtifactHtml(
+            basePayload,
+            { viewer: { isAuthenticated: true } } as never
+        );
+        const fetchMock = jest.fn((input: RequestInfo | URL) => {
+            const url = String(input);
+
+            if (url === "/api/s/abc123token/bookmark") {
+                return Promise.reject(new Error("bookmark lookup failed"));
+            }
+
+            if (url === "/api/s/abc123token/discussion") {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({
+                        messages: [],
+                        isOwner: false,
+                        isAuthenticated: true,
+                    }),
+                });
+            }
+
+            throw new Error(`Unexpected fetch URL: ${url}`);
+        });
+
+        await loadSharePageScript(html, fetchMock);
+
+        expect((document.getElementById("bookmark-share-btn") as HTMLElement).style.display).toBe(
+            ""
+        );
+        expect(document.getElementById("bookmark-share-signin")).toBeNull();
+    });
+
+    it("loads bookmark state even when the discussion scaffold is absent", async () => {
+        const html = buildSharedArtifactHtml(
+            {
+                ...basePayload,
+                bookmarkCount: 7,
+            } as SharedArtifactPayload,
+            { viewer: { isAuthenticated: true } } as never
+        ).replace(/<section id="comments-root">[\s\S]*?<\/section>\s*<\/article>/, "</article>");
+        const fetchMock = jest.fn((input: RequestInfo | URL) => {
+            const url = String(input);
+
+            if (url === "/api/s/abc123token/bookmark") {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({
+                        isAuthenticated: true,
+                        isBookmarked: true,
+                        bookmarkCount: 8,
+                    }),
+                });
+            }
+
+            throw new Error(`Unexpected fetch URL: ${url}`);
+        });
+
+        await loadSharePageScript(html, fetchMock);
+
+        expect(fetchMock).toHaveBeenCalledWith(
+            "/api/s/abc123token/bookmark",
+            expect.objectContaining({ credentials: "include" })
+        );
+        expect(document.getElementById("bookmark-share-label")).toHaveTextContent("Saved");
+        expect(document.getElementById("bookmark-share-count")).toHaveTextContent("8");
+    });
+
+    it("keeps bookmark toggling wired even when the discussion scaffold is absent", async () => {
+        const html = buildSharedArtifactHtml(
+            {
+                ...basePayload,
+                bookmarkCount: 7,
+            } as SharedArtifactPayload,
+            { viewer: { isAuthenticated: true } } as never
+        ).replace(/<section id="comments-root">[\s\S]*?<\/section>\s*<\/article>/, "</article>");
+        const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+            const url = String(input);
+
+            if (url !== "/api/s/abc123token/bookmark") {
+                throw new Error(`Unexpected fetch URL: ${url}`);
+            }
+
+            if (!init?.method || init.method === "GET") {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({
+                        isAuthenticated: true,
+                        isBookmarked: false,
+                        bookmarkCount: 7,
+                    }),
+                });
+            }
+
+            if (init.method === "POST") {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({}),
+                });
+            }
+
+            throw new Error(`Unexpected bookmark method: ${String(init.method)}`);
+        });
+
+        await loadSharePageScript(html, fetchMock);
+
+        const button = document.getElementById("bookmark-share-btn") as HTMLButtonElement;
+
+        await act(async () => {
+            button.click();
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(fetchMock).toHaveBeenNthCalledWith(
+            2,
+            "/api/s/abc123token/bookmark",
+            expect.objectContaining({
+                method: "POST",
+                credentials: "include",
+            })
+        );
+        expect(document.getElementById("bookmark-share-label")).toHaveTextContent("Saved");
+        expect(document.getElementById("bookmark-share-count")).toHaveTextContent("8");
     });
 
     it("shows the owner-only hint for signed-in non-owners after discussion loads", async () => {
@@ -1682,6 +1888,39 @@ describe("share-contract", () => {
     });
 
     describe("waveform interactions", () => {
+        it("still renders the waveform shell when shared audio is unavailable", () => {
+            const html = buildSharedArtifactHtml({
+                ...basePayload,
+                mediaUrl: null,
+            });
+
+            expect(html).toContain('id="waveform-player"');
+            expect(html).toContain('id="play-btn"');
+            expect(html).toContain('id="audio-unavailable-dialog"');
+        });
+
+        it("shows a clean popup when the viewer tries to play a share with no audio", async () => {
+            const html = buildSharedArtifactHtml({
+                ...basePayload,
+                mediaUrl: null,
+            });
+            const fetchMock = jest.fn().mockResolvedValue(emptyDiscussionResponse);
+
+            await loadSharePageScript(html, fetchMock);
+
+            const playButton = document.getElementById("play-btn") as HTMLButtonElement;
+            const dialog = document.getElementById("audio-unavailable-dialog") as HTMLElement;
+
+            expect(playButton).not.toBeNull();
+            expect(dialog).not.toBeNull();
+            expect(dialog.style.display).toBe("none");
+
+            playButton.click();
+
+            expect(dialog.style.display).toBe("grid");
+            expect(dialog.textContent).toContain("This audio is not available.");
+        });
+
         it("allows scrubbing the waveform to seek audio", async () => {
             const html = buildSharedArtifactHtml(basePayload);
             const fetchMock = jest.fn().mockResolvedValue(emptyDiscussionResponse);

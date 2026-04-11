@@ -15,6 +15,7 @@ export default function Home() {
   const { openSignIn } = useClerk();
 
   const {
+    filteredBookmarkedMemos,
     filteredMemos,
     handleUploadComplete,
     loading,
@@ -38,6 +39,7 @@ export default function Home() {
   return (
     <main className="flex h-screen w-full bg-[#0A0A0A] overflow-hidden text-white font-sans">
       <MemoSidebar
+        filteredBookmarkedMemos={filteredBookmarkedMemos}
         filteredMemos={filteredMemos}
         isSignedIn={isSignedIn}
         loading={loading}

@@ -47,6 +47,7 @@ describe("Home composition wiring", () => {
 
   it("renders recorder flow when no memo is selected", () => {
     const commonHookState = {
+      filteredBookmarkedMemos: [],
       filteredMemos: [],
       handleAudioInput: jest.fn(),
       handleUploadComplete: jest.fn(),
@@ -77,6 +78,7 @@ describe("Home composition wiring", () => {
 
     expect(memoSidebarMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        filteredBookmarkedMemos: [],
         filteredMemos: [],
         selectedMemoId: null,
       })
@@ -105,6 +107,7 @@ describe("Home composition wiring", () => {
 
     mockedUseMemosWorkspace.mockReturnValue({
       filteredMemos: [selectedMemo],
+      filteredBookmarkedMemos: [],
       handleAudioInput: jest.fn(),
       handleUploadComplete: jest.fn(),
       isUploading: false,
@@ -138,6 +141,7 @@ describe("Home composition wiring", () => {
   it("replaces the workspace upload banner with a status dot", () => {
     mockedUseMemosWorkspace.mockReturnValue({
       filteredMemos: [],
+      filteredBookmarkedMemos: [],
       handleAudioInput: jest.fn(),
       handleUploadComplete: jest.fn(),
       isUploading: true,

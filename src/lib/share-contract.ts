@@ -11,6 +11,40 @@ export type ShareFormat = "html" | "md" | "json";
 
 const OPENCLAW_SKILL_VERSION = "0.1.3" as const;
 
+type AiDestination = {
+  id: "chatgpt" | "claude" | "gemini" | "grok";
+  name: string;
+  url: string;
+  accent: string;
+};
+
+const AI_DESTINATIONS: AiDestination[] = [
+  {
+    id: "chatgpt",
+    name: "ChatGPT",
+    url: "https://chatgpt.com/",
+    accent: "#10a37f",
+  },
+  {
+    id: "claude",
+    name: "Claude",
+    url: "https://claude.ai/",
+    accent: "#d97757",
+  },
+  {
+    id: "gemini",
+    name: "Gemini",
+    url: "https://gemini.google.com/app",
+    accent: "#6d7cff",
+  },
+  {
+    id: "grok",
+    name: "Grok",
+    url: "https://grok.com/",
+    accent: "#0f172a",
+  },
+];
+
 export type ParsedShareRef = {
   shareToken: string;
   pathFormat: ShareFormat;
@@ -29,6 +63,7 @@ export type SharedArtifactPayload = {
   createdAt: string;
   sharedAt: string | null;
   expiresAt: string | null;
+  bookmarkCount?: number;
   isLiveRecording?: boolean;
   transcriptStatus?: string | null;
   transcriptSegments?: TranscriptSegment[] | null;
@@ -63,6 +98,10 @@ export type ShareBootPayload = {
   isLiveRecording: boolean;
   transcriptFileName: string;
   mediaUrl: string | null;
+};
+
+export type ShareViewerState = {
+  isAuthenticated: boolean;
 };
 
 export type AgentHandoffPayload = {
@@ -111,6 +150,53 @@ function escapeHtml(input: string): string {
     .replaceAll("'", "&#039;");
 }
 
+function renderAiDestinationIcon(id: AiDestination["id"]): string {
+  switch (id) {
+    case "chatgpt":
+      return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M11.95 2.6c1.85 0 3.42.9 4.32 2.46a4.76 4.76 0 0 1 4.11 6.7 4.77 4.77 0 0 1-1.86 6.4 4.76 4.76 0 0 1-6.67 2.3 4.76 4.76 0 0 1-6.63-2.4A4.76 4.76 0 0 1 3.6 11.7a4.77 4.77 0 0 1 2.03-6.53A4.76 4.76 0 0 1 11.95 2.6Z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M9.45 6.35 14.8 9.4v5.2l-5.35 3.05-3.1-5.45 3.1-5.85Zm5.1.25 3.1 5.4-3.1 5.4h-6.2l-3.1-5.4 3.1-5.4h6.2Z" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
+      </svg>`;
+    case "claude":
+      return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="m12 2 1.75 4.7L18.5 4.5l-2.2 4.75L21 11l-4.7 1.75L18.5 17.5l-4.75-2.2L12 20l-1.75-4.7L5.5 17.5l2.2-4.75L3 11l4.7-1.75L5.5 4.5l4.75 2.2L12 2Z" fill="currentColor"/>
+      </svg>`;
+    case "gemini":
+      return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id="gemini-icon-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#4f8cff"></stop>
+            <stop offset="100%" stop-color="#8b5cf6"></stop>
+          </linearGradient>
+        </defs>
+        <path d="M12 2.5 14.65 9.35 21.5 12l-6.85 2.65L12 21.5l-2.65-6.85L2.5 12l6.85-2.65L12 2.5Z" fill="url(#gemini-icon-gradient)"/>
+      </svg>`;
+    case "grok":
+      return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="10" fill="currentColor"/>
+        <path d="M8 7h8l-3.4 4.25L16.75 17h-2.9L10.45 12.7 8 15.8V7Z" fill="#ffffff"/>
+      </svg>`;
+  }
+}
+
+function renderAiDestinationLink(destination: AiDestination): string {
+  const appName = escapeHtml(destination.name);
+  const appUrl = escapeHtml(destination.url);
+
+  return `<a
+      id="send-to-${destination.id}-link"
+      class="ai-app-link ai-app-link-${destination.id}"
+      href="${appUrl}"
+      target="_blank"
+      rel="noreferrer noopener"
+      style="--ai-accent:${destination.accent}"
+      aria-label="Open ${appName}"
+    >
+      <span class="ai-app-icon">${renderAiDestinationIcon(destination.id)}</span>
+      <span class="ai-app-name">${appName}</span>
+    </a>`;
+}
+
 type OutlinePayload = {
   items?: Array<{
     title?: string;
@@ -153,8 +239,8 @@ function renderOutlineMarkdown(payload: SharedArtifactPayload): string[] {
 function toSafeFileName(input: string): string {
   const normalized = input
     .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/[^A-Za-z0-9_-]+/g, "")
     .replace(/^-+|-+$/g, "");
 
   return normalized || "shared-memo";
@@ -199,7 +285,8 @@ export function resolveShareFormat(pathFormat: ShareFormat, queryFormat: string 
 export function buildSharePageViewModel(
   memo: ResolvedMemoShare,
   canonicalUrl: string,
-  artifacts: ArtifactMap
+  artifacts: ArtifactMap,
+  options?: { bookmarkCount?: number }
 ): SharedArtifactPayload {
   return {
     artifactType: "memo",
@@ -214,6 +301,9 @@ export function buildSharePageViewModel(
     createdAt: memo.createdAt,
     sharedAt: memo.sharedAt,
     expiresAt: memo.expiresAt,
+    ...(typeof options?.bookmarkCount === "number"
+      ? { bookmarkCount: options.bookmarkCount }
+      : {}),
     isLiveRecording: memo.isLiveRecording,
     transcriptStatus: memo.transcriptStatus,
     transcriptSegments: memo.transcriptSegments,
@@ -373,6 +463,7 @@ function renderTranscriptContentHtml(payload: SharedArtifactPayload): string {
 export type BuildSharedArtifactHtmlOptions = {
   /** When true, include Summary and Outline panels in HTML. When false (default), omit them (they remain in markdown/JSON for agents). */
   showArtifactsInUi?: boolean;
+  viewer?: ShareViewerState;
 };
 
 export function buildSharedArtifactHtml(
@@ -380,10 +471,12 @@ export function buildSharedArtifactHtml(
   options?: BuildSharedArtifactHtmlOptions
 ): string {
   const showArtifacts = options?.showArtifactsInUi ?? SHOW_ARTIFACTS_IN_UI;
+  const viewerIsAuthenticated = options?.viewer?.isAuthenticated === true;
   const escapedTitle = escapeHtml(payload.title);
   const escapedCanonicalUrl = escapeHtml(payload.canonicalUrl);
   const escapedArtifactType = escapeHtml(payload.artifactType);
   const artifacts = resolveArtifacts(payload);
+  const hasAudio = typeof payload.mediaUrl === "string" && payload.mediaUrl.trim().length > 0;
   const summaryPayload = artifacts.rolling_summary?.payload as
     | { summary?: string }
     | null;
@@ -396,7 +489,7 @@ export function buildSharedArtifactHtml(
   const encodedCanonical = encodeURI(payload.canonicalUrl);
   const encodedMarkdown = `${encodedCanonical}.md`;
   const encodedJson = `${encodedCanonical}.json`;
-  const transcriptFileName = `${toSafeFileName(payload.title)}-transcript.txt`;
+  const transcriptFileName = `${toSafeFileName(payload.title)}.md`;
   const agentHandoffPayload = buildAgentHandoffPayload(payload);
   const serializedThemes = JSON.stringify(
     THEMES.map((theme) => ({
@@ -422,6 +515,22 @@ export function buildSharedArtifactHtml(
   const liveStatusNotice = isLiveRecording
     ? "<p class=\"live-status\">Live recording in progress. Transcript updates automatically every 3 seconds.</p>"
     : "";
+  const bookmarkCount = Math.max(0, payload.bookmarkCount ?? 0);
+  const navbarRightHtml = viewerIsAuthenticated
+    ? `<a href="/" class="share-navbar-signup">Open app</a>`
+    : `<a href="/sign-in" class="share-navbar-signin">Sign in</a>
+      <a href="/sign-up" class="share-navbar-signup">Subscribe</a>`;
+  const footerPrimaryHref = viewerIsAuthenticated ? "/" : "/sign-up";
+  const footerPrimaryLabel = viewerIsAuthenticated ? "Open app" : "Create your free account";
+  const bookmarkSignInHtml = viewerIsAuthenticated
+    ? ""
+    : `<a href="/sign-in" id="bookmark-share-signin" class="engagement-btn bookmark-auth-cta">
+        <span class="engagement-main">
+          <svg class="bookmark-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"></path></svg>
+          <span class="engagement-label">Sign in to save</span>
+        </span>
+        <span class="engagement-count-badge">${bookmarkCount}</span>
+      </a>`;
   const summaryHtml =
     showArtifacts && summaryPayload?.summary
       ? `<section class="artifact-panel"><h2>Summary</h2><p>${escapeHtml(summaryPayload.summary)}</p></section>`
@@ -436,6 +545,7 @@ export function buildSharedArtifactHtml(
           )
           .join("")}</ol></section>`
       : "";
+  const sendToAiAppsHtml = AI_DESTINATIONS.map(renderAiDestinationLink).join("");
 
   return `<!doctype html>
 <html lang="en">
@@ -656,8 +766,9 @@ export function buildSharedArtifactHtml(
     }
     .engagement-row {
       display: flex;
-      align-items: center;
-      justify-content: space-between;
+      flex-wrap: wrap;
+      align-items: stretch;
+      gap: 0.75rem;
       margin-top: 1.5rem;
       padding-top: 1rem;
       border-top: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
@@ -665,35 +776,85 @@ export function buildSharedArtifactHtml(
     .engagement-btn {
       display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
-      background: transparent;
-      border: none;
-      color: color-mix(in srgb, var(--foreground) 65%, transparent);
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex: 1 1 11rem;
+      min-height: 3.5rem;
+      box-sizing: border-box;
+      background: color-mix(in srgb, var(--surface) 72%, transparent);
+      border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+      color: color-mix(in srgb, var(--foreground) 82%, transparent);
       font-size: 0.95rem;
-      font-weight: 500;
+      font-weight: 600;
       font-family: inherit;
       cursor: pointer;
-      padding: 0.4rem 0.5rem;
-      border-radius: 8px;
-      transition: all 0.2s;
+      padding: 0.8rem 0.95rem;
+      border-radius: 18px;
+      transition: transform 0.2s, background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
       text-decoration: none;
     }
     .engagement-btn:hover {
-      background: color-mix(in srgb, var(--foreground) 5%, transparent);
+      background: color-mix(in srgb, var(--surface) 55%, var(--foreground) 10%);
+      border-color: color-mix(in srgb, var(--accent) 35%, var(--border) 65%);
       color: var(--foreground);
+      transform: translateY(-1px);
+      box-shadow: 0 16px 28px color-mix(in srgb, black 14%, transparent);
     }
     .engagement-btn svg {
       width: 18px;
       height: 18px;
+      flex-shrink: 0;
+    }
+    .engagement-btn:disabled {
+      cursor: default;
+      transform: none;
+      opacity: 0.72;
+      box-shadow: none;
+    }
+    .engagement-main {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.65rem;
+      min-width: 0;
+    }
+    .engagement-label {
+      white-space: nowrap;
+    }
+    .engagement-count-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.75rem;
+      height: 1.75rem;
+      padding: 0 0.5rem;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--foreground) 8%, transparent);
+      color: color-mix(in srgb, var(--foreground) 92%, transparent);
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+    .engagement-btn.bookmark-btn[data-bookmarked="true"] {
+      background: color-mix(in srgb, var(--accent) 14%, var(--surface) 86%);
+      border-color: color-mix(in srgb, var(--accent) 50%, var(--border) 50%);
+      color: var(--foreground);
+    }
+    .engagement-btn.bookmark-btn[data-bookmarked="true"] .bookmark-icon {
+      fill: currentColor;
+    }
+    .engagement-btn.bookmark-auth-cta {
+      color: color-mix(in srgb, var(--foreground) 78%, transparent);
     }
     .engagement-btn.share-btn {
-      border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-      padding: 0.35rem 0.85rem;
-      border-radius: 999px;
-      font-size: 0.85rem;
+      flex: 1 1 9rem;
     }
-    .engagement-btn.share-btn:hover {
-      background: color-mix(in srgb, var(--foreground) 8%, transparent);
+    @media (max-width: 560px) {
+      .engagement-btn {
+        flex-basis: calc(50% - 0.375rem);
+      }
+      .engagement-btn.share-btn {
+        flex-basis: 100%;
+      }
     }
     h2 { 
       margin-top: 2.5rem; 
@@ -774,6 +935,7 @@ export function buildSharedArtifactHtml(
       padding-bottom: 0;
       border-bottom: 0;
     }
+    .export-transcript-btn,
     .copy-transcript-btn {
       border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
       background: color-mix(in srgb, var(--surface) 50%, transparent);
@@ -785,13 +947,24 @@ export function buildSharedArtifactHtml(
       cursor: pointer;
       transition: all 0.2s ease;
     }
+    .export-transcript-btn:hover,
     .copy-transcript-btn:hover {
       background: color-mix(in srgb, var(--foreground) 8%, transparent);
       border-color: color-mix(in srgb, var(--border) 80%, transparent);
     }
+    .export-transcript-btn:focus-visible,
     .copy-transcript-btn:focus-visible {
       outline: 2px solid color-mix(in srgb, var(--accent) 70%, white 30%);
       outline-offset: 2px;
+    }
+    .send-to-ai-btn {
+      border-color: color-mix(in srgb, var(--accent) 45%, var(--border) 55%);
+      background:
+        linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, transparent), transparent 55%),
+        color-mix(in srgb, var(--surface) 78%, transparent);
+    }
+    .send-to-ai-btn:hover {
+      border-color: color-mix(in srgb, var(--accent) 62%, var(--border) 38%);
     }
     section[aria-labelledby="transcript-heading"] { margin-top: .15rem; }
     section[aria-labelledby="transcript-heading"] h2 { margin-top: 0; }
@@ -876,6 +1049,9 @@ export function buildSharedArtifactHtml(
       cursor: pointer;
       user-select: none;
     }
+    .waveform-player.is-unavailable {
+      opacity: 0.78;
+    }
     .waveform-bars {
       display: flex;
       align-items: center;
@@ -936,6 +1112,182 @@ export function buildSharedArtifactHtml(
       pointer-events: none;
     }
     #native-audio { display: none; }
+    .audio-dialog-backdrop {
+      position: fixed;
+      inset: 0;
+      display: none;
+      place-items: center;
+      padding: 1.5rem;
+      box-sizing: border-box;
+      background: rgba(15, 23, 42, 0.35);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      z-index: 250;
+    }
+    .audio-dialog {
+      width: min(100%, 24rem);
+      border-radius: 20px;
+      border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      background: color-mix(in srgb, var(--background) 92%, white 8%);
+      box-shadow: 0 24px 70px rgba(15, 23, 42, 0.18);
+      padding: 1.15rem 1.15rem 1rem;
+    }
+    .audio-dialog h3 {
+      margin: 0 0 0.35rem;
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .audio-dialog p {
+      margin: 0;
+      color: color-mix(in srgb, var(--foreground) 72%, transparent);
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+    .audio-dialog-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 1rem;
+    }
+    .audio-dialog-actions button {
+      border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+      background: color-mix(in srgb, var(--surface) 55%, transparent);
+      color: var(--foreground);
+      border-radius: 999px;
+      padding: 0.45rem 0.9rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .audio-dialog-actions button:hover {
+      background: color-mix(in srgb, var(--foreground) 8%, transparent);
+    }
+    .send-to-ai-dialog {
+      width: min(100%, 32rem);
+      padding: 1.2rem;
+      background:
+        radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 18%, transparent), transparent 34%),
+        color-mix(in srgb, var(--background) 94%, white 6%);
+    }
+    .send-to-ai-dialog-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .send-to-ai-dialog-header p {
+      margin-top: 0.35rem;
+    }
+    .send-to-ai-close {
+      border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+      background: color-mix(in srgb, var(--surface) 58%, transparent);
+      color: var(--foreground);
+      border-radius: 999px;
+      padding: 0.45rem 0.8rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .send-to-ai-steps {
+      display: grid;
+      gap: 0.85rem;
+    }
+    .send-to-ai-step {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.85rem;
+      align-items: start;
+      padding: 0.95rem 1rem;
+      border-radius: 18px;
+      border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+      background: color-mix(in srgb, var(--surface) 70%, transparent);
+    }
+    .send-to-ai-step-number {
+      width: 1.85rem;
+      height: 1.85rem;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: color-mix(in srgb, var(--accent) 16%, transparent);
+      color: var(--foreground);
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+    .send-to-ai-step h4 {
+      margin: 0;
+      font-size: 0.98rem;
+      letter-spacing: -0.01em;
+    }
+    .send-to-ai-step p {
+      margin: 0.3rem 0 0;
+      color: color-mix(in srgb, var(--foreground) 72%, transparent);
+      font-size: 0.92rem;
+    }
+    .send-to-ai-copy-btn {
+      margin-top: 0.7rem;
+      min-height: 2.75rem;
+      width: 100%;
+      justify-content: center;
+      border-color: color-mix(in srgb, var(--accent) 48%, var(--border) 52%);
+      background: color-mix(in srgb, var(--accent) 14%, var(--surface) 86%);
+    }
+    .send-to-ai-app-grid {
+      margin-top: 0.8rem;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.75rem;
+    }
+    .ai-app-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+      min-height: 3.35rem;
+      padding: 0.85rem 0.95rem;
+      border-radius: 16px;
+      border: 1px solid color-mix(in srgb, var(--border) 64%, transparent);
+      background:
+        linear-gradient(135deg, color-mix(in srgb, var(--ai-accent) 16%, transparent), transparent 60%),
+        color-mix(in srgb, var(--surface) 75%, transparent);
+      color: var(--foreground);
+      text-decoration: none;
+      transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+    }
+    .ai-app-link:hover {
+      transform: translateY(-1px);
+      border-color: color-mix(in srgb, var(--ai-accent) 55%, var(--border) 45%);
+      background:
+        linear-gradient(135deg, color-mix(in srgb, var(--ai-accent) 22%, transparent), transparent 55%),
+        color-mix(in srgb, var(--surface) 70%, transparent);
+    }
+    .ai-app-icon {
+      width: 2.35rem;
+      height: 2.35rem;
+      border-radius: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: color-mix(in srgb, var(--foreground) 9%, transparent);
+      color: var(--ai-accent);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent);
+      flex-shrink: 0;
+    }
+    .ai-app-icon svg {
+      width: 1.3rem;
+      height: 1.3rem;
+    }
+    .ai-app-name {
+      font-size: 0.96rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    @media (max-width: 560px) {
+      .send-to-ai-app-grid {
+        grid-template-columns: 1fr;
+      }
+    }
 
     
     .transcript-segment {
@@ -1242,8 +1594,7 @@ export function buildSharedArtifactHtml(
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="theme-icon-light"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="theme-icon-dark" style="display:none;"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
       </button>
-      <a href="/sign-in" class="share-navbar-signin">Sign in</a>
-      <a href="/sign-up" class="share-navbar-signup">Subscribe</a>
+      ${navbarRightHtml}
     </div>
   </nav>
   <main>
@@ -1264,39 +1615,52 @@ export function buildSharedArtifactHtml(
         </div>
         <div class="engagement-row">
           <a href="#comments-root" class="engagement-btn comment-btn" aria-label="View comments">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-            <span id="engagement-comment-count">0</span>
+            <span class="engagement-main">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+              <span class="engagement-label">Notes</span>
+            </span>
+            <span id="engagement-comment-count" class="engagement-count-badge">0</span>
           </a>
+          <button type="button" id="bookmark-share-btn" class="engagement-btn bookmark-btn" data-viewer-authenticated="${viewerIsAuthenticated ? "true" : "false"}" data-bookmark-count="${bookmarkCount}" data-bookmarked="false" style="${viewerIsAuthenticated ? "" : "display:none"}">
+            <span class="engagement-main">
+              <svg class="bookmark-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"></path></svg>
+              <span id="bookmark-share-label" class="engagement-label">Save</span>
+            </span>
+            <span id="bookmark-share-count" class="engagement-count-badge">${bookmarkCount}</span>
+          </button>
+          ${bookmarkSignInHtml}
           <button type="button" class="engagement-btn share-btn copy-link-btn" aria-label="Copy canonical URL" data-url="${escapedCanonicalUrl}">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
-            <span>Share</span>
+            <span class="engagement-main">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+              <span class="engagement-label">Share</span>
+            </span>
           </button>
         </div>
       </header>
-      <hr class="hero-divider" />
       ${liveStatusNotice}
       ${summaryHtml}
       ${outlineHtml}
       
       <div class="transcript-sticky-container">
-        ${payload.mediaUrl ? `
-        <div class="waveform-player" id="waveform-player">
-          <audio id="native-audio" src="${escapedAudioUrl}" preload="metadata"></audio>
+        <div class="waveform-player${hasAudio ? "" : " is-unavailable"}" id="waveform-player" data-audio-available="${hasAudio ? "true" : "false"}">
+          <audio id="native-audio" data-audio-available="${hasAudio ? "true" : "false"}"${hasAudio ? ` src="${escapedAudioUrl}" preload="metadata"` : ""}></audio>
           <div class="waveform-bars" id="waveform-bars"></div>
           <div class="waveform-center-line"></div>
           <button id="play-btn" class="waveform-play-btn" aria-label="Play">
             <svg id="play-icon-svg" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: translateX(2px);"><polygon points="6 3 20 12 6 21 6 3"/></svg>
           </button>
           <div class="waveform-time">
-            <span id="time-current">0:00</span> / <span id="time-duration">--:--</span>
+            <span id="time-current">0:00</span> / <span id="time-duration">${hasAudio ? "--:--" : " "}</span>
           </div>
         </div>
-        ` : ""}
+        <hr class="hero-divider" />
         <section aria-labelledby="transcript-heading">
           <div class="transcript-header">
             <h2 id="transcript-heading">Transcript</h2>
             <div class="transcript-header-actions">
+              <button type="button" id="export-transcript-btn" class="export-transcript-btn" data-filename="${escapeHtml(transcriptFileName)}">Export</button>
               <button type="button" id="copy-transcript-btn" class="copy-transcript-btn">Copy</button>
+              <button type="button" id="send-to-ai-btn" class="copy-transcript-btn send-to-ai-btn">Send to AI</button>
             </div>
           </div>
         </section>
@@ -1364,8 +1728,55 @@ export function buildSharedArtifactHtml(
       <h3>MomentumUploader</h3>
       <p>Record, transcribe, and remember everything.</p>
     </div>
-    <a href="/sign-up" class="primary-cta-btn">Create your free account</a>
+    <a href="${footerPrimaryHref}" class="primary-cta-btn">${footerPrimaryLabel}</a>
   </footer>
+  <div id="audio-unavailable-dialog" class="audio-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="audio-unavailable-title" style="display:none">
+    <div class="audio-dialog">
+      <h3 id="audio-unavailable-title">Audio unavailable</h3>
+      <p>This audio is not available.</p>
+      <div class="audio-dialog-actions">
+        <button type="button" id="audio-unavailable-close">OK</button>
+      </div>
+    </div>
+  </div>
+  <div id="send-to-ai-dialog" class="audio-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="send-to-ai-title" style="display:none">
+    <div class="audio-dialog send-to-ai-dialog">
+      <div class="send-to-ai-dialog-header">
+        <div>
+          <h3 id="send-to-ai-title">Send to AI</h3>
+          <p>Three steps. Copy the transcript, paste it, and jump straight into your favorite AI app.</p>
+        </div>
+        <button type="button" id="send-to-ai-close" class="send-to-ai-close">Close</button>
+      </div>
+      <div class="send-to-ai-steps">
+        <section class="send-to-ai-step" aria-labelledby="send-to-ai-step-copy">
+          <span class="send-to-ai-step-number" aria-hidden="true">1</span>
+          <div>
+            <h4 id="send-to-ai-step-copy">Copy transcript</h4>
+            <p>Grab the full transcript so you can drop it into any AI chat.</p>
+            <button type="button" id="send-to-ai-copy-btn" class="engagement-btn send-to-ai-copy-btn">Copy transcript</button>
+          </div>
+        </section>
+        <section class="send-to-ai-step" aria-labelledby="send-to-ai-step-paste">
+          <span class="send-to-ai-step-number" aria-hidden="true">2</span>
+          <div>
+            <h4 id="send-to-ai-step-paste">Paste it</h4>
+            <p>Paste the transcript into a fresh chat and add the prompt you want.</p>
+          </div>
+        </section>
+        <section class="send-to-ai-step" aria-labelledby="send-to-ai-step-open">
+          <span class="send-to-ai-step-number" aria-hidden="true">3</span>
+          <div>
+            <h4 id="send-to-ai-step-open">Now open your AI app</h4>
+            <p>Pick the assistant you want to use next.</p>
+            <div class="send-to-ai-app-grid">
+              ${sendToAiAppsHtml}
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
   <script id="share-boot" type="application/json">${serializedBootPayload}</script>
   <script>
     const shareBoot = (() => {
@@ -1376,6 +1787,37 @@ export function buildSharedArtifactHtml(
         return JSON.parse(shareBootEl.textContent);
       } catch (_error) {
         return null;
+      }
+    })();
+
+    (() => {
+      const audioUnavailableDialog = document.getElementById("audio-unavailable-dialog");
+      const audioUnavailableClose = document.getElementById("audio-unavailable-close");
+
+      window.__momentumShowAudioUnavailableDialog = function() {
+        if (audioUnavailableDialog) {
+          audioUnavailableDialog.style.display = "grid";
+        }
+      };
+
+      window.__momentumHideAudioUnavailableDialog = function() {
+        if (audioUnavailableDialog) {
+          audioUnavailableDialog.style.display = "none";
+        }
+      };
+
+      if (audioUnavailableClose) {
+        audioUnavailableClose.addEventListener("click", function() {
+          window.__momentumHideAudioUnavailableDialog();
+        });
+      }
+
+      if (audioUnavailableDialog) {
+        audioUnavailableDialog.addEventListener("click", function(event) {
+          if (event.target === audioUnavailableDialog) {
+            window.__momentumHideAudioUnavailableDialog();
+          }
+        });
       }
     })();
 
@@ -1595,14 +2037,13 @@ export function buildSharedArtifactHtml(
     })();
 
     (() => {
-
       const copyLinkBtn = document.querySelector(".copy-link-btn");
       if (copyLinkBtn) {
         copyLinkBtn.addEventListener("click", () => {
           const url = copyLinkBtn.getAttribute("data-url");
           if (!url) return;
           const textSpan = copyLinkBtn.querySelector("span");
-          
+
           navigator.clipboard.writeText(url).then(() => {
             if (textSpan) {
               const originalText = textSpan.textContent;
@@ -1611,46 +2052,130 @@ export function buildSharedArtifactHtml(
                 textSpan.textContent = originalText;
               }, 2000);
             }
-          }).catch(err => {
+          }).catch((err) => {
             console.error("Failed to copy link: ", err);
           });
         });
       }
 
+      const exportButton = document.getElementById("export-transcript-btn");
       const copyButton = document.getElementById("copy-transcript-btn");
-      
+      const sendToAiButton = document.getElementById("send-to-ai-btn");
+      const sendToAiDialog = document.getElementById("send-to-ai-dialog");
+      const sendToAiClose = document.getElementById("send-to-ai-close");
+      const sendToAiCopyButton = document.getElementById("send-to-ai-copy-btn");
+
       function getTranscriptContent() {
         return document.getElementById("transcript-content");
       }
 
+      function getTranscriptText() {
+        const transcriptContent = getTranscriptContent();
+        if (!transcriptContent) return "";
 
+        // Extract text cleanly for both paragraph blocks and timestamped segments.
+        const paragraphs = transcriptContent.querySelectorAll(".transcript-block, .seg-text");
+        if (paragraphs.length > 0) {
+          return Array.from(paragraphs).map((p) => p.textContent || "").join("\\n\\n");
+        }
+
+        return transcriptContent.textContent || "";
+      }
+
+      function copyTranscript(button) {
+        const textToCopy = getTranscriptText();
+        if (!textToCopy) return;
+
+        navigator.clipboard.writeText(textToCopy).then(() => {
+          if (!button) return;
+          const originalText = button.textContent;
+          button.textContent = "Copied!";
+          setTimeout(() => {
+            button.textContent = originalText;
+          }, 2000);
+        }).catch((err) => {
+          console.error("Failed to copy text: ", err);
+          if (!button) return;
+          const originalText = button.textContent;
+          button.textContent = "Copy failed";
+          setTimeout(() => {
+            button.textContent = originalText;
+          }, 2000);
+        });
+      }
+
+      if (exportButton) {
+        exportButton.addEventListener("click", () => {
+          const transcript = getTranscriptText();
+          const title = document.querySelector("h1")?.textContent?.trim() || "Shared Memo";
+          const fileName =
+            exportButton.getAttribute("data-filename") ||
+            (shareBoot && typeof shareBoot.transcriptFileName === "string"
+              ? shareBoot.transcriptFileName
+              : "shared-memo.md");
+          const markdown = [
+            "# " + title,
+            "",
+            "## Transcript",
+            "",
+            transcript || "*(no transcript)*",
+            "",
+          ].join("\\n");
+          const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+          const downloadUrl = URL.createObjectURL(blob);
+          const downloadLink = document.createElement("a");
+          downloadLink.href = downloadUrl;
+          downloadLink.download = fileName;
+          document.body.appendChild(downloadLink);
+          downloadLink.click();
+          downloadLink.remove();
+          URL.revokeObjectURL(downloadUrl);
+        });
+      }
+
+      function openSendToAiDialog() {
+        if (!sendToAiDialog) return;
+        sendToAiDialog.style.display = "grid";
+      }
+
+      function closeSendToAiDialog() {
+        if (!sendToAiDialog) return;
+        sendToAiDialog.style.display = "none";
+      }
 
       if (copyButton) {
         copyButton.addEventListener("click", () => {
-          const transcriptContent = getTranscriptContent();
-          if (!transcriptContent) return;
-          // Extract text cleanly — works for both segment cards and plain-text blocks
-          const paragraphs = transcriptContent.querySelectorAll(".transcript-block, .seg-text");
-          let textToCopy = "";
-          
-          if (paragraphs.length > 0) {
-            textToCopy = Array.from(paragraphs).map(p => p.textContent).join("\\n\\n");
-          } else {
-            textToCopy = transcriptContent.textContent || "";
-          }
-
-          navigator.clipboard.writeText(textToCopy).then(() => {
-            const originalText = copyButton.textContent;
-            copyButton.textContent = "Copied!";
-            setTimeout(() => {
-              copyButton.textContent = originalText;
-            }, 2000);
-          }).catch(err => {
-            console.error("Failed to copy text: ", err);
-            copyButton.textContent = "Error";
-          });
+          copyTranscript(copyButton);
         });
       }
+
+      if (sendToAiButton) {
+        sendToAiButton.addEventListener("click", openSendToAiDialog);
+      }
+
+      if (sendToAiClose) {
+        sendToAiClose.addEventListener("click", closeSendToAiDialog);
+      }
+
+      if (sendToAiDialog) {
+        sendToAiDialog.addEventListener("click", (event) => {
+          if (event.target === sendToAiDialog) {
+            closeSendToAiDialog();
+          }
+        });
+      }
+
+      if (sendToAiCopyButton) {
+        sendToAiCopyButton.addEventListener("click", () => {
+          copyTranscript(sendToAiCopyButton);
+        });
+      }
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && sendToAiDialog?.style.display === "grid") {
+          closeSendToAiDialog();
+        }
+      });
     })();
 
     (() => {
@@ -1663,6 +2188,10 @@ export function buildSharedArtifactHtml(
       const discussionSubmit = document.getElementById("disc-submit");
       const signInHint = document.getElementById("disc-signin");
       const ownerOnlyHint = document.getElementById("disc-owner-only");
+      const bookmarkButton = document.getElementById("bookmark-share-btn");
+      const bookmarkLabel = document.getElementById("bookmark-share-label");
+      const bookmarkCountLabel = document.getElementById("bookmark-share-count");
+      const bookmarkSignIn = document.getElementById("bookmark-share-signin");
       const openClawWidget = document.getElementById("openclaw-widget");
       const openClawInvite = document.getElementById("oc-invite");
       const openClawPending = document.getElementById("oc-pending");
@@ -1680,6 +2209,106 @@ export function buildSharedArtifactHtml(
       const openClawAskDialog = document.getElementById("oc-ask-dialog");
       const openClawAskInput = document.getElementById("oc-ask-input");
       const openClawAskSubmit = document.getElementById("oc-ask-submit");
+      const shareRef = shareBoot.shareToken;
+      const bookmarkState = {
+        isAuthenticated:
+          bookmarkButton?.dataset.viewerAuthenticated === "true",
+        isBookmarked: false,
+        count: Math.max(
+          0,
+          Number(
+            bookmarkButton?.dataset.bookmarkCount ??
+            bookmarkCountLabel?.textContent ??
+            "0"
+          ) || 0
+        ),
+        inFlight: false,
+      };
+
+      function renderBookmarkState() {
+        if (!bookmarkButton || !bookmarkLabel || !bookmarkCountLabel) {
+          return;
+        }
+
+        if (!bookmarkState.isAuthenticated) {
+          bookmarkButton.style.display = "none";
+          if (bookmarkSignIn) {
+            bookmarkSignIn.style.display = "";
+          }
+          return;
+        }
+
+        if (bookmarkSignIn) {
+          bookmarkSignIn.style.display = "none";
+        }
+        bookmarkButton.style.display = "";
+        bookmarkButton.disabled = bookmarkState.inFlight;
+        bookmarkButton.dataset.bookmarked = bookmarkState.isBookmarked ? "true" : "false";
+        bookmarkButton.dataset.bookmarkCount = String(bookmarkState.count);
+        bookmarkLabel.textContent = bookmarkState.isBookmarked ? "Saved" : "Save";
+        bookmarkCountLabel.textContent = String(bookmarkState.count);
+      }
+
+      async function loadBookmarkState() {
+        if (!bookmarkButton || !bookmarkLabel || !bookmarkCountLabel) {
+          return;
+        }
+
+        try {
+          const response = await fetch("/api/s/" + shareRef + "/bookmark", {
+            credentials: "include",
+          });
+          if (!response.ok) {
+            throw new Error("Failed to load bookmark state");
+          }
+
+          const payload = await response.json();
+          bookmarkState.isAuthenticated = Boolean(payload.isAuthenticated);
+          bookmarkState.isBookmarked = Boolean(payload.isBookmarked);
+          if (typeof payload.bookmarkCount === "number" && Number.isFinite(payload.bookmarkCount)) {
+            bookmarkState.count = Math.max(0, Math.round(payload.bookmarkCount));
+          }
+          renderBookmarkState();
+        } catch (_error) {
+          bookmarkState.isBookmarked = false;
+          renderBookmarkState();
+        }
+      }
+
+      if (bookmarkButton) {
+        bookmarkButton.addEventListener("click", async () => {
+          if (bookmarkState.inFlight || !bookmarkState.isAuthenticated) {
+            return;
+          }
+
+          bookmarkState.inFlight = true;
+          renderBookmarkState();
+
+          try {
+            const response = await fetch("/api/s/" + shareRef + "/bookmark", {
+              method: bookmarkState.isBookmarked ? "DELETE" : "POST",
+              credentials: "include",
+            });
+            if (!response.ok) {
+              throw new Error("Bookmark request failed");
+            }
+
+            const nextIsBookmarked = !bookmarkState.isBookmarked;
+            bookmarkState.isBookmarked = nextIsBookmarked;
+            bookmarkState.count = Math.max(
+              0,
+              bookmarkState.count + (nextIsBookmarked ? 1 : -1)
+            );
+          } catch (_error) {
+            // Preserve the previous state and let the user retry.
+          } finally {
+            bookmarkState.inFlight = false;
+            renderBookmarkState();
+          }
+        });
+      }
+
+      void loadBookmarkState();
 
       if (
         !discussionList ||
@@ -1692,8 +2321,6 @@ export function buildSharedArtifactHtml(
       ) {
         return;
       }
-
-      const shareRef = shareBoot.shareToken;
 
       function escHtml(s) {
         return String(s)
@@ -1786,9 +2413,15 @@ export function buildSharedArtifactHtml(
 
       function bindDiscussionAnchors(scope) {
         const audio = document.querySelector("#native-audio");
+        const hasAudio = audio?.dataset.audioAvailable === "true";
         scope.querySelectorAll(".disc-anchor").forEach((btn) =>
           btn.addEventListener("click", () => {
-            if (!audio) return;
+            if (!audio || !hasAudio) {
+              if (typeof window.__momentumShowAudioUnavailableDialog === "function") {
+                window.__momentumShowAudioUnavailableDialog();
+              }
+              return;
+            }
             audio.currentTime = +btn.dataset.t / 1000;
             audio.play().catch(function() {});
           })
@@ -2338,18 +2971,25 @@ export function buildSharedArtifactHtml(
     (() => {
       // Timestamp anchor: seek audio and highlight the active segment.
       const audio = document.querySelector("#native-audio");
+      const hasAudio = audio?.dataset.audioAvailable === "true";
       document.addEventListener("click", function(e) {
         const target = e.target;
         if (!(target instanceof Element)) return;
         const btn = target.closest("#transcript-content .ts-btn[data-seek]");
-        if (!btn || !audio) return;
+        if (!btn) return;
+        if (!audio || !hasAudio) {
+          if (typeof window.__momentumShowAudioUnavailableDialog === "function") {
+            window.__momentumShowAudioUnavailableDialog();
+          }
+          return;
+        }
         const ms = Number(btn.getAttribute("data-seek"));
         audio.currentTime = ms / 1000;
         audio.play().catch(function() {});
       });
 
       // Highlight active segment during playback
-      if (audio) {
+      if (audio && hasAudio) {
         audio.addEventListener("timeupdate", function() {
           const transcriptEl = document.getElementById("transcript-content");
           if (!transcriptEl) return;
@@ -2372,7 +3012,7 @@ export function buildSharedArtifactHtml(
       const hashMatch = hash.match(/^#t-(\\d+)$/);
       if (hashMatch) {
         const targetMs = Number(hashMatch[1]);
-        if (audio) {
+        if (audio && hasAudio) {
           audio.currentTime = targetMs / 1000;
         }
         const target = document.getElementById("t-" + targetMs);
@@ -2382,32 +3022,39 @@ export function buildSharedArtifactHtml(
       }
 
       // Custom Audio Player Logic
-      if (audio) {
-        const playBtn = document.getElementById('play-btn');
-        const playIconSvg = document.getElementById('play-icon-svg');
-        const timeCurrent = document.getElementById('time-current');
-        const timeDuration = document.getElementById('time-duration');
-        const waveformBarsContainer = document.getElementById('waveform-bars');
-        const waveformPlayer = document.getElementById('waveform-player');
-        
-        const playIcon = '<polygon points="6 3 20 12 6 21 6 3"/>';
-        const pauseIcon = '<rect x="14" y="4" width="4" height="16"/><rect x="6" y="4" width="4" height="16"/>';
+      const playBtn = document.getElementById('play-btn');
+      const playIconSvg = document.getElementById('play-icon-svg');
+      const timeCurrent = document.getElementById('time-current');
+      const timeDuration = document.getElementById('time-duration');
+      const waveformBarsContainer = document.getElementById('waveform-bars');
+      const waveformPlayer = document.getElementById('waveform-player');
+      
+      const playIcon = '<polygon points="6 3 20 12 6 21 6 3"/>';
+      const pauseIcon = '<rect x="14" y="4" width="4" height="16"/><rect x="6" y="4" width="4" height="16"/>';
 
-        const numBars = 120;
-        const bars = [];
-        if (waveformBarsContainer) {
-          for (let i = 0; i < numBars; i++) {
-            const bar = document.createElement('div');
-            bar.className = 'waveform-bar';
-            let h = Math.abs(Math.sin(i * 0.1) * Math.cos(i * 0.03) * 80) + 20;
-            h += Math.random() * 15 - 7.5;
-            if (h > 100) h = 100;
-            if (h < 5) h = 5;
-            bar.style.height = h + '%';
-            waveformBarsContainer.appendChild(bar);
-            bars.push(bar);
-          }
+      const numBars = 120;
+      const bars = [];
+      if (waveformBarsContainer) {
+        for (let i = 0; i < numBars; i++) {
+          const bar = document.createElement('div');
+          bar.className = 'waveform-bar';
+          let h = Math.abs(Math.sin(i * 0.1) * Math.cos(i * 0.03) * 80) + 20;
+          h += Math.random() * 15 - 7.5;
+          if (h > 100) h = 100;
+          if (h < 5) h = 5;
+          bar.style.height = h + '%';
+          waveformBarsContainer.appendChild(bar);
+          bars.push(bar);
         }
+      }
+
+      function showAudioUnavailable() {
+        if (typeof window.__momentumShowAudioUnavailableDialog === "function") {
+          window.__momentumShowAudioUnavailableDialog();
+        }
+      }
+
+      if (audio && hasAudio) {
 
         function formatTime(sec) {
           if (Number.isNaN(sec) || !isFinite(sec)) return '--:--';
@@ -2493,6 +3140,21 @@ export function buildSharedArtifactHtml(
                 try { waveformPlayer.releasePointerCapture(e.pointerId); } catch(err) {}
               }
             }
+          });
+        }
+      } else {
+        if (playBtn) {
+          playBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            showAudioUnavailable();
+          });
+        }
+
+        if (waveformPlayer) {
+          waveformPlayer.addEventListener('pointerdown', function(e) {
+            e.preventDefault();
+            showAudioUnavailable();
           });
         }
       }

@@ -57,6 +57,7 @@ import {
   isMemoFailed,
   isMemoProcessing,
   type Memo,
+  type SharedMemoBookmark,
 } from "@/lib/memo-ui";
 
 const TRANSCRIPT_TIMESTAMPS_STORAGE_KEY = "memo-transcript-show-timestamps";
@@ -99,6 +100,37 @@ function MemoListItem({
         <span>{`${durationLabel} · ${costLabel}`}</span>
       </div>
     </div>
+  );
+}
+
+function SharedMemoBookmarkListItem({
+  bookmark,
+}: {
+  bookmark: SharedMemoBookmark;
+}) {
+  const fallbackInitial = bookmark.authorName.trim().charAt(0).toUpperCase() || "?";
+
+  return (
+    <a
+      href={`/s/${bookmark.shareToken}`}
+      className="px-5 py-4 border-b border-white/5 flex flex-col gap-2 transition-colors hover:bg-white/5 text-white/80"
+    >
+      <div className="font-medium text-sm truncate text-white/90">{bookmark.title}</div>
+      <div className="flex items-center gap-2 text-xs text-white/45">
+        {bookmark.authorAvatarUrl ? (
+          <img
+            src={bookmark.authorAvatarUrl}
+            alt={bookmark.authorName}
+            className="h-5 w-5 rounded-full object-cover"
+          />
+        ) : (
+          <span className="h-5 w-5 rounded-full bg-white/10 text-[10px] font-semibold text-white/70 flex items-center justify-center">
+            {fallbackInitial}
+          </span>
+        )}
+        <span className="truncate">{bookmark.authorName}</span>
+      </div>
+    </a>
   );
 }
 
@@ -567,6 +599,7 @@ export function MemoDetailView({
 }
 
 type MemoSidebarProps = {
+  filteredBookmarkedMemos: SharedMemoBookmark[];
   filteredMemos: Memo[];
   isSignedIn: boolean | undefined;
   loading: boolean;
@@ -577,6 +610,7 @@ type MemoSidebarProps = {
 };
 
 export function MemoSidebar({
+  filteredBookmarkedMemos,
   filteredMemos,
   isSignedIn,
   loading,
@@ -659,7 +693,7 @@ export function MemoSidebar({
             <Loader2 size={18} className="animate-spin" />
             <p className="text-xs">Loading from Supabase...</p>
           </div>
-        ) : filteredMemos.length === 0 ? (
+        ) : filteredMemos.length === 0 && filteredBookmarkedMemos.length === 0 ? (
           <div className="text-center py-10 text-white/30 px-4">
             <p className="text-sm">
               {!isSignedIn
@@ -671,6 +705,19 @@ export function MemoSidebar({
           </div>
         ) : (
           <div className="flex flex-col">
+            {filteredBookmarkedMemos.length > 0 ? (
+              <>
+                <div className="px-5 py-3 text-[11px] font-mono uppercase tracking-[0.24em] text-white/25 border-b border-white/5">
+                  Saved shares
+                </div>
+                {filteredBookmarkedMemos.map((bookmark) => (
+                  <SharedMemoBookmarkListItem
+                    key={`${bookmark.memoId}:${bookmark.bookmarkedAt}`}
+                    bookmark={bookmark}
+                  />
+                ))}
+              </>
+            ) : null}
             {filteredMemos.map((memo) => (
               <MemoListItem
                 key={memo.id}
