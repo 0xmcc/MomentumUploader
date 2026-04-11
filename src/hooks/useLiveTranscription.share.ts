@@ -66,7 +66,6 @@ export function useLiveTranscriptionShare({
             const liveMemoResponse = await fetch("/api/memos/live", { method: "POST" });
             if (liveMemoResponse.status === 401) {
                 resetLiveShareSession();
-                onUnauthorizedRef.current?.();
                 return;
             }
 

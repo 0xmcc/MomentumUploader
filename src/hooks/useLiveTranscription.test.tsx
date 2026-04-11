@@ -695,6 +695,60 @@ describe("useLiveTranscription session controls", () => {
         unmount();
     });
 
+    it("keeps live transcription running when live memo setup is unauthorized", async () => {
+        const fetchMock = jest.fn(async (url: string) => {
+            if (url === "/api/memos/live") {
+                return {
+                    ok: false,
+                    status: 401,
+                    json: async () => ({ error: "Unauthorized" }),
+                };
+            }
+
+            if (url === "/api/transcribe/live") {
+                return makeTranscribeResponse("signed out live transcript");
+            }
+
+            return {
+                ok: true,
+                json: async () => ({ ok: true }),
+            };
+        });
+
+        Object.defineProperty(global, "fetch", {
+            writable: true,
+            value: fetchMock,
+        });
+
+        const refs = buildChunkRefs(20);
+        const { result, unmount } = renderHook(() => useLiveTranscription(refs));
+
+        act(() => {
+            result.current.beginRecordingSession();
+        });
+
+        await act(async () => {
+            await flushMicrotasks();
+        });
+
+        act(() => {
+            result.current.runLiveTick();
+        });
+
+        await waitFor(() => {
+            expect(result.current.liveTranscript).toBe("signed out live transcript");
+        });
+
+        expect(result.current.liveMemoId).toBeNull();
+        expect(result.current.liveShareState).toBe("idle");
+        expect(fetchMock).not.toHaveBeenCalledWith(
+            expect.stringMatching(/^\/api\/memos\/.+\/share$/),
+            expect.anything()
+        );
+
+        unmount();
+    });
+
     it("copies the live share URL and restores the ready state after the timeout", async () => {
         jest.useFakeTimers();
         const memoId = "memo-live-share";
