@@ -378,13 +378,32 @@ describe("share-contract", () => {
         } as SharedArtifactPayload);
         
         expect(html).toContain('class="engagement-row"');
-        expect(html).toContain('class="engagement-btn comment-btn"');
+        expect(html).toContain('class="engagement-btn compact-metric-btn comment-btn"');
         expect(html).toContain('share-btn');
         expect(html).toContain("Share");
         expect(html).toContain('id="bookmark-share-btn"');
         expect(html).toContain('id="bookmark-share-count"');
         expect(html).toContain(">7<");
         expect(html).toContain('id="bookmark-share-signin"');
+    });
+
+    it("renders compact engagement controls with icon-only comment and save actions", () => {
+        const html = buildSharedArtifactHtml(
+            {
+                ...basePayload,
+                bookmarkCount: 7,
+            } as SharedArtifactPayload,
+            { viewer: { isAuthenticated: true } } as never
+        );
+
+        expect(html).toContain('class="engagement-actions engagement-actions-left"');
+        expect(html).toContain('class="engagement-actions engagement-actions-right"');
+        expect(html).toContain('class="engagement-btn compact-metric-btn comment-btn"');
+        expect(html).toContain('class="engagement-btn compact-metric-btn bookmark-btn"');
+        expect(html).toContain('id="bookmark-share-label" class="sr-only"');
+        expect(html).not.toContain(">Notes<");
+        expect(html).toContain(".engagement-btn.share-btn {\n      flex: 0 0 auto;");
+        expect(html).toContain(".compact-metric-btn {\n      min-height: 2.5rem;");
     });
 
     it("renders the waveform above the transcript divider when shared audio is available", () => {

@@ -766,30 +766,46 @@ export function buildSharedArtifactHtml(
     }
     .engagement-row {
       display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
       flex-wrap: wrap;
-      align-items: stretch;
-      gap: 0.75rem;
       margin-top: 1.5rem;
-      padding-top: 1rem;
+      padding: 1rem 0;
       border-top: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
+      border-bottom: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
+    }
+    .engagement-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 1rem;
+      min-width: 0;
+    }
+    .engagement-actions-left {
+      justify-content: flex-start;
+      flex-wrap: wrap;
+    }
+    .engagement-actions-right {
+      margin-left: auto;
+      justify-content: flex-end;
     }
     .engagement-btn {
       display: inline-flex;
       align-items: center;
       justify-content: space-between;
       gap: 0.75rem;
-      flex: 1 1 11rem;
-      min-height: 3.5rem;
+      flex: 0 0 auto;
+      min-height: 2.75rem;
       box-sizing: border-box;
       background: color-mix(in srgb, var(--surface) 72%, transparent);
       border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
       color: color-mix(in srgb, var(--foreground) 82%, transparent);
-      font-size: 0.95rem;
-      font-weight: 600;
+      font-size: 0.9rem;
+      font-weight: 500;
       font-family: inherit;
       cursor: pointer;
-      padding: 0.8rem 0.95rem;
-      border-radius: 18px;
+      padding: 0.6rem 0.9rem;
+      border-radius: 999px;
       transition: transform 0.2s, background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
       text-decoration: none;
     }
@@ -817,6 +833,17 @@ export function buildSharedArtifactHtml(
       gap: 0.65rem;
       min-width: 0;
     }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
     .engagement-label {
       white-space: nowrap;
     }
@@ -834,9 +861,37 @@ export function buildSharedArtifactHtml(
       font-weight: 700;
       letter-spacing: 0.01em;
     }
+    .compact-metric-btn {
+      min-height: 2.5rem;
+      padding: 0.2rem 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+      color: color-mix(in srgb, var(--foreground) 74%, transparent);
+      position: relative;
+    }
+    .compact-metric-btn .engagement-main {
+      gap: 0.45rem;
+    }
+    .compact-metric-btn .engagement-count-badge {
+      min-width: 0;
+      height: auto;
+      padding: 0;
+      border-radius: 0;
+      background: transparent;
+      font-size: 1.05rem;
+      font-weight: 500;
+      color: inherit;
+    }
+    .compact-metric-btn:hover {
+      background: transparent;
+      border-color: transparent;
+      box-shadow: none;
+      color: var(--foreground);
+      transform: none;
+    }
     .engagement-btn.bookmark-btn[data-bookmarked="true"] {
-      background: color-mix(in srgb, var(--accent) 14%, var(--surface) 86%);
-      border-color: color-mix(in srgb, var(--accent) 50%, var(--border) 50%);
       color: var(--foreground);
     }
     .engagement-btn.bookmark-btn[data-bookmarked="true"] .bookmark-icon {
@@ -846,14 +901,22 @@ export function buildSharedArtifactHtml(
       color: color-mix(in srgb, var(--foreground) 78%, transparent);
     }
     .engagement-btn.share-btn {
-      flex: 1 1 9rem;
+      flex: 0 0 auto;
+      min-height: 2.5rem;
+      padding: 0.5rem 0.95rem;
+      font-size: 0.88rem;
     }
     @media (max-width: 560px) {
-      .engagement-btn {
-        flex-basis: calc(50% - 0.375rem);
+      .engagement-row {
+        gap: 0.75rem;
       }
-      .engagement-btn.share-btn {
-        flex-basis: 100%;
+      .engagement-actions {
+        gap: 0.85rem;
+      }
+      .engagement-actions-right {
+        margin-left: 0;
+        width: 100%;
+        justify-content: flex-start;
       }
     }
     h2 { 
@@ -1614,27 +1677,30 @@ export function buildSharedArtifactHtml(
           </div>
         </div>
         <div class="engagement-row">
-          <a href="#comments-root" class="engagement-btn comment-btn" aria-label="View comments">
-            <span class="engagement-main">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-              <span class="engagement-label">Notes</span>
-            </span>
-            <span id="engagement-comment-count" class="engagement-count-badge">0</span>
-          </a>
-          <button type="button" id="bookmark-share-btn" class="engagement-btn bookmark-btn" data-viewer-authenticated="${viewerIsAuthenticated ? "true" : "false"}" data-bookmark-count="${bookmarkCount}" data-bookmarked="false" style="${viewerIsAuthenticated ? "" : "display:none"}">
-            <span class="engagement-main">
-              <svg class="bookmark-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"></path></svg>
-              <span id="bookmark-share-label" class="engagement-label">Save</span>
-            </span>
-            <span id="bookmark-share-count" class="engagement-count-badge">${bookmarkCount}</span>
-          </button>
-          ${bookmarkSignInHtml}
-          <button type="button" class="engagement-btn share-btn copy-link-btn" aria-label="Copy canonical URL" data-url="${escapedCanonicalUrl}">
-            <span class="engagement-main">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
-              <span class="engagement-label">Share</span>
-            </span>
-          </button>
+          <div class="engagement-actions engagement-actions-left">
+            <a href="#comments-root" class="engagement-btn compact-metric-btn comment-btn" aria-label="View comments">
+              <span class="engagement-main">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                <span id="engagement-comment-count" class="engagement-count-badge">0</span>
+              </span>
+            </a>
+            <button type="button" id="bookmark-share-btn" class="engagement-btn compact-metric-btn bookmark-btn" aria-label="Save memo" data-viewer-authenticated="${viewerIsAuthenticated ? "true" : "false"}" data-bookmark-count="${bookmarkCount}" data-bookmarked="false" style="${viewerIsAuthenticated ? "" : "display:none"}">
+              <span class="engagement-main">
+                <svg class="bookmark-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"></path></svg>
+                <span id="bookmark-share-count" class="engagement-count-badge">${bookmarkCount}</span>
+              </span>
+              <span id="bookmark-share-label" class="sr-only">Save</span>
+            </button>
+            ${bookmarkSignInHtml}
+          </div>
+          <div class="engagement-actions engagement-actions-right">
+            <button type="button" class="engagement-btn share-btn copy-link-btn" aria-label="Copy canonical URL" data-url="${escapedCanonicalUrl}">
+              <span class="engagement-main">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+                <span class="engagement-label">Share</span>
+              </span>
+            </button>
+          </div>
         </div>
       </header>
       ${liveStatusNotice}
@@ -2246,6 +2312,10 @@ export function buildSharedArtifactHtml(
         bookmarkButton.dataset.bookmarked = bookmarkState.isBookmarked ? "true" : "false";
         bookmarkButton.dataset.bookmarkCount = String(bookmarkState.count);
         bookmarkLabel.textContent = bookmarkState.isBookmarked ? "Saved" : "Save";
+        bookmarkButton.setAttribute(
+          "aria-label",
+          bookmarkState.isBookmarked ? "Saved memo" : "Save memo"
+        );
         bookmarkCountLabel.textContent = String(bookmarkState.count);
       }
 
