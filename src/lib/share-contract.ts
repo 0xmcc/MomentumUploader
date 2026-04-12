@@ -154,6 +154,8 @@ function escapeHtml(input: string): string {
 }
 
 function renderAiDestinationIcon(id: AiDestination["id"]): string {
+  const gradientId = `gemini-icon-gradient-${id}`;
+
   switch (id) {
     case "chatgpt":
       return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -167,12 +169,12 @@ function renderAiDestinationIcon(id: AiDestination["id"]): string {
     case "gemini":
       return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <defs>
-          <linearGradient id="gemini-icon-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <linearGradient id="${gradientId}" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stop-color="#4f8cff"></stop>
             <stop offset="100%" stop-color="#8b5cf6"></stop>
           </linearGradient>
         </defs>
-        <path d="M12 2.5 14.65 9.35 21.5 12l-6.85 2.65L12 21.5l-2.65-6.85L2.5 12l6.85-2.65L12 2.5Z" fill="url(#gemini-icon-gradient)"/>
+        <path d="M12 2.5 14.65 9.35 21.5 12l-6.85 2.65L12 21.5l-2.65-6.85L2.5 12l6.85-2.65L12 2.5Z" fill="url(#${gradientId})"/>
       </svg>`;
     case "grok":
       return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -182,21 +184,34 @@ function renderAiDestinationIcon(id: AiDestination["id"]): string {
   }
 }
 
-function renderAiDestinationLink(destination: AiDestination): string {
+type AiDestinationLinkOptions = {
+  className?: string;
+  idPrefix?: string;
+  label?: string;
+};
+
+function renderAiDestinationLink(
+  destination: AiDestination,
+  options: AiDestinationLinkOptions = {}
+): string {
   const appName = escapeHtml(destination.name);
   const appUrl = escapeHtml(destination.url);
+  const className = escapeHtml(options.className ?? "ai-app-link");
+  const idPrefix = escapeHtml(options.idPrefix ?? "send-to");
+  const label = escapeHtml(options.label ?? destination.name);
 
   return `<a
-      id="send-to-${destination.id}-link"
-      class="ai-app-link ai-app-link-${destination.id}"
+      id="${idPrefix}-${destination.id}-link"
+      class="${className} ai-app-link-${destination.id}"
       href="${appUrl}"
       target="_blank"
       rel="noreferrer noopener"
       style="--ai-accent:${destination.accent}"
       aria-label="Open ${appName}"
+      data-ai-destination="${destination.id}"
     >
       <span class="ai-app-icon">${renderAiDestinationIcon(destination.id)}</span>
-      <span class="ai-app-name">${appName}</span>
+      <span class="ai-app-name" data-copy-feedback-target="true">${label}</span>
     </a>`;
 }
 
@@ -596,7 +611,16 @@ export function buildSharedArtifactHtml(
           )
           .join("")}</ol></section>`
       : "";
-  const sendToAiAppsHtml = AI_DESTINATIONS.map(renderAiDestinationLink).join("");
+  const sendToAiAppsHtml = AI_DESTINATIONS.map((destination) =>
+    renderAiDestinationLink(destination)
+  ).join("");
+  const copyToAiAppsHtml = AI_DESTINATIONS.map((destination) =>
+    renderAiDestinationLink(destination, {
+      className: "ai-app-link copy-ai-link",
+      idPrefix: "copy-open",
+      label: `Open ${destination.name}`,
+    })
+  ).join("");
 
   return `<!doctype html>
 <html lang="en">
@@ -1139,6 +1163,40 @@ export function buildSharedArtifactHtml(
       border-radius: 12px;
       padding: 0.65rem 0.8rem;
     }
+    .copy-transcript-menu-shell {
+      position: relative;
+    }
+    .copy-transcript-submenu-trigger {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    .copy-transcript-submenu-trigger[aria-expanded="true"] {
+      border-color: color-mix(in srgb, var(--accent) 45%, var(--border) 55%);
+      background: color-mix(in srgb, var(--foreground) 8%, transparent);
+    }
+    .copy-transcript-submenu-caret {
+      color: color-mix(in srgb, var(--foreground) 52%, transparent);
+      font-size: 1rem;
+      line-height: 1;
+    }
+    .copy-transcript-submenu {
+      position: absolute;
+      top: -0.45rem;
+      left: calc(100% - 0.18rem);
+      min-width: 13.5rem;
+      padding: 0.45rem;
+      border-radius: 16px;
+      border: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+      background: color-mix(in srgb, var(--background) 94%, white 6%);
+      box-shadow: 0 18px 42px rgba(15, 23, 42, 0.14);
+      display: grid;
+      gap: 0.35rem;
+    }
+    .copy-transcript-submenu[hidden] {
+      display: none;
+    }
     .generate-panel {
       margin-top: 1rem;
       padding: 1.1rem;
@@ -1471,6 +1529,23 @@ export function buildSharedArtifactHtml(
         linear-gradient(135deg, color-mix(in srgb, var(--ai-accent) 22%, transparent), transparent 55%),
         color-mix(in srgb, var(--surface) 70%, transparent);
     }
+    .copy-ai-link {
+      min-height: 2.9rem;
+      padding: 0.72rem 0.85rem;
+      border-radius: 12px;
+      gap: 0.65rem;
+      transform: none;
+    }
+    .copy-ai-link:hover {
+      transform: none;
+    }
+    .copy-ai-link .ai-app-icon {
+      width: 1.6rem;
+      height: 1.6rem;
+    }
+    .copy-ai-link .ai-app-name {
+      font-size: 0.92rem;
+    }
     .ai-app-icon {
       width: 2.35rem;
       height: 2.35rem;
@@ -1493,6 +1568,10 @@ export function buildSharedArtifactHtml(
       letter-spacing: -0.01em;
     }
     @media (max-width: 560px) {
+      .copy-transcript-submenu {
+        top: calc(100% + 0.35rem);
+        left: 0;
+      }
       .send-to-ai-app-grid {
         grid-template-columns: 1fr;
       }
@@ -1849,7 +1928,15 @@ export function buildSharedArtifactHtml(
                 <button type="button" id="transcript-actions-toggle-btn" class="copy-transcript-btn transcript-actions-toggle" aria-expanded="false" aria-controls="transcript-actions-menu" aria-label="More transcript actions">...</button>
                 <div id="transcript-actions-menu" class="transcript-actions-menu" hidden>
                   <button type="button" id="export-transcript-btn" class="export-transcript-btn" data-filename="${escapeHtml(transcriptFileName)}">Export</button>
-                  <button type="button" id="copy-transcript-btn" class="copy-transcript-btn">Copy</button>
+                  <div id="copy-transcript-menu-shell" class="copy-transcript-menu-shell">
+                    <button type="button" id="copy-transcript-btn" class="copy-transcript-btn copy-transcript-submenu-trigger" aria-expanded="false" aria-haspopup="true" aria-controls="copy-transcript-submenu">
+                      <span data-copy-feedback-target="true">Copy</span>
+                      <span class="copy-transcript-submenu-caret" aria-hidden="true">›</span>
+                    </button>
+                    <div id="copy-transcript-submenu" class="copy-transcript-submenu" hidden>
+                      ${copyToAiAppsHtml}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2248,6 +2335,9 @@ export function buildSharedArtifactHtml(
 
       const exportButton = document.getElementById("export-transcript-btn");
       const copyButton = document.getElementById("copy-transcript-btn");
+      const copyMenuShell = document.getElementById("copy-transcript-menu-shell");
+      const copySubmenu = document.getElementById("copy-transcript-submenu");
+      const copyOpenAiLinks = Array.from(document.querySelectorAll("[id^='copy-open-']"));
       const generateToggleButton = document.getElementById("generate-toggle-btn");
       const generatePanel = document.getElementById("generate-panel");
       const transcriptActionsShell = document.querySelector(".transcript-actions-menu-shell");
@@ -2275,21 +2365,23 @@ export function buildSharedArtifactHtml(
       function copyTranscript(button) {
         const textToCopy = getTranscriptText();
         if (!textToCopy) return;
+        const feedbackTarget =
+          button?.querySelector?.("[data-copy-feedback-target='true']") || button;
 
         navigator.clipboard.writeText(textToCopy).then(() => {
-          if (!button) return;
-          const originalText = button.textContent;
-          button.textContent = "Copied!";
+          if (!feedbackTarget) return;
+          const originalText = feedbackTarget.textContent;
+          feedbackTarget.textContent = "Copied!";
           setTimeout(() => {
-            button.textContent = originalText;
+            feedbackTarget.textContent = originalText;
           }, 2000);
         }).catch((err) => {
           console.error("Failed to copy text: ", err);
-          if (!button) return;
-          const originalText = button.textContent;
-          button.textContent = "Copy failed";
+          if (!feedbackTarget) return;
+          const originalText = feedbackTarget.textContent;
+          feedbackTarget.textContent = "Copy failed";
           setTimeout(() => {
-            button.textContent = originalText;
+            feedbackTarget.textContent = originalText;
           }, 2000);
         });
       }
@@ -2329,16 +2421,51 @@ export function buildSharedArtifactHtml(
         generateToggleButton.setAttribute("aria-expanded", isOpen ? "true" : "false");
       }
 
+      function containsRelatedTarget(container, relatedTarget) {
+        return relatedTarget instanceof Node && !!container?.contains(relatedTarget);
+      }
+
+      function setCopySubmenuOpen(isOpen) {
+        if (!copySubmenu || !copyButton) return;
+        copySubmenu.hidden = !isOpen;
+        copyButton.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      }
+
       function setTranscriptActionsOpen(isOpen) {
         if (!transcriptActionsMenu || !transcriptActionsToggle) return;
         transcriptActionsMenu.hidden = !isOpen;
         transcriptActionsToggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+        if (!isOpen) {
+          setCopySubmenuOpen(false);
+        }
       }
 
       if (copyButton) {
         copyButton.addEventListener("click", () => {
           copyTranscript(copyButton);
+          setCopySubmenuOpen(false);
           setTranscriptActionsOpen(false);
+        });
+      }
+
+      if (copyMenuShell) {
+        copyMenuShell.addEventListener("mouseenter", () => {
+          setCopySubmenuOpen(true);
+        });
+        copyMenuShell.addEventListener("mouseleave", (event) => {
+          if (containsRelatedTarget(copyMenuShell, event.relatedTarget)) {
+            return;
+          }
+          setCopySubmenuOpen(false);
+        });
+        copyMenuShell.addEventListener("focusin", () => {
+          setCopySubmenuOpen(true);
+        });
+        copyMenuShell.addEventListener("focusout", (event) => {
+          const nextTarget = event.relatedTarget;
+          if (!(nextTarget instanceof Node) || !copyMenuShell.contains(nextTarget)) {
+            setCopySubmenuOpen(false);
+          }
         });
       }
 
@@ -2366,11 +2493,28 @@ export function buildSharedArtifactHtml(
         });
       }
 
+      copyOpenAiLinks.forEach((link) => {
+        link.addEventListener("click", (event) => {
+          event.preventDefault();
+          const href = link.getAttribute("href");
+          copyTranscript(copyButton);
+          setCopySubmenuOpen(false);
+          setTranscriptActionsOpen(false);
+          if (href) {
+            window.open(href, "_blank", "noopener,noreferrer");
+          }
+        });
+      });
+
       if (transcriptActionsShell) {
         transcriptActionsShell.addEventListener("mouseenter", () => {
           setTranscriptActionsOpen(true);
         });
-        transcriptActionsShell.addEventListener("mouseleave", () => {
+        transcriptActionsShell.addEventListener("mouseleave", (event) => {
+          if (containsRelatedTarget(transcriptActionsShell, event.relatedTarget)) {
+            return;
+          }
+          setCopySubmenuOpen(false);
           setTranscriptActionsOpen(false);
         });
       }

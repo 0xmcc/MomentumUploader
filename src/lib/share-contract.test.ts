@@ -305,9 +305,15 @@ describe("share-contract", () => {
         expect(html).toContain('id="generate-toggle-btn"');
         expect(html).toContain('id="transcript-actions-toggle-btn"');
         expect(html).toContain('id="transcript-actions-menu"');
+        expect(html).toContain('id="copy-transcript-menu-shell"');
+        expect(html).toContain('id="copy-transcript-submenu"');
         expect(html).toContain("Generate");
         expect(html).toContain("Generate from this memo");
-        expect(html).toContain("Copy transcript");
+        expect(html).toContain(">Copy<");
+        expect(html).toContain("Open ChatGPT");
+        expect(html).toContain("Open Claude");
+        expect(html).toContain("Open Gemini");
+        expect(html).toContain("Open Grok");
         expect(html).toContain('href="https://chatgpt.com/"');
         expect(html).toContain('href="https://claude.ai/"');
         expect(html).toContain('href="https://gemini.google.com/app"');
@@ -324,6 +330,8 @@ describe("share-contract", () => {
         const generatePanel = parsed.getElementById("generate-panel");
         const actionsToggle = parsed.getElementById("transcript-actions-toggle-btn");
         const actionsMenu = parsed.getElementById("transcript-actions-menu");
+        const copyMenuShell = parsed.getElementById("copy-transcript-menu-shell");
+        const copySubmenu = parsed.getElementById("copy-transcript-submenu");
         const legacySendToAiButton = parsed.getElementById("send-to-ai-btn");
 
         expect(waveform).not.toBeNull();
@@ -334,8 +342,14 @@ describe("share-contract", () => {
         expect(generatePanel?.textContent).toContain("Generate from this memo");
         expect(actionsToggle).not.toBeNull();
         expect(actionsMenu).not.toBeNull();
+        expect(copyMenuShell).not.toBeNull();
+        expect(copySubmenu).not.toBeNull();
         expect(actionsMenu?.querySelector("#export-transcript-btn")).not.toBeNull();
         expect(actionsMenu?.querySelector("#copy-transcript-btn")).not.toBeNull();
+        expect(actionsMenu?.querySelector("#copy-open-chatgpt-link")).not.toBeNull();
+        expect(actionsMenu?.querySelector("#copy-open-claude-link")).not.toBeNull();
+        expect(actionsMenu?.querySelector("#copy-open-gemini-link")).not.toBeNull();
+        expect(actionsMenu?.querySelector("#copy-open-grok-link")).not.toBeNull();
         expect(legacySendToAiButton).toBeNull();
         expect(
             waveform?.compareDocumentPosition(transcriptHeading as Node) &
@@ -1312,6 +1326,83 @@ describe("share-contract", () => {
 
         expect(actionsMenu.hidden).toBe(true);
         expect(actionsToggle.getAttribute("aria-expanded")).toBe("false");
+    });
+
+    it("reveals a nested copy submenu and copies the transcript before opening an AI app", async () => {
+        const writeText = jest.fn().mockResolvedValue(undefined);
+        const openSpy = jest.spyOn(window, "open").mockImplementation(() => null);
+        const html = buildSharedArtifactHtml(basePayload);
+        const fetchMock = jest.fn().mockResolvedValue(emptyDiscussionResponse);
+
+        await loadSharePageScript(html, fetchMock);
+
+        Object.defineProperty(global.navigator, "clipboard", {
+            configurable: true,
+            value: { writeText },
+        });
+
+        const actionsShell = document.querySelector(".transcript-actions-menu-shell") as HTMLElement;
+        const copyShell = document.getElementById("copy-transcript-menu-shell") as HTMLElement;
+        const copyButton = document.getElementById("copy-transcript-btn") as HTMLButtonElement;
+        const copySubmenu = document.getElementById("copy-transcript-submenu") as HTMLElement;
+        const chatGptLink = document.getElementById("copy-open-chatgpt-link") as HTMLAnchorElement;
+
+        expect(actionsShell).not.toBeNull();
+        expect(copyShell).not.toBeNull();
+        expect(copyButton).not.toBeNull();
+        expect(copySubmenu).not.toBeNull();
+        expect(chatGptLink).not.toBeNull();
+        expect(copySubmenu.hidden).toBe(true);
+        expect(copyButton.getAttribute("aria-expanded")).toBe("false");
+
+        actionsShell.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+        copyShell.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+
+        expect(copySubmenu.hidden).toBe(false);
+        expect(copyButton.getAttribute("aria-expanded")).toBe("true");
+
+        chatGptLink.dispatchEvent(
+            new MouseEvent("click", { bubbles: true, cancelable: true })
+        );
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        expect(writeText).toHaveBeenCalledWith(basePayload.transcript);
+        expect(openSpy).toHaveBeenCalledWith("https://chatgpt.com/", "_blank", "noopener,noreferrer");
+        expect(copySubmenu.hidden).toBe(true);
+        expect(copyButton.getAttribute("aria-expanded")).toBe("false");
+
+        openSpy.mockRestore();
+    });
+
+    it("keeps the actions menu open while the pointer moves from Copy into the nested submenu", async () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        const fetchMock = jest.fn().mockResolvedValue(emptyDiscussionResponse);
+
+        await loadSharePageScript(html, fetchMock);
+
+        const actionsShell = document.querySelector(".transcript-actions-menu-shell") as HTMLElement;
+        const actionsMenu = document.getElementById("transcript-actions-menu") as HTMLElement;
+        const copyShell = document.getElementById("copy-transcript-menu-shell") as HTMLElement;
+        const copySubmenu = document.getElementById("copy-transcript-submenu") as HTMLElement;
+
+        actionsShell.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+        copyShell.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+
+        expect(actionsMenu.hidden).toBe(false);
+        expect(copySubmenu.hidden).toBe(false);
+
+        actionsShell.dispatchEvent(
+            new MouseEvent("mouseleave", {
+                bubbles: true,
+                relatedTarget: copySubmenu,
+            })
+        );
+
+        expect(actionsMenu.hidden).toBe(false);
+        expect(copySubmenu.hidden).toBe(false);
     });
 
     it("shows the sign-in hint for unauthenticated non-owners after discussion loads", async () => {
