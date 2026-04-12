@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile as execFileCallback } from "node:child_process";
-import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -31,12 +31,10 @@ test(
     }
 
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memo-agent-docker-smoke-"));
-    const hostWorkspaceDir = path.join(tempRoot, "workspace");
     const envFile = path.join(tempRoot, ".env");
     const overrideFile = path.join(tempRoot, "docker-compose.smoke.yml");
-    const smokeFile = path.join(hostWorkspaceDir, "compose-smoke.txt");
+    const projectName = `memoagentsmoke${path.basename(tempRoot).replace(/[^a-z0-9]/gi, "")}`.toLowerCase();
 
-    await mkdir(hostWorkspaceDir, { recursive: true });
     await writeFile(
       envFile,
       [
@@ -44,7 +42,6 @@ test(
         "SUPABASE_SERVICE_ROLE_KEY=test-service-role-key",
         "ANTHROPIC_API_KEY=test-anthropic-key",
         "ANTHROPIC_MODEL=",
-        `SMOKE_WORKSPACE_HOST=${hostWorkspaceDir}`,
         "",
       ].join("\n"),
       "utf8"
@@ -58,19 +55,19 @@ test(
         "    command:",
         '      - "node"',
         '      - "-e"',
-        '      - "const fs=require(\\"node:fs\\");const target=\\"/tmp/memo-workspaces/compose-smoke.txt\\";fs.mkdirSync(\\"/tmp/memo-workspaces\\",{recursive:true});fs.writeFileSync(target,\\"uid=\\"+process.getuid()+\\"\\\\n\\");console.log(fs.readFileSync(target,\\"utf8\\"));"',
-        "    volumes:",
-        '      - "${SMOKE_WORKSPACE_HOST}:/tmp/memo-workspaces"',
+        '      - "const fs=require(\\"node:fs\\");if(process.getuid()===0){throw new Error(\\"worker must not run as root\\");}const target=\\"/tmp/memo-workspaces/compose-smoke.txt\\";fs.mkdirSync(\\"/tmp/memo-workspaces\\",{recursive:true});fs.writeFileSync(target,\\"uid=\\"+process.getuid()+\\"\\\\n\\");console.log(fs.readFileSync(target,\\"utf8\\"));"',
         "",
       ].join("\n"),
       "utf8"
     );
 
     try {
-      await execFile(
+      const { stdout } = await execFile(
         "docker",
         [
           "compose",
+          "-p",
+          projectName,
           "--env-file",
           envFile,
           "-f",
@@ -88,15 +85,15 @@ test(
         }
       );
 
-      await access(smokeFile);
-      const smokeContents = await readFile(smokeFile, "utf8");
-      assert.match(smokeContents, /^uid=\d+\n$/);
-      assert.doesNotMatch(smokeContents, /^uid=0$/m);
+      assert.match(stdout, /uid=\d+/);
+      assert.doesNotMatch(stdout, /uid=0/);
     } finally {
       await execFile(
         "docker",
         [
           "compose",
+          "-p",
+          projectName,
           "--env-file",
           envFile,
           "-f",
