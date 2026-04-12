@@ -4,7 +4,8 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
-    "test": "tsx --test src/**/*.test.ts"
+    "test": "tsx --test src/**/*.test.ts",
+    "test:docker": "tsx --test src/docker-smoke.integration.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.2.104",
