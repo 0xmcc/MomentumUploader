@@ -1,0 +1,19 @@
+{
+  "name": "memo-agent-worker",
+  "private": true,
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "test": "tsx --test src/**/*.test.ts",
+    "test:docker": "tsx --test src/docker-smoke.integration.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.2.104",
+    "@supabase/supabase-js": "^2.97.0",
+    "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "^5"
+  }
+}

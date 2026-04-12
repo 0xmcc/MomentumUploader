@@ -1,0 +1,43 @@
+name: Agent Worker Docker Smoke
+
+on:
+  push:
+    paths:
+      - ".github/workflows/agent-worker-docker-smoke.yml"
+      - "agent-worker/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-worker
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: agent-worker/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Write smoke-test env file
+        run: |
+          cat > .env <<'EOF'
+          SUPABASE_URL=https://example.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY=test-service-role-key
+          ANTHROPIC_API_KEY=test-anthropic-key
+          ANTHROPIC_MODEL=
+          EOF
+
+      - name: Run Docker Compose smoke test
+        run: npm run test:docker

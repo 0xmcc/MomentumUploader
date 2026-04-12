@@ -1,0 +1,27 @@
+services:
+  memo-agent-worker:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL:?SUPABASE_URL is required}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY is required}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - const fs=require('node:fs');fs.mkdirSync('/tmp/memo-workspaces',{recursive:true});fs.accessSync('/tmp/memo-workspaces',fs.constants.W_OK)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    volumes:
+      # Optional: persist memo workspaces at the worker's DEFAULT_WORKSPACE_ROOT.
+      - memo-workspaces:/tmp/memo-workspaces
+
+volumes:
+  memo-workspaces:
