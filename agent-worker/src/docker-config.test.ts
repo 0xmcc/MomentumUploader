@@ -11,7 +11,23 @@ async function readPackageFile(fileName: string) {
 }
 
 test("production Docker support uses Node 20 slim and required runtime files", async () => {
-  const [dockerfile, dockerignore, composeFile, envExample, packageJsonRaw, smokeTest] =
+  const workflowFile = path.resolve(
+    packageRoot,
+    "..",
+    ".github",
+    "workflows",
+    "agent-worker-docker-smoke.yml"
+  );
+
+  const [
+    dockerfile,
+    dockerignore,
+    composeFile,
+    envExample,
+    packageJsonRaw,
+    smokeTest,
+    workflow,
+  ] =
     await Promise.all([
       readPackageFile("Dockerfile"),
       readPackageFile(".dockerignore"),
@@ -19,6 +35,7 @@ test("production Docker support uses Node 20 slim and required runtime files", a
       readPackageFile(".env.example"),
       readPackageFile("package.json"),
       readPackageFile("src/docker-smoke.integration.ts"),
+      readFile(workflowFile, "utf8"),
     ]);
 
   const packageJson = JSON.parse(packageJsonRaw) as {
@@ -63,4 +80,9 @@ test("production Docker support uses Node 20 slim and required runtime files", a
 
   assert.match(smokeTest, /docker compose/m);
   assert.match(smokeTest, /\/tmp\/memo-workspaces/m);
+
+  assert.match(workflow, /^name:\s+Agent Worker Docker Smoke/m);
+  assert.match(workflow, /runs-on:\s+ubuntu-latest/m);
+  assert.match(workflow, /working-directory:\s+voice-memos\/agent-worker/m);
+  assert.match(workflow, /npm run test:docker/m);
 });
