@@ -517,11 +517,11 @@ export function buildSharedArtifactHtml(
     : "";
   const bookmarkCount = Math.max(0, payload.bookmarkCount ?? 0);
   const navbarRightHtml = viewerIsAuthenticated
-    ? `<a href="/" class="share-navbar-signup">Open app</a>`
+    ? `<a href="/" class="share-navbar-signup">Record</a>`
     : `<a href="/sign-in" class="share-navbar-signin">Sign in</a>
       <a href="/sign-up" class="share-navbar-signup">Subscribe</a>`;
   const footerPrimaryHref = viewerIsAuthenticated ? "/" : "/sign-up";
-  const footerPrimaryLabel = viewerIsAuthenticated ? "Open app" : "Create your free account";
+  const footerPrimaryLabel = viewerIsAuthenticated ? "Record" : "Create your free account";
   const bookmarkSignInHtml = viewerIsAuthenticated
     ? ""
     : `<a href="/sign-in" id="bookmark-share-signin" class="engagement-btn bookmark-auth-cta">
@@ -1469,6 +1469,9 @@ export function buildSharedArtifactHtml(
       color: var(--foreground);
       white-space: pre-wrap;
     }
+    .disc-section {
+      scroll-margin-top: clamp(8rem, 22vh, 14rem);
+    }
     .disc-form {
       margin-top: 1.25rem;
     }
@@ -1678,7 +1681,7 @@ export function buildSharedArtifactHtml(
         </div>
         <div class="engagement-row">
           <div class="engagement-actions engagement-actions-left">
-            <a href="#comments-root" class="engagement-btn compact-metric-btn comment-btn" aria-label="View comments">
+            <a href="#discussion" class="engagement-btn compact-metric-btn comment-btn" aria-label="Go to discussion">
               <span class="engagement-main">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
                 <span id="engagement-comment-count" class="engagement-count-badge">0</span>

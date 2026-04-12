@@ -286,6 +286,7 @@ export function MemoDetailView({
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editValue, setEditValue] = useState("");
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [titleError, setTitleError] = useState<string | null>(null);
   const [showVoiceoverStudio, setShowVoiceoverStudio] = useState(false);
   const [showTranscriptTimestamps, setShowTranscriptTimestamps] = useState(() => {
     if (typeof window === "undefined") {
@@ -297,12 +298,14 @@ export function MemoDetailView({
   const inputRef = useRef<HTMLInputElement>(null);
 
   function startEditing() {
+    setTitleError(null);
     setEditValue(displayTitle);
     setIsEditingTitle(true);
     setTimeout(() => inputRef.current?.select(), 0);
   }
 
   function cancelEditing() {
+    setTitleError(null);
     setIsEditingTitle(false);
   }
 
@@ -317,9 +320,21 @@ export function MemoDetailView({
   async function handleRegenerate() {
     if (!onTitleRegenerate || isRegenerating) return;
     setIsRegenerating(true);
-    await onTitleRegenerate(memo.id);
-    setIsRegenerating(false);
-    setIsEditingTitle(false);
+    setTitleError(null);
+
+    try {
+      const nextTitle = await onTitleRegenerate(memo.id);
+      if (!nextTitle) {
+        setTitleError("Couldn't regenerate the title. Try again.");
+        return;
+      }
+
+      setIsEditingTitle(false);
+    } catch {
+      setTitleError("Couldn't regenerate the title. Try again.");
+    } finally {
+      setIsRegenerating(false);
+    }
   }
 
   const handleTranscriptTimestampToggle = useCallback(() => {
@@ -434,6 +449,11 @@ export function MemoDetailView({
               </span>
             )}
           </div>
+          {titleError ? (
+            <p role="alert" className="text-xs text-red-400">
+              {titleError}
+            </p>
+          ) : null}
         </div>
 
         <div className="flex items-center gap-3">

@@ -258,6 +258,29 @@ describe("MemoDetailView", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows an error when title regeneration fails", async () => {
+    render(
+      <MemoDetailView
+        memo={{
+          id: "memo-title-regen-1",
+          title: "Original title",
+          transcript: "Transcript content.",
+          createdAt: "2026-03-16T12:00:00.000Z",
+          wordCount: 2,
+        }}
+        onTitleRegenerate={jest.fn().mockResolvedValue(null)}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Regenerate title with AI" })
+    );
+
+    expect(
+      await screen.findByText("Couldn't regenerate the title. Try again.")
+    ).toBeInTheDocument();
+  });
+
   it("keeps the open share page link to the left of copy when a share url is available", () => {
     mockUseMemoShare.mockReturnValue({
       handleShare: jest.fn(),

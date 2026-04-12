@@ -363,6 +363,16 @@ describe("share-contract", () => {
         expect(html).toContain('href="/sign-up"');
     });
 
+    it('renders "Record" instead of "Open app" for authenticated viewer CTAs', () => {
+        const html = buildSharedArtifactHtml(
+            basePayload,
+            { viewer: { isAuthenticated: true } } as never
+        );
+
+        expect(html).toContain(">Record<");
+        expect(html).not.toContain(">Open app<");
+    });
+
     it("renders the author name and avatar instead of generic placeholders", () => {
         const html = buildSharedArtifactHtml(basePayload);
         
@@ -404,6 +414,17 @@ describe("share-contract", () => {
         expect(html).not.toContain(">Notes<");
         expect(html).toContain(".engagement-btn.share-btn {\n      flex: 0 0 auto;");
         expect(html).toContain(".compact-metric-btn {\n      min-height: 2.5rem;");
+    });
+
+    it("anchors the Notes control to the discussion heading with enough scroll offset", () => {
+        const html = buildSharedArtifactHtml(basePayload);
+
+        expect(html).toContain('href="#discussion"');
+        expect(html).toContain('aria-label="Go to discussion"');
+        expect(html).toContain('<section id="discussion" class="disc-section">');
+        expect(html).toContain(".disc-section {\n      scroll-margin-top:");
+        expect(html).not.toContain('href="#comments-root"');
+        expect(html).not.toContain('aria-label="View comments"');
     });
 
     it("renders the waveform above the transcript divider when shared audio is available", () => {
