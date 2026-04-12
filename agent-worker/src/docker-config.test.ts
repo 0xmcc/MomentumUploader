@@ -80,6 +80,8 @@ test("production Docker support uses Node 20 slim and required runtime files", a
 
   assert.match(smokeTest, /docker compose/m);
   assert.match(smokeTest, /\/tmp\/memo-workspaces/m);
+  assert.doesNotMatch(smokeTest, /\$\{process\.getuid\(\)\}/);
+  assert.match(smokeTest, /uid=.*process\.getuid\(\)\+/);
 
   assert.match(workflow, /^name:\s+Agent Worker Docker Smoke/m);
   assert.match(workflow, /runs-on:\s+ubuntu-latest/m);

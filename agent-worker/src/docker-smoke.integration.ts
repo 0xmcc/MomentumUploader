@@ -58,7 +58,7 @@ test(
         "    command:",
         '      - "node"',
         '      - "-e"',
-        '      - "const fs=require(\\"node:fs\\");const target=\\"/tmp/memo-workspaces/compose-smoke.txt\\";fs.mkdirSync(\\"/tmp/memo-workspaces\\",{recursive:true});fs.writeFileSync(target,`uid=${process.getuid()}\\\\n`);console.log(fs.readFileSync(target,\\"utf8\\"));"',
+        '      - "const fs=require(\\"node:fs\\");const target=\\"/tmp/memo-workspaces/compose-smoke.txt\\";fs.mkdirSync(\\"/tmp/memo-workspaces\\",{recursive:true});fs.writeFileSync(target,\\"uid=\\"+process.getuid()+\\"\\\\n\\");console.log(fs.readFileSync(target,\\"utf8\\"));"',
         "    volumes:",
         '      - "${SMOKE_WORKSPACE_HOST}:/tmp/memo-workspaces"',
         "",
