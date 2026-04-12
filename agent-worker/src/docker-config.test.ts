@@ -83,6 +83,7 @@ test("production Docker support uses Node 20 slim and required runtime files", a
 
   assert.match(workflow, /^name:\s+Agent Worker Docker Smoke/m);
   assert.match(workflow, /runs-on:\s+ubuntu-latest/m);
-  assert.match(workflow, /working-directory:\s+voice-memos\/agent-worker/m);
+  assert.match(workflow, /working-directory:\s+agent-worker/m);
+  assert.match(workflow, /cache-dependency-path:\s+agent-worker\/package-lock\.json/m);
   assert.match(workflow, /npm run test:docker/m);
 });
