@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveMemoUserId } from "@/lib/memo-api-auth";
 import { transcribeAudio } from "@/lib/riva";
 
 export async function POST(req: NextRequest) {
     const startedAtMs = Date.now();
+    const userId = await resolveMemoUserId(req);
+    if (!userId) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
 

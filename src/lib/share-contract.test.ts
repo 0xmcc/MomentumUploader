@@ -299,22 +299,48 @@ describe("share-contract", () => {
         expect(html).toContain("<h2>Outline</h2>");
     });
 
-    it("renders transcript copy controls in the shared html page", () => {
+    it("renders transcript generate and overflow controls in the shared html page", () => {
         const html = buildSharedArtifactHtml(basePayload);
 
-        expect(html).toContain('id="copy-transcript-btn"');
-        expect(html).toContain('id="export-transcript-btn"');
-        expect(html).toContain('id="send-to-ai-btn"');
-        expect(html).toContain('id="send-to-ai-dialog"');
-        expect(html).toContain("Send to AI");
+        expect(html).toContain('id="generate-toggle-btn"');
+        expect(html).toContain('id="transcript-actions-toggle-btn"');
+        expect(html).toContain('id="transcript-actions-menu"');
+        expect(html).toContain("Generate");
+        expect(html).toContain("Generate from this memo");
         expect(html).toContain("Copy transcript");
-        expect(html).toContain("Paste it");
-        expect(html).toContain("Now open your AI app");
         expect(html).toContain('href="https://chatgpt.com/"');
         expect(html).toContain('href="https://claude.ai/"');
         expect(html).toContain('href="https://gemini.google.com/app"');
         expect(html).toContain('href="https://grok.com/"');
         expect(html).toContain('id="transcript-content"');
+    });
+
+    it("renders the generate toggle and overflow actions above the transcript while keeping the top waveform available when enabled", () => {
+        const html = buildSharedArtifactHtml(basePayload, { showEngagementRow: true } as never);
+        const parsed = new DOMParser().parseFromString(html, "text/html");
+        const waveform = parsed.querySelector('[data-waveform-position="top"]');
+        const transcriptHeading = parsed.getElementById("transcript-heading");
+        const generateToggle = parsed.getElementById("generate-toggle-btn");
+        const generatePanel = parsed.getElementById("generate-panel");
+        const actionsToggle = parsed.getElementById("transcript-actions-toggle-btn");
+        const actionsMenu = parsed.getElementById("transcript-actions-menu");
+        const legacySendToAiButton = parsed.getElementById("send-to-ai-btn");
+
+        expect(waveform).not.toBeNull();
+        expect(transcriptHeading).not.toBeNull();
+        expect(generateToggle).not.toBeNull();
+        expect(generateToggle?.textContent).toContain("Generate");
+        expect(generatePanel).not.toBeNull();
+        expect(generatePanel?.textContent).toContain("Generate from this memo");
+        expect(actionsToggle).not.toBeNull();
+        expect(actionsMenu).not.toBeNull();
+        expect(actionsMenu?.querySelector("#export-transcript-btn")).not.toBeNull();
+        expect(actionsMenu?.querySelector("#copy-transcript-btn")).not.toBeNull();
+        expect(legacySendToAiButton).toBeNull();
+        expect(
+            waveform?.compareDocumentPosition(transcriptHeading as Node) &
+                Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy();
     });
 
     it("embeds a safe share boot payload that parses as JSON with the expected keys", () => {
@@ -381,20 +407,101 @@ describe("share-contract", () => {
         expect(html).not.toContain("MomentumUploader User");
     });
 
-    it("renders the engagement row with comment count and share actions", () => {
+    it("hides the engagement row by default while keeping the share call to action", () => {
+        const html = buildSharedArtifactHtml(basePayload);
+
+        expect(html).not.toContain('class="engagement-row"');
+        expect(html).not.toContain('class="engagement-btn compact-metric-btn comment-btn"');
+        expect(html).toContain('id="share-memo-btn"');
+        expect(html).toContain("Share Memo");
+    });
+
+    it("renders the engagement row with comment count and share actions when enabled", () => {
         const html = buildSharedArtifactHtml({
             ...basePayload,
             bookmarkCount: 7,
-        } as SharedArtifactPayload);
+        } as SharedArtifactPayload, { showEngagementRow: true } as never);
         
         expect(html).toContain('class="engagement-row"');
         expect(html).toContain('class="engagement-btn compact-metric-btn comment-btn"');
-        expect(html).toContain('share-btn');
-        expect(html).toContain("Share");
+        expect(html).toContain('id="share-memo-btn"');
+        expect(html).toContain("Share Memo");
         expect(html).toContain('id="bookmark-share-btn"');
         expect(html).toContain('id="bookmark-share-count"');
         expect(html).toContain(">7<");
         expect(html).toContain('id="bookmark-share-signin"');
+    });
+
+    it("hides the top waveform by default while keeping the bottom player", () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        const parsed = new DOMParser().parseFromString(html, "text/html");
+        const topWaveform = parsed.querySelector('[data-waveform-position="top"]');
+        const bottomWaveform = parsed.querySelector('[data-waveform-position="bottom"]');
+        const shareButton = parsed.getElementById("share-memo-btn");
+        const transcriptHeading = parsed.getElementById("transcript-heading");
+
+        expect(topWaveform).toBeNull();
+        expect(bottomWaveform).not.toBeNull();
+        expect(shareButton).not.toBeNull();
+        expect(transcriptHeading).not.toBeNull();
+        expect(
+            shareButton?.compareDocumentPosition(transcriptHeading as Node) &
+                Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy();
+        expect(
+            transcriptHeading?.compareDocumentPosition(bottomWaveform as Node) &
+                Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy();
+    });
+
+    it("renders the top waveform directly before the share memo call to action when enabled", () => {
+        const html = buildSharedArtifactHtml(basePayload, { showEngagementRow: true } as never);
+        const waveformIndex = html.indexOf('data-waveform-position="top"');
+        const shareButtonIndex = html.indexOf('id="share-memo-btn"');
+        const transcriptHeadingIndex = html.indexOf('id="transcript-heading"');
+
+        expect(waveformIndex).toBeGreaterThan(-1);
+        expect(shareButtonIndex).toBeGreaterThan(-1);
+        expect(transcriptHeadingIndex).toBeGreaterThan(-1);
+        expect(waveformIndex).toBeLessThan(shareButtonIndex);
+        expect(shareButtonIndex).toBeLessThan(transcriptHeadingIndex);
+    });
+
+    it("renders the bottom waveform below the transcript by default", () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        const parsed = new DOMParser().parseFromString(html, "text/html");
+        const waveformPlayers = parsed.querySelectorAll(".waveform-player");
+        const transcriptContent = parsed.getElementById("transcript-content");
+        const bottomWaveform = parsed.querySelector('[data-waveform-position="bottom"]');
+
+        expect(waveformPlayers).toHaveLength(1);
+        expect(bottomWaveform).not.toBeNull();
+        expect(transcriptContent).not.toBeNull();
+        expect(
+            transcriptContent?.compareDocumentPosition(bottomWaveform as Node) &
+                Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy();
+    });
+
+    it("renders both waveform players when the engagement toggle is enabled", () => {
+        const html = buildSharedArtifactHtml(basePayload, { showEngagementRow: true } as never);
+        const parsed = new DOMParser().parseFromString(html, "text/html");
+
+        expect(parsed.querySelectorAll(".waveform-player")).toHaveLength(2);
+        expect(parsed.querySelector('[data-waveform-position="top"]')).not.toBeNull();
+        expect(parsed.querySelector('[data-waveform-position="bottom"]')).not.toBeNull();
+    });
+
+    it("styles the bottom waveform as a boxed player with a left-aligned play button", () => {
+        const html = buildSharedArtifactHtml(basePayload);
+
+        expect(html).toContain('.waveform-player[data-waveform-position="bottom"] {\n      width: min(100%, 28rem);');
+        expect(html).toContain("border-radius: 18px;");
+        expect(html).toContain("box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);");
+        expect(html).toContain('.waveform-player[data-waveform-position="bottom"] .waveform-play-btn {\n      left: 1rem;');
+        expect(html).toContain("transform: translateY(-50%);");
+        expect(html).toContain('.waveform-player[data-waveform-position="bottom"] .waveform-bars {\n      left: 5.25rem;');
+        expect(html).not.toContain('.waveform-player[data-waveform-position="bottom"] {\n      width: 100%;');
     });
 
     it("renders compact engagement controls with icon-only comment and save actions", () => {
@@ -403,21 +510,27 @@ describe("share-contract", () => {
                 ...basePayload,
                 bookmarkCount: 7,
             } as SharedArtifactPayload,
-            { viewer: { isAuthenticated: true } } as never
+            { showEngagementRow: true, viewer: { isAuthenticated: true } } as never
         );
 
         expect(html).toContain('class="engagement-actions engagement-actions-left"');
-        expect(html).toContain('class="engagement-actions engagement-actions-right"');
         expect(html).toContain('class="engagement-btn compact-metric-btn comment-btn"');
         expect(html).toContain('class="engagement-btn compact-metric-btn bookmark-btn"');
         expect(html).toContain('id="bookmark-share-label" class="sr-only"');
         expect(html).not.toContain(">Notes<");
-        expect(html).toContain(".engagement-btn.share-btn {\n      flex: 0 0 auto;");
+        expect(html).toContain(".engagement-btn.hero-share-btn {\n      width: 100%;");
+        expect(html).toContain("justify-content: center;");
+        expect(html).toContain("border: none;");
+        expect(html).toContain("background: #2563eb;");
+        expect(html).not.toContain("box-shadow: 0 20px 36px");
+        expect(html).toContain(".engagement-btn.hero-share-btn:hover {");
+        expect(html).toContain(".hero-share-label {\n      display: block;");
+        expect(html).toContain("text-align: center;");
         expect(html).toContain(".compact-metric-btn {\n      min-height: 2.5rem;");
     });
 
     it("anchors the Notes control to the discussion heading with enough scroll offset", () => {
-        const html = buildSharedArtifactHtml(basePayload);
+        const html = buildSharedArtifactHtml(basePayload, { showEngagementRow: true } as never);
 
         expect(html).toContain('href="#discussion"');
         expect(html).toContain('aria-label="Go to discussion"');
@@ -427,9 +540,9 @@ describe("share-contract", () => {
         expect(html).not.toContain('aria-label="View comments"');
     });
 
-    it("renders the waveform above the transcript divider when shared audio is available", () => {
-        const html = buildSharedArtifactHtml(basePayload);
-        const waveformIndex = html.indexOf('id="waveform-player"');
+    it("renders the top waveform above the transcript divider when enabled", () => {
+        const html = buildSharedArtifactHtml(basePayload, { showEngagementRow: true } as never);
+        const waveformIndex = html.indexOf('data-waveform-position="top"');
         const dividerIndex = html.indexOf('class="hero-divider"');
         const transcriptHeadingIndex = html.indexOf('id="transcript-heading"');
 
@@ -1128,7 +1241,7 @@ describe("share-contract", () => {
         expect(writeText).not.toHaveBeenCalledWith(basePayload.canonicalUrl);
     });
 
-    it("opens the Send to AI popup and copies the transcript from the popup button", async () => {
+    it("expands the Generate panel and copies the transcript from the inline action", async () => {
         const writeText = jest.fn().mockResolvedValue(undefined);
         const html = buildSharedArtifactHtml(basePayload);
         const fetchMock = jest.fn().mockResolvedValue(emptyDiscussionResponse);
@@ -1140,8 +1253,8 @@ describe("share-contract", () => {
             value: { writeText },
         });
 
-        const openButton = document.getElementById("send-to-ai-btn") as HTMLButtonElement;
-        const dialog = document.getElementById("send-to-ai-dialog") as HTMLElement;
+        const openButton = document.getElementById("generate-toggle-btn") as HTMLButtonElement;
+        const panel = document.getElementById("generate-panel") as HTMLElement;
         const popupCopyButton = document.getElementById("send-to-ai-copy-btn") as HTMLButtonElement;
         const chatGptLink = document.getElementById("send-to-chatgpt-link") as HTMLAnchorElement;
         const claudeLink = document.getElementById("send-to-claude-link") as HTMLAnchorElement;
@@ -1149,16 +1262,15 @@ describe("share-contract", () => {
         const grokLink = document.getElementById("send-to-grok-link") as HTMLAnchorElement;
 
         expect(openButton).not.toBeNull();
-        expect(dialog).not.toBeNull();
+        expect(panel).not.toBeNull();
         expect(popupCopyButton).not.toBeNull();
-        expect(dialog.style.display).toBe("none");
+        expect(panel.hidden).toBe(true);
 
         openButton.click();
 
-        expect(dialog.style.display).toBe("grid");
-        expect(dialog).toHaveTextContent("Copy transcript");
-        expect(dialog).toHaveTextContent("Paste it");
-        expect(dialog).toHaveTextContent("Now open your AI app");
+        expect(panel.hidden).toBe(false);
+        expect(panel).toHaveTextContent("Generate from this memo");
+        expect(panel).toHaveTextContent("Copy transcript");
         expect(chatGptLink.href).toBe("https://chatgpt.com/");
         expect(claudeLink.href).toBe("https://claude.ai/");
         expect(geminiLink.href).toBe("https://gemini.google.com/app");
@@ -1171,6 +1283,35 @@ describe("share-contract", () => {
         });
 
         expect(writeText).toHaveBeenCalledWith(basePayload.transcript);
+    });
+
+    it("opens the transcript actions menu on hover and closes it when the pointer leaves", async () => {
+        const html = buildSharedArtifactHtml(basePayload);
+        const fetchMock = jest.fn().mockResolvedValue(emptyDiscussionResponse);
+
+        await loadSharePageScript(html, fetchMock);
+
+        const actionsShell = document.querySelector(".transcript-actions-menu-shell") as HTMLElement;
+        const actionsMenu = document.getElementById("transcript-actions-menu") as HTMLElement;
+        const actionsToggle = document.getElementById(
+            "transcript-actions-toggle-btn"
+        ) as HTMLButtonElement;
+
+        expect(actionsShell).not.toBeNull();
+        expect(actionsMenu).not.toBeNull();
+        expect(actionsToggle).not.toBeNull();
+        expect(actionsMenu.hidden).toBe(true);
+        expect(actionsToggle.getAttribute("aria-expanded")).toBe("false");
+
+        actionsShell.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+
+        expect(actionsMenu.hidden).toBe(false);
+        expect(actionsToggle.getAttribute("aria-expanded")).toBe("true");
+
+        actionsShell.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
+
+        expect(actionsMenu.hidden).toBe(true);
+        expect(actionsToggle.getAttribute("aria-expanded")).toBe("false");
     });
 
     it("shows the sign-in hint for unauthenticated non-owners after discussion loads", async () => {
@@ -1196,7 +1337,7 @@ describe("share-contract", () => {
     it("keeps the authenticated bookmark shell visible when bookmark state refresh fails", async () => {
         const html = buildSharedArtifactHtml(
             basePayload,
-            { viewer: { isAuthenticated: true } } as never
+            { showEngagementRow: true, viewer: { isAuthenticated: true } } as never
         );
         const fetchMock = jest.fn((input: RequestInfo | URL) => {
             const url = String(input);
@@ -1233,7 +1374,7 @@ describe("share-contract", () => {
                 ...basePayload,
                 bookmarkCount: 7,
             } as SharedArtifactPayload,
-            { viewer: { isAuthenticated: true } } as never
+            { showEngagementRow: true, viewer: { isAuthenticated: true } } as never
         ).replace(/<section id="comments-root">[\s\S]*?<\/section>\s*<\/article>/, "</article>");
         const fetchMock = jest.fn((input: RequestInfo | URL) => {
             const url = String(input);
@@ -1268,7 +1409,7 @@ describe("share-contract", () => {
                 ...basePayload,
                 bookmarkCount: 7,
             } as SharedArtifactPayload,
-            { viewer: { isAuthenticated: true } } as never
+            { showEngagementRow: true, viewer: { isAuthenticated: true } } as never
         ).replace(/<section id="comments-root">[\s\S]*?<\/section>\s*<\/article>/, "</article>");
         const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
             const url = String(input);
@@ -1308,8 +1449,7 @@ describe("share-contract", () => {
             await Promise.resolve();
         });
 
-        expect(fetchMock).toHaveBeenNthCalledWith(
-            2,
+        expect(fetchMock).toHaveBeenCalledWith(
             "/api/s/abc123token/bookmark",
             expect.objectContaining({
                 method: "POST",
@@ -1903,6 +2043,29 @@ describe("share-contract", () => {
             expect(html).toContain('id="t-4500"');
         });
 
+        it("omits transcript segments whose text is empty or whitespace", () => {
+            const html = buildSharedArtifactHtml({
+                ...segmentPayload,
+                transcriptSegments: [
+                    { id: "0", startMs: 0, endMs: 4500, text: "Hello world" },
+                    { id: "1", startMs: 4500, endMs: 12000, text: "   " },
+                    { id: "2", startMs: 12000, endMs: 18000, text: "" },
+                    { id: "3", startMs: 18000, endMs: 24000, text: "How are you today" },
+                ],
+            });
+            const parsed = new DOMParser().parseFromString(html, "text/html");
+            const transcript = parsed.getElementById("transcript-content");
+            const buttons = transcript?.querySelectorAll(".ts-btn");
+            const segmentTexts = Array.from(transcript?.querySelectorAll(".seg-text") ?? []).map((el) =>
+                el.textContent?.trim()
+            );
+
+            expect(buttons).toHaveLength(2);
+            expect(transcript?.querySelector('[data-seek="4500"]')).toBeNull();
+            expect(transcript?.querySelector('[data-seek="12000"]')).toBeNull();
+            expect(segmentTexts).toEqual(["Hello world", "How are you today"]);
+        });
+
         it("falls back to plain transcript-block rendering when transcriptSegments is null", () => {
             const html = buildSharedArtifactHtml({ ...basePayload, transcriptSegments: null });
             const parsed = new DOMParser().parseFromString(html, "text/html");
@@ -1928,14 +2091,15 @@ describe("share-contract", () => {
     });
 
     describe("waveform interactions", () => {
-        it("still renders the waveform shell when shared audio is unavailable", () => {
+        it("still renders the bottom waveform shell when shared audio is unavailable", () => {
             const html = buildSharedArtifactHtml({
                 ...basePayload,
                 mediaUrl: null,
             });
+            const parsed = new DOMParser().parseFromString(html, "text/html");
 
-            expect(html).toContain('id="waveform-player"');
-            expect(html).toContain('id="play-btn"');
+            expect(parsed.querySelectorAll(".waveform-player")).toHaveLength(1);
+            expect(parsed.querySelectorAll(".waveform-play-btn")).toHaveLength(1);
             expect(html).toContain('id="audio-unavailable-dialog"');
         });
 
@@ -1948,7 +2112,7 @@ describe("share-contract", () => {
 
             await loadSharePageScript(html, fetchMock);
 
-            const playButton = document.getElementById("play-btn") as HTMLButtonElement;
+            const playButton = document.querySelector(".waveform-play-btn") as HTMLButtonElement;
             const dialog = document.getElementById("audio-unavailable-dialog") as HTMLElement;
 
             expect(playButton).not.toBeNull();
@@ -1967,7 +2131,9 @@ describe("share-contract", () => {
 
             await loadSharePageScript(html, fetchMock);
 
-            const waveformPlayer = document.getElementById("waveform-player") as HTMLElement;
+            const waveformPlayer = document.querySelector(
+                '[data-waveform-position="bottom"]'
+            ) as HTMLElement;
             const audio = document.getElementById("native-audio") as HTMLAudioElement;
 
             Object.defineProperty(audio, "duration", {

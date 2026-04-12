@@ -241,9 +241,9 @@ describe("share route /s/[shareRef]", () => {
         expect(res.headers.get("content-type")).toContain("text/html");
         expect(body).toContain("<h1>Weekly Sync</h1>");
         expect(body).toContain("/s/token123");
-        expect(body).toContain("Share");
-        expect(body).toContain('id="bookmark-share-count"');
-        expect(body).toContain(">7<");
+        expect(body).toContain("Share Memo");
+        expect(body).not.toContain('class="engagement-row"');
+        expect(body).not.toContain('id="bookmark-share-count"');
     });
 
     it("renders a transcript export button with a memo-title markdown filename", async () => {
@@ -274,7 +274,7 @@ describe("share route /s/[shareRef]", () => {
         expect(res.status).toBe(200);
         expect(body).not.toContain('class="share-navbar-signin"');
         expect(body).not.toContain('id="bookmark-share-signin"');
-        expect(body).toContain('id="bookmark-share-btn"');
+        expect(body).not.toContain('id="bookmark-share-btn"');
     });
 
     it("renders transcript-only live refresh behavior for in-progress shares", async () => {
