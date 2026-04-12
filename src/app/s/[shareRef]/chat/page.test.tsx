@@ -89,6 +89,18 @@ describe("/s/[shareRef]/chat page", () => {
     );
   });
 
+  it("uses a fixed-height desktop shell so the chat and transcript can scroll independently", async () => {
+    (auth as jest.Mock).mockResolvedValue({ userId: "viewer-1" });
+
+    const ui = await SharedMemoChatPage({
+      params: Promise.resolve({ shareRef: "sharetoken1234.md" }),
+    });
+    const { container } = render(ui);
+
+    expect(container.querySelector("main")).toHaveClass("lg:h-screen", "lg:overflow-hidden");
+    expect(container.querySelector("main > div")).toHaveClass("lg:h-full", "lg:min-h-0");
+  });
+
   it("redirects signed-out viewers back to the exact shareRef chat URL", async () => {
     (auth as jest.Mock).mockResolvedValue({ userId: null });
 
