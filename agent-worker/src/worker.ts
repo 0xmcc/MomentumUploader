@@ -23,6 +23,14 @@ const PROVIDER_DEFAULTS = {
   google: { model: process.env.GOOGLE_MODEL ?? "gemini-2.5-pro" },
 } as const;
 
+const MEMO_AGENT_APPEND_SYSTEM_PROMPT = [
+  "You are answering questions about a shared memo.",
+  "The memo workspace contains `context.md` for memo metadata and `transcript.md` for the memo transcript.",
+  "Before answering memo questions, read the relevant memo files from the workspace.",
+  "Treat `transcript.md` as the memo source of truth when it contains transcript content.",
+  "Do not claim you cannot access the transcript unless you have attempted to read `transcript.md` and it is empty or unavailable.",
+].join(" ");
+
 export const MAX_GLOBAL_JOBS = 5;
 const MAX_JOBS_PER_USER = 2;
 const activeByUser = new Map<string, number>();
@@ -189,6 +197,11 @@ export async function processJob(
         cwd: workspaceDir,
         allowedTools: ["Read", "Glob", "Grep"],
         model,
+        systemPrompt: {
+          type: "preset",
+          preset: "claude_code",
+          append: MEMO_AGENT_APPEND_SYSTEM_PROMPT,
+        },
         ...(sessionRow.provider_session_id ? { resume: sessionRow.provider_session_id } : {}),
       },
     })) {
