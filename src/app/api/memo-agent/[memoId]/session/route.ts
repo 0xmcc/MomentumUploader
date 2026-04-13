@@ -6,6 +6,14 @@ import { supabaseAdmin } from "@/lib/supabase";
 
 type Params = { params: Promise<{ memoId: string }> };
 
+async function ensureViewerExists(userId: string): Promise<boolean> {
+  const { error } = await supabaseAdmin
+    .from("users")
+    .upsert({ id: userId }, { onConflict: "id", ignoreDuplicates: true });
+
+  return !error;
+}
+
 async function resolveAgentAccess(memoId: string, shareToken: string) {
   if (!isValidShareToken(shareToken)) {
     return null;
@@ -38,6 +46,10 @@ export async function POST(req: NextRequest, { params }: Params): Promise<Respon
   const memo = await resolveAgentAccess(memoId, shareToken);
   if (!memo) {
     return Response.json({ error: "Not found." }, { status: 404 });
+  }
+
+  if (!(await ensureViewerExists(userId))) {
+    return Response.json({ error: "Failed to prepare credits." }, { status: 500 });
   }
 
   const { error: resetError } = await supabaseAdmin.rpc(
