@@ -11,6 +11,12 @@ import { computeCreditCost } from "./credits";
 import { materializeWorkspace } from "./workspace";
 import type { AgentStreamEvent, JobRow, MemoAgentSessionRow } from "./types";
 
+export type ProcessJobDeps = {
+  queryImpl?: typeof query;
+  materializeWorkspaceImpl?: typeof materializeWorkspace;
+  computeCreditCostImpl?: typeof computeCreditCost;
+};
+
 const PROVIDER_DEFAULTS = {
   anthropic: { model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5" },
   openai: { model: process.env.OPENAI_MODEL ?? "codex-mini" },
@@ -129,8 +135,12 @@ function asUiMessages(
 
 export async function processJob(
   job: JobRow,
-  supabase: Pick<SupabaseClient, "channel" | "removeChannel" | "from" | "rpc">
+  supabase: Pick<SupabaseClient, "channel" | "removeChannel" | "from" | "rpc">,
+  deps: ProcessJobDeps = {}
 ) {
+  const runQuery = deps.queryImpl ?? query;
+  const materialize = deps.materializeWorkspaceImpl ?? materializeWorkspace;
+  const creditCostFn = deps.computeCreditCostImpl ?? computeCreditCost;
   const { user_message, channel_name, memo_id } = job.params;
 
   if ((activeByUser.get(job.user_id) ?? 0) >= MAX_JOBS_PER_USER) {
@@ -156,7 +166,7 @@ export async function processJob(
   const sessionRow = session as MemoAgentSessionRow;
   const provider = resolveProvider(sessionRow.provider);
   const { model } = PROVIDER_DEFAULTS[provider];
-  const { workspaceDir } = await materializeWorkspace(sessionRow.id, memo_id, supabase as never);
+  const { workspaceDir } = await materialize(sessionRow.id, memo_id, supabase as never);
 
   const channel = supabase.channel(channel_name);
   await subscribeChannel(channel);
@@ -173,7 +183,7 @@ export async function processJob(
     let toolRounds = 0;
     const toolNamesById = new Map<string, string>();
 
-    for await (const message of query({
+    for await (const message of runQuery({
       prompt: user_message,
       options: {
         cwd: workspaceDir,
@@ -207,7 +217,11 @@ export async function processJob(
       }
 
       if (message.type === "assistant" && !sawStreamText) {
-        accumulatedAssistantText += extractAssistantText(message);
+        const assistantText = extractAssistantText(message);
+        if (assistantText) {
+          accumulatedAssistantText += assistantText;
+          await emit({ type: "text_delta", delta: assistantText });
+        }
       }
 
       if (message.type === "result") {
@@ -217,7 +231,7 @@ export async function processJob(
       }
     }
 
-    const creditCost = computeCreditCost(provider, {
+    const creditCost = creditCostFn(provider, {
       inputTokens,
       outputTokens,
       toolRounds,
