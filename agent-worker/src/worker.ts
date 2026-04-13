@@ -11,11 +11,25 @@ import { computeCreditCost } from "./credits";
 import { materializeWorkspace } from "./workspace";
 import type { AgentStreamEvent, JobRow, MemoAgentSessionRow } from "./types";
 
+export type ProcessJobDeps = {
+  queryImpl?: typeof query;
+  materializeWorkspaceImpl?: typeof materializeWorkspace;
+  computeCreditCostImpl?: typeof computeCreditCost;
+};
+
 const PROVIDER_DEFAULTS = {
   anthropic: { model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5" },
   openai: { model: process.env.OPENAI_MODEL ?? "codex-mini" },
   google: { model: process.env.GOOGLE_MODEL ?? "gemini-2.5-pro" },
 } as const;
+
+const MEMO_AGENT_APPEND_SYSTEM_PROMPT = [
+  "You are answering questions about a shared memo.",
+  "The memo workspace contains `context.md` for memo metadata and `transcript.md` for the memo transcript.",
+  "Before answering memo questions, read the relevant memo files from the workspace.",
+  "Treat `transcript.md` as the memo source of truth when it contains transcript content.",
+  "Do not claim you cannot access the transcript unless you have attempted to read `transcript.md` and it is empty or unavailable.",
+].join(" ");
 
 export const MAX_GLOBAL_JOBS = 5;
 const MAX_JOBS_PER_USER = 2;
@@ -129,8 +143,12 @@ function asUiMessages(
 
 export async function processJob(
   job: JobRow,
-  supabase: Pick<SupabaseClient, "channel" | "removeChannel" | "from" | "rpc">
+  supabase: Pick<SupabaseClient, "channel" | "removeChannel" | "from" | "rpc">,
+  deps: ProcessJobDeps = {}
 ) {
+  const runQuery = deps.queryImpl ?? query;
+  const materialize = deps.materializeWorkspaceImpl ?? materializeWorkspace;
+  const creditCostFn = deps.computeCreditCostImpl ?? computeCreditCost;
   const { user_message, channel_name, memo_id } = job.params;
 
   if ((activeByUser.get(job.user_id) ?? 0) >= MAX_JOBS_PER_USER) {
@@ -156,7 +174,7 @@ export async function processJob(
   const sessionRow = session as MemoAgentSessionRow;
   const provider = resolveProvider(sessionRow.provider);
   const { model } = PROVIDER_DEFAULTS[provider];
-  const { workspaceDir } = await materializeWorkspace(sessionRow.id, memo_id, supabase as never);
+  const { workspaceDir } = await materialize(sessionRow.id, memo_id, supabase as never);
 
   const channel = supabase.channel(channel_name);
   await subscribeChannel(channel);
@@ -173,12 +191,17 @@ export async function processJob(
     let toolRounds = 0;
     const toolNamesById = new Map<string, string>();
 
-    for await (const message of query({
+    for await (const message of runQuery({
       prompt: user_message,
       options: {
         cwd: workspaceDir,
         allowedTools: ["Read", "Glob", "Grep"],
         model,
+        systemPrompt: {
+          type: "preset",
+          preset: "claude_code",
+          append: MEMO_AGENT_APPEND_SYSTEM_PROMPT,
+        },
         ...(sessionRow.provider_session_id ? { resume: sessionRow.provider_session_id } : {}),
       },
     })) {
@@ -207,7 +230,11 @@ export async function processJob(
       }
 
       if (message.type === "assistant" && !sawStreamText) {
-        accumulatedAssistantText += extractAssistantText(message);
+        const assistantText = extractAssistantText(message);
+        if (assistantText) {
+          accumulatedAssistantText += assistantText;
+          await emit({ type: "text_delta", delta: assistantText });
+        }
       }
 
       if (message.type === "result") {
@@ -217,7 +244,7 @@ export async function processJob(
       }
     }
 
-    const creditCost = computeCreditCost(provider, {
+    const creditCost = creditCostFn(provider, {
       inputTokens,
       outputTokens,
       toolRounds,

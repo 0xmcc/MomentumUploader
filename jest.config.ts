@@ -12,6 +12,7 @@ const config: Config = {
         "^@/(.*)$": "<rootDir>/src/$1",
     },
     testMatch: ["**/*.test.(ts|tsx)"],
+    testPathIgnorePatterns: ["<rootDir>/agent-worker/"],
 };
 
 export default config;
