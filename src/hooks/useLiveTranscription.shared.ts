@@ -58,6 +58,7 @@ export type UseLiveTranscriptionResult = {
     beginRecordingSession: () => void;
     endRecordingSession: () => void;
     resetLiveSession: () => void;
+    handleRecordedChunkAvailable: () => void;
     runLiveTick: () => void;
     runFinalTailTick: () => Promise<string>;
     handleCopyLiveShare: () => Promise<void>;

@@ -141,6 +141,7 @@ export function useLiveTranscription({
         beginRecordingSession: session.beginRecordingSession,
         endRecordingSession: session.endRecordingSession,
         resetLiveSession: session.resetLiveSession,
+        handleRecordedChunkAvailable: session.handleRecordedChunkAvailable,
         runLiveTick: session.runLiveTick,
         runFinalTailTick: session.runFinalTailTick,
         handleCopyLiveShare: liveShare.handleCopyLiveShare,

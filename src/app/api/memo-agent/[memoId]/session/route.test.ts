@@ -160,6 +160,57 @@ describe("POST /api/memo-agent/:memoId/session", () => {
     });
   });
 
+  it("continues to credit preparation when app-level user provisioning fails", async () => {
+    const usersUpsert = jest.fn().mockResolvedValue({
+      data: null,
+      error: { code: "42501", message: "new row violates row-level security policy" },
+    });
+
+    const single = jest.fn().mockResolvedValue({
+      data: { id: "session-1", provider_session_id: null },
+      error: null,
+    });
+    const sessionSelect = jest.fn(() => ({ single }));
+    const upsert = jest.fn(() => ({ select: sessionSelect }));
+
+    const creditsMaybeSingle = jest.fn().mockResolvedValue({
+      data: { balance: 100 },
+      error: null,
+    });
+    const creditsEq = jest.fn(() => ({ maybeSingle: creditsMaybeSingle }));
+    const creditsSelect = jest.fn(() => ({ eq: creditsEq }));
+
+    (supabaseAdmin.rpc as jest.Mock).mockResolvedValue({ data: null, error: null });
+    (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+      if (table === "users") {
+        return { upsert: usersUpsert };
+      }
+      if (table === "memo_agent_sessions") {
+        return { upsert };
+      }
+      if (table === "user_credits") {
+        return { select: creditsSelect };
+      }
+      throw new Error(`Unexpected table: ${table}`);
+    });
+
+    const response = await POST(makeRequest({ shareToken: "sharetoken1234" }), {
+      params: Promise.resolve({ memoId: "memo-1" }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(supabaseAdmin.rpc).toHaveBeenCalledWith(
+      "reset_monthly_credits_if_needed",
+      { p_user_id: "viewer-1" }
+    );
+    expect(body).toEqual({
+      sessionId: "session-1",
+      creditBalance: 100,
+      hasHistory: false,
+    });
+  });
+
   it("returns 401 when the viewer is not authenticated", async () => {
     (resolveMemoUserId as jest.Mock).mockResolvedValue(null);
 

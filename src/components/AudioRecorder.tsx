@@ -50,6 +50,7 @@ export default function AudioRecorder({
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const chunkPruneOffsetRef = useRef(0);
     const liveMemoIdRef = useRef<string | null>(null);
+    const handleRecordedChunkRef = useRef<() => void>(() => {});
     const { playbackTheme } = useTheme();
     const isUploadActive = isUploading || isUploadInProgress;
     const chunkUploadEnabled = !onAudioInput;
@@ -57,6 +58,7 @@ export default function AudioRecorder({
     const recording = useAudioRecording({
         onRecordingStarted: handleRecordingStarted,
         onFirstChunk: handleFirstChunk,
+        onChunkCaptured: () => handleRecordedChunkRef.current(),
         onRecordingStopped: handleRecordingStopped,
     });
 
@@ -66,6 +68,7 @@ export default function AudioRecorder({
         webmHeaderRef: recording.webmHeaderRef,
         chunkPruneOffsetRef,
     });
+    handleRecordedChunkRef.current = liveTranscription.handleRecordedChunkAvailable;
 
     const chunkUpload = useChunkUpload({
         audioChunksRef: recording.audioChunksRef,

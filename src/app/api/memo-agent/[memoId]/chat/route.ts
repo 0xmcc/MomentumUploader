@@ -63,13 +63,34 @@ export async function POST(req: NextRequest, { params }: Params): Promise<Respon
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
+  const { error: resetError } = await supabaseAdmin.rpc(
+    "reset_monthly_credits_if_needed",
+    { p_user_id: userId }
+  );
+  if (resetError) {
+    console.error("[memo-agent/chat] failed to prepare credits", {
+      userId,
+      memoId: memo.memoId,
+      error: resetError,
+    });
+    return Response.json({ error: "Failed to prepare credits." }, { status: 500 });
+  }
+
   const { data: credits } = await supabaseAdmin
     .from("user_credits")
     .select("balance")
     .eq("user_id", userId)
     .maybeSingle();
 
-  if (Number(credits?.balance ?? 100) < 1) {
+  if (!credits) {
+    console.error("[memo-agent/chat] credits row missing after preparation", {
+      userId,
+      memoId: memo.memoId,
+    });
+    return Response.json({ error: "Failed to prepare credits." }, { status: 500 });
+  }
+
+  if (Number(credits.balance) < 1) {
     return Response.json({ error: "insufficient_credits" }, { status: 402 });
   }
 

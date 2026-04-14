@@ -49,6 +49,7 @@ export function useLiveTranscriptionSession({
 }: UseLiveTranscriptionSessionOptions) {
     const liveTimerRef = useRef<NodeJS.Timeout | null>(null);
     const liveInFlightRef = useRef(false);
+    const lastLiveTickStartedAtRef = useRef<number | null>(null);
     const catchupBurstCountRef = useRef(0);
     const abortRef = useRef<AbortController | null>(null);
     const isRecordingRef = useRef(false);
@@ -71,6 +72,7 @@ export function useLiveTranscriptionSession({
 
         isRecordingRef.current = false;
         liveInFlightRef.current = false;
+        lastLiveTickStartedAtRef.current = null;
     };
 
     useEffect(() => () => {
@@ -82,6 +84,7 @@ export function useLiveTranscriptionSession({
         if (!isRecordingRef.current) return;
         if (audioChunksRef.current.length === 0) return;
 
+        lastLiveTickStartedAtRef.current = Date.now();
         liveInFlightRef.current = true;
 
         abortRef.current?.abort();
@@ -178,6 +181,23 @@ export function useLiveTranscriptionSession({
             });
     };
 
+    const handleRecordedChunkAvailable = () => {
+        if (!isRecordingRef.current) return;
+        if (getDocumentVisibilityState() !== "hidden") return;
+        if (liveInFlightRef.current) return;
+        if (audioChunksRef.current.length === 0) return;
+
+        const lastLiveTickStartedAt = lastLiveTickStartedAtRef.current;
+        if (
+            lastLiveTickStartedAt !== null &&
+            Date.now() - lastLiveTickStartedAt < LIVE_INTERVAL_MS
+        ) {
+            return;
+        }
+
+        runLiveTick();
+    };
+
     const runFinalTailTick = async (): Promise<string> => {
         const snapshot = buildFinalTailSnapshot({
             chunks: audioChunksRef.current,
@@ -239,6 +259,10 @@ export function useLiveTranscriptionSession({
 
             updateLiveDebug({ tabVisibility: getDocumentVisibilityState() });
             if (document.hidden) {
+                if (liveTimerRef.current) {
+                    clearInterval(liveTimerRef.current);
+                    liveTimerRef.current = null;
+                }
                 return;
             }
 
@@ -268,6 +292,7 @@ export function useLiveTranscriptionSession({
         beginRecordingSession,
         endRecordingSession,
         resetLiveSession,
+        handleRecordedChunkAvailable,
         runLiveTick,
         runFinalTailTick,
     };

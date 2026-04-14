@@ -806,4 +806,79 @@ describe("useLiveTranscription session controls", () => {
 
         unmount();
     });
+
+    it("starts a hidden live transcription tick from incoming audio chunks when interval polling is throttled", async () => {
+        const previousVisibilityState = document.visibilityState;
+        const previousHidden = document.hidden;
+
+        Object.defineProperty(document, "visibilityState", {
+            configurable: true,
+            value: "hidden",
+        });
+        Object.defineProperty(document, "hidden", {
+            configurable: true,
+            value: true,
+        });
+
+        Object.defineProperty(global, "fetch", {
+            writable: true,
+            value: jest.fn(async (url: string) => {
+                if (url === "/api/memos/live") {
+                    return {
+                        ok: true,
+                        json: async () => ({ memoId: "memo-hidden-chunk-driven" }),
+                    };
+                }
+
+                if (url === "/api/memos/memo-hidden-chunk-driven/share") {
+                    return {
+                        ok: true,
+                        json: async () => ({
+                            shareUrl: "https://example.com/s/memo-hidden-chunk-driven",
+                        }),
+                    };
+                }
+
+                if (url === "/api/transcribe/live") {
+                    return makeTranscribeResponse("hidden chunk transcript");
+                }
+
+                return {
+                    ok: true,
+                    json: async () => ({ ok: true }),
+                };
+            }),
+        });
+
+        const refs = buildChunkRefs(0);
+        const { result, unmount } = renderHook(() => useLiveTranscription(refs));
+
+        act(() => {
+            result.current.beginRecordingSession();
+        });
+
+        await waitFor(() => {
+            expect(result.current.liveShareState).toBe("ready");
+        });
+
+        act(() => {
+            refs.audioChunksRef.current.push(new Blob(["chunk-0"], { type: "audio/webm" }));
+            result.current.handleRecordedChunkAvailable();
+        });
+
+        await waitFor(() => {
+            expect(result.current.liveTranscript).toBe("hidden chunk transcript");
+        });
+
+        Object.defineProperty(document, "visibilityState", {
+            configurable: true,
+            value: previousVisibilityState,
+        });
+        Object.defineProperty(document, "hidden", {
+            configurable: true,
+            value: previousHidden,
+        });
+
+        unmount();
+    });
 });
