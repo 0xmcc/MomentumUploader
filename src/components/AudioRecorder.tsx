@@ -40,11 +40,13 @@ export default function AudioRecorder({
     uploadProgressPercent = 0,
     onUploadComplete,
     onAudioInput,
+    onRecordingStateChange,
 }: {
     isUploadInProgress?: boolean;
     uploadProgressPercent?: number;
     onUploadComplete?: (data: UploadCompletePayload) => void;
     onAudioInput?: (payload: AudioInputPayload) => void;
+    onRecordingStateChange?: (isRecording: boolean) => void;
 }) {
     const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -83,6 +85,16 @@ export default function AudioRecorder({
     useEffect(() => {
         liveMemoIdRef.current = liveTranscription.liveMemoId;
     }, [liveTranscription.liveMemoId]);
+
+    useEffect(() => {
+        onRecordingStateChange?.(recording.isRecording);
+    }, [onRecordingStateChange, recording.isRecording]);
+
+    useEffect(() => {
+        return () => {
+            onRecordingStateChange?.(false);
+        };
+    }, [onRecordingStateChange]);
 
     function handleRecordingStarted() {
         chunkUpload.resetChunkUpload();

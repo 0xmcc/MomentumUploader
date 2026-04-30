@@ -772,6 +772,7 @@ type RecorderPanelProps = {
   isUploading: boolean;
   uploadProgressPercent: number;
   onAudioInput?: (payload: AudioInputPayload) => void;
+  onRecordingStateChange?: (isRecording: boolean) => void;
   onRetryUpload: () => void;
   onUploadComplete: (data: UploadCompletePayload) => void;
   showUploadError: boolean;
@@ -781,6 +782,7 @@ export function RecorderPanel({
   isUploading,
   uploadProgressPercent,
   onAudioInput,
+  onRecordingStateChange,
   onRetryUpload,
   onUploadComplete,
   showUploadError,
@@ -803,6 +805,7 @@ export function RecorderPanel({
         uploadProgressPercent={uploadProgressPercent}
         onUploadComplete={onUploadComplete}
         onAudioInput={onAudioInput}
+        onRecordingStateChange={onRecordingStateChange}
       />
       <div className="mt-8 text-center text-xs text-white/30 font-mono tracking-widest uppercase">
         <p>Powered by Supabase &amp; NVIDIA NIM</p>
