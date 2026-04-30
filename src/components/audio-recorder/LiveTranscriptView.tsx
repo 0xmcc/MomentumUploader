@@ -47,7 +47,7 @@ export default function LiveTranscriptView({
                                         return (
                                             <motion.span
                                                 key={`${index}-${word}`}
-                                                className="inline-block mr-1"
+                                                className="inline-block"
                                                 initial={
                                                     isNewWord
                                                         ? { opacity: 0, y: 8, filter: "blur(6px)" }
