@@ -13,6 +13,7 @@ const RECORDER_TIMESLICE_MS = 1000;
 
 type UseAudioRecordingOptions = {
     onFirstChunk?: () => void;
+    onChunkCaptured?: () => void;
     onRecordingStarted?: () => void;
     onRecordingStopped: (payload: AudioInputPayload) => void;
 };
@@ -37,6 +38,7 @@ type UseAudioRecordingResult = {
 
 export function useAudioRecording({
     onFirstChunk,
+    onChunkCaptured,
     onRecordingStarted,
     onRecordingStopped,
 }: UseAudioRecordingOptions): UseAudioRecordingResult {
@@ -129,6 +131,7 @@ export function useAudioRecording({
                 if (audioChunksRef.current.length === 1) {
                     onFirstChunk?.();
                 }
+                onChunkCaptured?.();
             };
 
             recorder.onstop = () => {

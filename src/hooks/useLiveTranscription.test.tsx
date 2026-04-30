@@ -806,4 +806,161 @@ describe("useLiveTranscription session controls", () => {
 
         unmount();
     });
+
+    it("starts a hidden live transcription tick from incoming audio chunks when interval polling is throttled", async () => {
+        const previousVisibilityState = document.visibilityState;
+        const previousHidden = document.hidden;
+
+        Object.defineProperty(document, "visibilityState", {
+            configurable: true,
+            value: "hidden",
+        });
+        Object.defineProperty(document, "hidden", {
+            configurable: true,
+            value: true,
+        });
+
+        Object.defineProperty(global, "fetch", {
+            writable: true,
+            value: jest.fn(async (url: string) => {
+                if (url === "/api/memos/live") {
+                    return {
+                        ok: true,
+                        json: async () => ({ memoId: "memo-hidden-chunk-driven" }),
+                    };
+                }
+
+                if (url === "/api/memos/memo-hidden-chunk-driven/share") {
+                    return {
+                        ok: true,
+                        json: async () => ({
+                            shareUrl: "https://example.com/s/memo-hidden-chunk-driven",
+                        }),
+                    };
+                }
+
+                if (url === "/api/transcribe/live") {
+                    return makeTranscribeResponse("hidden chunk transcript");
+                }
+
+                return {
+                    ok: true,
+                    json: async () => ({ ok: true }),
+                };
+            }),
+        });
+
+        const refs = buildChunkRefs(0);
+        const { result, unmount } = renderHook(() => useLiveTranscription(refs));
+
+        act(() => {
+            result.current.beginRecordingSession();
+        });
+
+        await waitFor(() => {
+            expect(result.current.liveShareState).toBe("ready");
+        });
+
+        act(() => {
+            refs.audioChunksRef.current.push(new Blob(["chunk-0"], { type: "audio/webm" }));
+            result.current.handleRecordedChunkAvailable();
+        });
+
+        await waitFor(() => {
+            expect(result.current.liveTranscript).toBe("hidden chunk transcript");
+        });
+
+        Object.defineProperty(document, "visibilityState", {
+            configurable: true,
+            value: previousVisibilityState,
+        });
+        Object.defineProperty(document, "hidden", {
+            configurable: true,
+            value: previousHidden,
+        });
+
+        unmount();
+    });
+
+    it("reveals append-only catch-up text in larger chunks instead of per word", async () => {
+        const responses = [
+            "Short opening sentence.",
+            "Short opening sentence. Catch-up arrives as one chunk.",
+        ];
+        let responseIndex = 0;
+
+        Object.defineProperty(global, "fetch", {
+            writable: true,
+            value: jest.fn(async (url: string) => {
+                if (url === "/api/memos/live") {
+                    return {
+                        ok: true,
+                        json: async () => ({ memoId: "memo-catchup-chunks" }),
+                    };
+                }
+
+                if (url === "/api/memos/memo-catchup-chunks/share") {
+                    return {
+                        ok: true,
+                        json: async () => ({
+                            shareUrl: "https://example.com/s/memo-catchup-chunks",
+                        }),
+                    };
+                }
+
+                if (url === "/api/transcribe/live") {
+                    const text = responses[Math.min(responseIndex, responses.length - 1)];
+                    responseIndex += 1;
+                    return makeTranscribeResponse(text);
+                }
+
+                return {
+                    ok: true,
+                    json: async () => ({ ok: true }),
+                };
+            }),
+        });
+
+        const refs = buildChunkRefs(20);
+        const { result, unmount } = renderHook(() => useLiveTranscription(refs));
+
+        act(() => {
+            result.current.beginRecordingSession();
+        });
+
+        await waitFor(() => {
+            expect(result.current.liveShareState).toBe("ready");
+        });
+
+        act(() => {
+            result.current.runLiveTick();
+        });
+
+        await waitFor(() => {
+            expect(result.current.liveTranscript).toBe("Short opening sentence.");
+        });
+
+        expect(result.current.animatedWords).toEqual(["Short opening sentence."]);
+        expect(result.current.newWordStartIndex).toBe(0);
+
+        refs.audioChunksRef.current.push(new Blob(["chunk-20"], { type: "audio/webm" }));
+
+        act(() => {
+            result.current.runLiveTick();
+        });
+
+        await waitFor(() => {
+            expect(result.current.liveTranscript).toBe(
+                "Short opening sentence. Catch-up arrives as one chunk."
+            );
+        });
+
+        expect(result.current.animatedWords.map((chunk) => chunk.trim())).toEqual([
+            "Short opening sentence.",
+            "Catch-up arrives as one chunk.",
+        ]);
+        expect(result.current.newWordStartIndex).toBe(1);
+
+        unmount();
+    });
 });

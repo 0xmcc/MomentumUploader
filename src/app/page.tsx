@@ -1,6 +1,7 @@
 "use client";
 
 import { useClerk, useUser } from "@clerk/nextjs";
+import { useState } from "react";
 import {
   MemoDetailView,
   MemoSidebar,
@@ -13,6 +14,7 @@ import { useMemosWorkspace } from "@/hooks/useMemosWorkspace";
 export default function Home() {
   const { isSignedIn, isLoaded } = useUser();
   const { openSignIn } = useClerk();
+  const [isRecordingLive, setIsRecordingLive] = useState(false);
 
   const {
     filteredBookmarkedMemos,
@@ -36,6 +38,18 @@ export default function Home() {
     openSignIn,
   });
 
+  const handleSelectMemo = (memoId: string | null) => {
+    if (
+      isRecordingLive &&
+      memoId !== selectedMemoId &&
+      !window.confirm("Switching memos will stop the current recording. Continue?")
+    ) {
+      return;
+    }
+
+    setSelectedMemoId(memoId);
+  };
+
   return (
     <main className="flex h-screen w-full bg-[#0A0A0A] overflow-hidden text-white font-sans">
       <MemoSidebar
@@ -46,7 +60,7 @@ export default function Home() {
         searchQuery={searchQuery}
         selectedMemoId={selectedMemoId}
         onSearchQueryChange={setSearchQuery}
-        onSelectMemo={setSelectedMemoId}
+        onSelectMemo={handleSelectMemo}
       />
 
       <section className="flex-1 flex flex-col relative bg-[#121212] overflow-y-auto">
@@ -83,6 +97,7 @@ export default function Home() {
             uploadProgressPercent={uploadProgressPercent}
             onRetryUpload={retryUpload}
             onUploadComplete={handleUploadComplete}
+            onRecordingStateChange={setIsRecordingLive}
             showUploadError={showUploadError}
           />
         )}

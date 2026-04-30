@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { buildAnimatedTranscriptState } from "./live-transcript-animation";
 import { useLiveTranscriptionPersistence } from "./useLiveTranscription.persistence";
 import { useLiveTranscriptionSession } from "./useLiveTranscription.session";
 import { useLiveTranscriptionShare } from "./useLiveTranscription.share";
@@ -50,24 +51,12 @@ export function useLiveTranscription({
     }, [liveTranscript]);
 
     useEffect(() => {
-        const nextText = liveTranscript.trim();
-        if (!nextText) {
-            previousTranscriptRef.current = "";
-            setAnimatedWords([]);
-            setNewWordStartIndex(0);
-            return;
-        }
+        const { animatedWords: nextAnimatedWords, newWordStartIndex: nextStartIndex } =
+            buildAnimatedTranscriptState(previousTranscriptRef.current, liveTranscript);
 
-        const previousText = previousTranscriptRef.current.trim();
-        const nextWords = nextText.split(/\s+/).filter(Boolean);
-        const previousWords = previousText
-            ? previousText.split(/\s+/).filter(Boolean)
-            : [];
-        const isAppendOnly = !!previousText && nextText.startsWith(previousText);
-
-        setNewWordStartIndex(isAppendOnly ? previousWords.length : 0);
-        setAnimatedWords(nextWords);
-        previousTranscriptRef.current = nextText;
+        setAnimatedWords(nextAnimatedWords);
+        setNewWordStartIndex(nextStartIndex);
+        previousTranscriptRef.current = liveTranscript.trim();
     }, [liveTranscript]);
 
     const updateLiveDebug = (patch: Partial<LiveTranscriptionDebugState>) => {
@@ -141,6 +130,7 @@ export function useLiveTranscription({
         beginRecordingSession: session.beginRecordingSession,
         endRecordingSession: session.endRecordingSession,
         resetLiveSession: session.resetLiveSession,
+        handleRecordedChunkAvailable: session.handleRecordedChunkAvailable,
         runLiveTick: session.runLiveTick,
         runFinalTailTick: session.runFinalTailTick,
         handleCopyLiveShare: liveShare.handleCopyLiveShare,

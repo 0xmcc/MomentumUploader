@@ -26,11 +26,13 @@ jest.mock("@/lib/memo-api-auth", () => ({
 describe("POST /api/transcribe/live", () => {
     beforeEach(() => {
         jest.clearAllMocks();
-        (transcribeAudio as jest.Mock).mockResolvedValue("partial transcript");
+        (transcribeAudio as jest.Mock).mockResolvedValue({
+            transcript: "partial transcript",
+        });
         (resolveMemoUserId as jest.Mock).mockResolvedValue("user_abc");
     });
 
-    it("returns 401 when the caller is not authenticated", async () => {
+    it("allows unauthenticated callers to receive best-effort live transcription", async () => {
         (resolveMemoUserId as jest.Mock).mockResolvedValue(null);
 
         const req = {
@@ -49,9 +51,9 @@ describe("POST /api/transcribe/live", () => {
         const res = await POST(req);
         const body = await res.json();
 
-        expect(res.status).toBe(401);
-        expect(body).toEqual({ error: "Unauthorized" });
-        expect(transcribeAudio).not.toHaveBeenCalled();
+        expect(res.status).toBe(200);
+        expect(body).toEqual({ text: "partial transcript" });
+        expect(transcribeAudio).toHaveBeenCalledTimes(1);
     });
 
     it("passes live-priority hint so live ticks cannot block final transcription", async () => {

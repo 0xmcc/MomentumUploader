@@ -37,6 +37,7 @@ describe("POST /api/memo-agent/:memoId/chat", () => {
       status: "ok",
       memo: { memoId: "memo-1" },
     });
+    (supabaseAdmin.rpc as jest.Mock).mockResolvedValue({ data: null, error: null });
   });
 
   afterEach(() => {
@@ -91,6 +92,10 @@ describe("POST /api/memo-agent/:memoId/chat", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(supabaseAdmin.rpc).toHaveBeenCalledWith(
+      "reset_monthly_credits_if_needed",
+      { p_user_id: "viewer-1" }
+    );
     expect(insert).toHaveBeenCalledWith({
       user_id: "viewer-1",
       job_type: "memo_agent_chat",
@@ -147,7 +152,63 @@ describe("POST /api/memo-agent/:memoId/chat", () => {
     const body = await response.json();
 
     expect(response.status).toBe(402);
+    expect(supabaseAdmin.rpc).toHaveBeenCalledWith(
+      "reset_monthly_credits_if_needed",
+      { p_user_id: "viewer-1" }
+    );
     expect(body).toEqual({ error: "insufficient_credits" });
+  });
+
+  it("returns 500 when the credits row is missing instead of queueing unmetered work", async () => {
+    const sessionSingle = jest.fn().mockResolvedValue({
+      data: { id: "session-1" },
+      error: null,
+    });
+    const sessionMemoEq = jest.fn(() => ({ single: sessionSingle }));
+    const sessionUserEq = jest.fn(() => ({ eq: sessionMemoEq }));
+    const sessionIdEq = jest.fn(() => ({ eq: sessionUserEq }));
+    const sessionSelect = jest.fn(() => ({ eq: sessionIdEq }));
+
+    const creditsMaybeSingle = jest.fn().mockResolvedValue({
+      data: null,
+      error: null,
+    });
+    const creditsEq = jest.fn(() => ({ maybeSingle: creditsMaybeSingle }));
+    const creditsSelect = jest.fn(() => ({ eq: creditsEq }));
+
+    const insert = jest.fn();
+
+    (supabaseAdmin.rpc as jest.Mock).mockResolvedValue({ data: null, error: null });
+    (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+      if (table === "memo_agent_sessions") {
+        return { select: sessionSelect };
+      }
+      if (table === "user_credits") {
+        return { select: creditsSelect };
+      }
+      if (table === "job_runs") {
+        return { insert };
+      }
+      throw new Error(`Unexpected table: ${table}`);
+    });
+
+    const response = await POST(
+      makeRequest({
+        sessionId: "session-1",
+        message: "What are the action items?",
+        shareToken: "sharetoken1234",
+      }),
+      { params: Promise.resolve({ memoId: "memo-1" }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(supabaseAdmin.rpc).toHaveBeenCalledWith(
+      "reset_monthly_credits_if_needed",
+      { p_user_id: "viewer-1" }
+    );
+    expect(body).toEqual({ error: "Failed to prepare credits." });
+    expect(insert).not.toHaveBeenCalled();
   });
 
   it("returns 409 when another active job already exists for the session", async () => {
@@ -198,6 +259,10 @@ describe("POST /api/memo-agent/:memoId/chat", () => {
     const body = await response.json();
 
     expect(response.status).toBe(409);
+    expect(supabaseAdmin.rpc).toHaveBeenCalledWith(
+      "reset_monthly_credits_if_needed",
+      { p_user_id: "viewer-1" }
+    );
     expect(body).toEqual({ error: "job_in_progress" });
   });
 

@@ -6,12 +6,17 @@ import { supabaseAdmin } from "@/lib/supabase";
 
 type Params = { params: Promise<{ memoId: string }> };
 
-async function ensureViewerExists(userId: string): Promise<boolean> {
+async function ensureViewerExists(userId: string): Promise<void> {
   const { error } = await supabaseAdmin
     .from("users")
     .upsert({ id: userId }, { onConflict: "id", ignoreDuplicates: true });
 
-  return !error;
+  if (error) {
+    console.error("[memo-agent/session] failed to provision viewer", {
+      userId,
+      error,
+    });
+  }
 }
 
 async function resolveAgentAccess(memoId: string, shareToken: string) {
@@ -48,15 +53,18 @@ export async function POST(req: NextRequest, { params }: Params): Promise<Respon
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  if (!(await ensureViewerExists(userId))) {
-    return Response.json({ error: "Failed to prepare credits." }, { status: 500 });
-  }
+  await ensureViewerExists(userId);
 
   const { error: resetError } = await supabaseAdmin.rpc(
     "reset_monthly_credits_if_needed",
     { p_user_id: userId }
   );
   if (resetError) {
+    console.error("[memo-agent/session] failed to prepare credits", {
+      userId,
+      memoId: memo.memoId,
+      error: resetError,
+    });
     return Response.json({ error: "Failed to prepare credits." }, { status: 500 });
   }
 

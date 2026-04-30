@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import Home from "../page";
 import { useMemosWorkspace } from "@/hooks/useMemosWorkspace";
 
@@ -18,9 +18,13 @@ jest.mock("@/hooks/useMemosWorkspace", () => ({
 }));
 
 jest.mock("@/components/memos/MemoStudioSections", () => ({
-  MemoSidebar: (props: unknown) => {
+  MemoSidebar: (props: { onSelectMemo: (memoId: string | null) => void }) => {
     memoSidebarMock(props);
-    return <div data-testid="memo-sidebar" />;
+    return (
+      <div data-testid="memo-sidebar">
+        <button onClick={() => props.onSelectMemo("memo-2")}>Select memo</button>
+      </div>
+    );
   },
   MemoDetailView: (props: unknown) => {
     memoDetailViewMock(props);
@@ -30,9 +34,17 @@ jest.mock("@/components/memos/MemoStudioSections", () => ({
     primaryHeaderControlsMock(props);
     return <div data-testid="primary-header-controls" />;
   },
-  RecorderPanel: (props: unknown) => {
+  RecorderPanel: (props: {
+    onRecordingStateChange?: (isRecording: boolean) => void;
+  }) => {
     recorderPanelMock(props);
-    return <div data-testid="recorder-panel" />;
+    return (
+      <div data-testid="recorder-panel">
+        <button onClick={() => props.onRecordingStateChange?.(true)}>
+          Mark recording live
+        </button>
+      </div>
+    );
   },
 }));
 
@@ -167,5 +179,73 @@ describe("Home composition wiring", () => {
       screen.queryByText("Upload complete - finalizing")
     ).not.toBeInTheDocument();
     expect(screen.queryByText("Uploading 42%")).not.toBeInTheDocument();
+  });
+
+  it("warns before changing memos while recording is live", () => {
+    const setSelectedMemoId = jest.fn();
+    const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(false);
+
+    mockedUseMemosWorkspace.mockReturnValue({
+      filteredMemos: [],
+      filteredBookmarkedMemos: [],
+      handleAudioInput: jest.fn(),
+      handleUploadComplete: jest.fn(),
+      isUploading: false,
+      loading: false,
+      retryUpload: jest.fn(),
+      updateMemoTitle: jest.fn(),
+      regenerateMemoTitle: jest.fn(),
+      searchQuery: "",
+      selectedMemo: null,
+      selectedMemoId: null,
+      setSearchQuery: jest.fn(),
+      setSelectedMemoId,
+      showUploadError: false,
+      uploadProgressPercent: 0,
+    });
+
+    render(<Home />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark recording live" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select memo" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "Switching memos will stop the current recording. Continue?"
+    );
+    expect(setSelectedMemoId).not.toHaveBeenCalled();
+  });
+
+  it("allows the memo change after the user confirms the recording warning", () => {
+    const setSelectedMemoId = jest.fn();
+    const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(true);
+
+    mockedUseMemosWorkspace.mockReturnValue({
+      filteredMemos: [],
+      filteredBookmarkedMemos: [],
+      handleAudioInput: jest.fn(),
+      handleUploadComplete: jest.fn(),
+      isUploading: false,
+      loading: false,
+      retryUpload: jest.fn(),
+      updateMemoTitle: jest.fn(),
+      regenerateMemoTitle: jest.fn(),
+      searchQuery: "",
+      selectedMemo: null,
+      selectedMemoId: null,
+      setSearchQuery: jest.fn(),
+      setSelectedMemoId,
+      showUploadError: false,
+      uploadProgressPercent: 0,
+    });
+
+    render(<Home />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark recording live" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select memo" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "Switching memos will stop the current recording. Continue?"
+    );
+    expect(setSelectedMemoId).toHaveBeenCalledWith("memo-2");
   });
 });

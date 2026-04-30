@@ -40,16 +40,19 @@ export default function AudioRecorder({
     uploadProgressPercent = 0,
     onUploadComplete,
     onAudioInput,
+    onRecordingStateChange,
 }: {
     isUploadInProgress?: boolean;
     uploadProgressPercent?: number;
     onUploadComplete?: (data: UploadCompletePayload) => void;
     onAudioInput?: (payload: AudioInputPayload) => void;
+    onRecordingStateChange?: (isRecording: boolean) => void;
 }) {
     const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const chunkPruneOffsetRef = useRef(0);
     const liveMemoIdRef = useRef<string | null>(null);
+    const handleRecordedChunkRef = useRef<() => void>(() => {});
     const { playbackTheme } = useTheme();
     const isUploadActive = isUploading || isUploadInProgress;
     const chunkUploadEnabled = !onAudioInput;
@@ -57,6 +60,7 @@ export default function AudioRecorder({
     const recording = useAudioRecording({
         onRecordingStarted: handleRecordingStarted,
         onFirstChunk: handleFirstChunk,
+        onChunkCaptured: () => handleRecordedChunkRef.current(),
         onRecordingStopped: handleRecordingStopped,
     });
 
@@ -66,6 +70,7 @@ export default function AudioRecorder({
         webmHeaderRef: recording.webmHeaderRef,
         chunkPruneOffsetRef,
     });
+    handleRecordedChunkRef.current = liveTranscription.handleRecordedChunkAvailable;
 
     const chunkUpload = useChunkUpload({
         audioChunksRef: recording.audioChunksRef,
@@ -80,6 +85,16 @@ export default function AudioRecorder({
     useEffect(() => {
         liveMemoIdRef.current = liveTranscription.liveMemoId;
     }, [liveTranscription.liveMemoId]);
+
+    useEffect(() => {
+        onRecordingStateChange?.(recording.isRecording);
+    }, [onRecordingStateChange, recording.isRecording]);
+
+    useEffect(() => {
+        return () => {
+            onRecordingStateChange?.(false);
+        };
+    }, [onRecordingStateChange]);
 
     function handleRecordingStarted() {
         chunkUpload.resetChunkUpload();
