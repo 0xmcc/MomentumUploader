@@ -20,7 +20,8 @@ type UseLiveTranscriptionSessionOptions = UseLiveTranscriptionOptions & {
     tailTextRef: MutableRefObject<string>;
     updateCanonicalTranscript: (
         nextLockedSegments: LockedSegment[],
-        nextTailText: string
+        nextTailText: string,
+        nextShouldAnimateNewChunks?: boolean
     ) => string;
     updateLiveDebug: (patch: Partial<LiveTranscriptionDebugState>) => void;
     resetTranscriptSession: () => void;
@@ -54,6 +55,7 @@ export function useLiveTranscriptionSession({
     const abortRef = useRef<AbortController | null>(null);
     const isRecordingRef = useRef(false);
     const visibilityHandlerRef = useRef<(() => void) | null>(null);
+    const suppressChunkAnimationRef = useRef(false);
 
     const clearRecordingResources = () => {
         if (liveTimerRef.current) {
@@ -73,6 +75,7 @@ export function useLiveTranscriptionSession({
         isRecordingRef.current = false;
         liveInFlightRef.current = false;
         lastLiveTickStartedAtRef.current = null;
+        suppressChunkAnimationRef.current = false;
     };
 
     useEffect(() => () => {
@@ -116,6 +119,8 @@ export function useLiveTranscriptionSession({
                 response.ok ? response.json() : Promise.reject(response.status)
             )
             .then(({ text }: { text: string }) => {
+                const shouldAnimateNewChunks = !suppressChunkAnimationRef.current;
+
                 if (snapshot.willFinalize) {
                     const finalizedText = (text ?? "").trim();
                     const nextLockedSegments = [
@@ -131,7 +136,11 @@ export function useLiveTranscriptionSession({
                         tailTextRef.current
                     );
 
-                    updateCanonicalTranscript(nextLockedSegments, nextTailText);
+                    updateCanonicalTranscript(
+                        nextLockedSegments,
+                        nextTailText,
+                        shouldAnimateNewChunks
+                    );
                     updateLiveDebug({
                         lastResponseAt: Date.now(),
                         lastServerText: finalizedText,
@@ -141,7 +150,11 @@ export function useLiveTranscriptionSession({
                     return;
                 }
 
-                updateCanonicalTranscript(lockedSegmentsRef.current, (text ?? "").trim());
+                updateCanonicalTranscript(
+                    lockedSegmentsRef.current,
+                    (text ?? "").trim(),
+                    shouldAnimateNewChunks
+                );
                 updateLiveDebug({
                     lastResponseAt: Date.now(),
                     lastServerText: text ?? "",
@@ -159,7 +172,10 @@ export function useLiveTranscriptionSession({
                 liveInFlightRef.current = false;
                 updateLiveDebug({ inFlight: false });
 
-                if (!snapshot.willFinalize) return;
+                if (!snapshot.willFinalize) {
+                    suppressChunkAnimationRef.current = false;
+                    return;
+                }
 
                 const afterEnd = lockedSegmentsRef.current.at(-1)?.endIndex ?? 0;
                 const remaining =
@@ -177,6 +193,8 @@ export function useLiveTranscriptionSession({
                     runLiveTick();
                 } else if (shouldRefreshTail) {
                     runLiveTick(true);
+                } else {
+                    suppressChunkAnimationRef.current = false;
                 }
             });
     };
@@ -268,6 +286,7 @@ export function useLiveTranscriptionSession({
 
             if (liveTimerRef.current) clearInterval(liveTimerRef.current);
             catchupBurstCountRef.current = 0;
+            suppressChunkAnimationRef.current = true;
             if (!liveInFlightRef.current) runLiveTick();
             liveTimerRef.current = setInterval(runLiveTick, LIVE_INTERVAL_MS);
         };

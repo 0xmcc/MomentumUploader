@@ -29,6 +29,7 @@ export function useLiveTranscription({
         useState<CanonicalTranscriptState>({
             lockedSegments: [],
             tailText: "",
+            shouldAnimateNewChunks: true,
         });
     const [animatedWords, setAnimatedWords] = useState<string[]>([]);
     const [newWordStartIndex, setNewWordStartIndex] = useState(0);
@@ -41,7 +42,7 @@ export function useLiveTranscription({
     const previousTranscriptRef = useRef("");
     const resetOnUnauthorizedRef = useRef<(() => void) | null>(null);
 
-    const { lockedSegments, tailText } = canonicalTranscriptState;
+    const { lockedSegments, tailText, shouldAnimateNewChunks } = canonicalTranscriptState;
     const liveTranscript = buildCanonicalTranscript(lockedSegments, tailText);
 
     useEffect(() => {
@@ -65,13 +66,15 @@ export function useLiveTranscription({
 
     const updateCanonicalTranscript = (
         nextLockedSegments: LockedSegment[],
-        nextTailText: string
+        nextTailText: string,
+        nextShouldAnimateNewChunks = true
     ) => {
         lockedSegmentsRef.current = nextLockedSegments;
         tailTextRef.current = nextTailText;
         setCanonicalTranscriptState({
             lockedSegments: nextLockedSegments,
             tailText: nextTailText,
+            shouldAnimateNewChunks: nextShouldAnimateNewChunks,
         });
 
         const transcript = buildCanonicalTranscript(nextLockedSegments, nextTailText);
@@ -83,7 +86,7 @@ export function useLiveTranscription({
     };
 
     const resetTranscriptSession = () => {
-        updateCanonicalTranscript([], "");
+        updateCanonicalTranscript([], "", true);
         setAnimatedWords([]);
         setNewWordStartIndex(0);
         previousTranscriptRef.current = "";
@@ -122,6 +125,7 @@ export function useLiveTranscription({
         liveTranscript,
         animatedWords,
         newWordStartIndex,
+        shouldAnimateNewChunks,
         liveDebug,
         transcriptScrollRef,
         liveMemoId: liveShare.liveMemoId,

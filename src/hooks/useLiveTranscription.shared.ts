@@ -11,6 +11,7 @@ export type LockedSegment = LiveLockedSegment;
 export type CanonicalTranscriptState = {
     lockedSegments: LockedSegment[];
     tailText: string;
+    shouldAnimateNewChunks: boolean;
 };
 
 export type LiveShareState = "idle" | "loading" | "ready" | "copied" | "error";
@@ -50,6 +51,7 @@ export type UseLiveTranscriptionResult = {
     liveTranscript: string;
     animatedWords: string[];
     newWordStartIndex: number;
+    shouldAnimateNewChunks: boolean;
     liveDebug: LiveTranscriptionDebugState;
     transcriptScrollRef: MutableRefObject<HTMLDivElement | null>;
     liveMemoId: string | null;

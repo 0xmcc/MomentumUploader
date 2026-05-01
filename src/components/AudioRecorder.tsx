@@ -298,6 +298,7 @@ export default function AudioRecorder({
                 liveTranscript={liveTranscription.liveTranscript}
                 animatedWords={liveTranscription.animatedWords}
                 newWordStartIndex={liveTranscription.newWordStartIndex}
+                shouldAnimateNewChunks={liveTranscription.shouldAnimateNewChunks}
                 recordingTime={recording.recordingTime}
                 micError={recording.micError}
                 transcriptScrollRef={liveTranscription.transcriptScrollRef}

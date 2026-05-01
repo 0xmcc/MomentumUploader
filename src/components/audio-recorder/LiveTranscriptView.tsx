@@ -10,6 +10,7 @@ type LiveTranscriptViewProps = {
     liveTranscript: string;
     animatedWords: string[];
     newWordStartIndex: number;
+    shouldAnimateNewChunks: boolean;
     recordingTime: number;
     micError: string | null;
     transcriptScrollRef: MutableRefObject<HTMLDivElement | null>;
@@ -22,6 +23,7 @@ export default function LiveTranscriptView({
     liveTranscript,
     animatedWords,
     newWordStartIndex,
+    shouldAnimateNewChunks,
     recordingTime,
     micError,
     transcriptScrollRef,
@@ -43,7 +45,8 @@ export default function LiveTranscriptView({
                             {liveTranscript ? (
                                 <p className="text-white/80 whitespace-pre-wrap">
                                     {animatedWords.map((word, index) => {
-                                        const isNewWord = index >= newWordStartIndex;
+                                        const isNewWord =
+                                            shouldAnimateNewChunks && index >= newWordStartIndex;
                                         return (
                                             <motion.span
                                                 key={`${index}-${word}`}

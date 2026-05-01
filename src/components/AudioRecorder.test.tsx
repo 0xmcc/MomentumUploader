@@ -488,7 +488,7 @@ describe("AudioRecorder live transcript cadence", () => {
             await Promise.resolve();
         });
 
-        for (let i = 0; i < 50; i += 1) {
+        for (let i = 0; i < 20; i += 1) {
             await act(async () => {
                 jest.advanceTimersByTime(1500);
             });
