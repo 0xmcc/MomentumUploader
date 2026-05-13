@@ -29,6 +29,25 @@ jest.mock("@grpc/grpc-js", () => {
     };
 });
 
+function makeStreamingCall(responses: unknown[]) {
+    const handlers: Record<string, Array<(value?: unknown) => void>> = {};
+    const call = {
+        write: jest.fn(),
+        end: jest.fn(() => {
+            for (const response of responses) {
+                for (const handler of handlers.data ?? []) handler(response);
+            }
+            for (const handler of handlers.end ?? []) handler();
+        }),
+        on: jest.fn((event: string, handler: (value?: unknown) => void) => {
+            handlers[event] = handlers[event] ?? [];
+            handlers[event].push(handler);
+            return call;
+        }),
+    };
+    return call;
+}
+
 describe("riva metadata auth header", () => {
     beforeEach(() => {
         jest.resetModules();
@@ -43,15 +62,18 @@ describe("riva metadata auth header", () => {
                 riva: {
                     asr: {
                         RivaSpeechRecognition: jest.fn().mockImplementation(() => ({
-                            Recognize: (
-                                _request: unknown,
-                                _metadata: unknown,
-                                callback: (err: Error | null, response?: unknown) => void
-                            ) => {
-                                callback(null, {
-                                    results: [{ alternatives: [{ transcript: "ok" }] }],
-                                });
-                            },
+                            StreamingRecognize: jest.fn(() =>
+                                makeStreamingCall([
+                                    {
+                                        results: [
+                                            {
+                                                alternatives: [{ transcript: "ok" }],
+                                                is_final: true,
+                                            },
+                                        ],
+                                    },
+                                ])
+                            ),
                         })),
                     },
                 },

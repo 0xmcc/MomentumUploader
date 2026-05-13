@@ -150,9 +150,18 @@ export function useLiveTranscriptionSession({
                     return;
                 }
 
+                const incomingTail = (text ?? "").trim();
+                const compact = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+                const prevTail = tailTextRef.current;
+                // If compact(prev) contains compact(incoming), RIVA regressed to a subset of
+                // what it already returned — keep the richer previous tail instead of shrinking.
+                const nextTail =
+                    !incomingTail || compact(prevTail).includes(compact(incomingTail))
+                        ? prevTail
+                        : incomingTail;
                 updateCanonicalTranscript(
                     lockedSegmentsRef.current,
-                    (text ?? "").trim(),
+                    nextTail,
                     shouldAnimateNewChunks
                 );
                 updateLiveDebug({

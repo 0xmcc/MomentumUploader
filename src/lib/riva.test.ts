@@ -4,6 +4,12 @@ const execFileMock = jest.fn();
 const loadSyncMock = jest.fn();
 const loadPackageDefinitionMock = jest.fn();
 
+type MockStreamingCall = {
+    write: jest.Mock;
+    end: jest.Mock;
+    on: jest.Mock;
+};
+
 jest.mock("ffmpeg-static", () => "/opt/ffmpeg-static/ffmpeg", { virtual: true });
 
 jest.mock("child_process", () => ({
@@ -30,6 +36,25 @@ jest.mock("@grpc/grpc-js", () => {
     };
 });
 
+function makeStreamingCall(responses: unknown[]): MockStreamingCall {
+    const handlers: Record<string, Array<(value?: unknown) => void>> = {};
+    const call: MockStreamingCall = {
+        write: jest.fn(),
+        end: jest.fn(() => {
+            for (const response of responses) {
+                for (const handler of handlers.data ?? []) handler(response);
+            }
+            for (const handler of handlers.end ?? []) handler();
+        }),
+        on: jest.fn((event: string, handler: (value?: unknown) => void) => {
+            handlers[event] = handlers[event] ?? [];
+            handlers[event].push(handler);
+            return call;
+        }),
+    };
+    return call;
+}
+
 describe("riva transcription runtime dependencies", () => {
     beforeEach(() => {
         jest.resetModules();
@@ -43,15 +68,18 @@ describe("riva transcription runtime dependencies", () => {
                 riva: {
                     asr: {
                         RivaSpeechRecognition: jest.fn().mockImplementation(() => ({
-                            Recognize: (
-                                _request: unknown,
-                                _metadata: unknown,
-                                callback: (err: Error | null, response?: unknown) => void
-                            ) => {
-                                callback(null, {
-                                    results: [{ alternatives: [{ transcript: "ok" }] }],
-                                });
-                            },
+                            StreamingRecognize: jest.fn(() =>
+                                makeStreamingCall([
+                                    {
+                                        results: [
+                                            {
+                                                alternatives: [{ transcript: "ok" }],
+                                                is_final: true,
+                                            },
+                                        ],
+                                    },
+                                ])
+                            ),
                         })),
                     },
                 },
@@ -83,24 +111,95 @@ describe("riva transcription runtime dependencies", () => {
         expect(ffmpegCommand).toBe(path.join(process.cwd(), "node_modules/ffmpeg-static/ffmpeg"));
     });
 
+    it("uses StreamingRecognize for NVIDIA NVCF because unary Recognize rejects hosted Parakeet requests", async () => {
+        execFileMock.mockImplementation(
+            (
+                _command: string,
+                args: string[],
+                callback: (err: Error | null, stdout: string, stderr: string) => void
+            ) => {
+                const fs = require("fs");
+                const outputPath = args[args.length - 1];
+                const format = args[args.indexOf("-f") + 1];
+                const output =
+                    format === "wav"
+                        ? Buffer.from("RIFF....WAVEfmt ", "ascii")
+                        : Buffer.from([0, 1, 2, 3]);
+                fs.writeFileSync(outputPath, output);
+                callback(null, "", "");
+            }
+        );
+        const streamingCall = makeStreamingCall([
+            {
+                results: [
+                    {
+                        alternatives: [{ transcript: "streamed ok" }],
+                        is_final: true,
+                        audio_processed: 1.9,
+                    },
+                ],
+            },
+        ]);
+        const recognizeMock = jest.fn(
+            (
+                _request: unknown,
+                _metadata: unknown,
+                callback: (err: Error | null, response?: unknown) => void
+            ) => {
+                callback(Object.assign(new Error("3 INVALID_ARGUMENT"), { code: 3 }));
+            }
+        );
+        loadPackageDefinitionMock.mockReturnValue({
+            nvidia: {
+                riva: {
+                    asr: {
+                        RivaSpeechRecognition: jest.fn().mockImplementation(() => ({
+                            Recognize: recognizeMock,
+                            StreamingRecognize: jest.fn(() => streamingCall),
+                        })),
+                    },
+                },
+            },
+        });
+
+        const { transcribeAudio } = await import("./riva");
+
+        await expect(transcribeAudio(Buffer.from("fake-audio"), "test-api-key", "audio/webm")).resolves.toMatchObject({
+            transcript: "streamed ok",
+            segments: [{ startMs: 0, endMs: 1900, text: "streamed ok" }],
+        });
+        expect(recognizeMock).not.toHaveBeenCalled();
+        expect(streamingCall.write).toHaveBeenNthCalledWith(1, {
+            streaming_config: {
+                config: {
+                    language_code: "en-US",
+                    max_alternatives: 1,
+                    enable_automatic_punctuation: true,
+                },
+                interim_results: true,
+            },
+        });
+        expect(streamingCall.write).toHaveBeenNthCalledWith(2, {
+            audio_content: Buffer.from("RIFF....WAVEfmt ", "ascii"),
+        });
+    });
+
     it("returns { transcript, segments } with correct startMs/endMs derived from audio_processed", async () => {
         loadPackageDefinitionMock.mockReturnValue({
             nvidia: {
                 riva: {
                     asr: {
                         RivaSpeechRecognition: jest.fn().mockImplementation(() => ({
-                            Recognize: (
-                                _request: unknown,
-                                _metadata: unknown,
-                                callback: (err: Error | null, response?: unknown) => void
-                            ) => {
-                                callback(null, {
-                                    results: [
-                                        { alternatives: [{ transcript: "Hello world" }], audio_processed: 2.5 },
-                                        { alternatives: [{ transcript: "How are you" }], audio_processed: 5.0 },
-                                    ],
-                                });
-                            },
+                            StreamingRecognize: jest.fn(() =>
+                                makeStreamingCall([
+                                    {
+                                        results: [
+                                            { alternatives: [{ transcript: "Hello world" }], is_final: true, audio_processed: 2.5 },
+                                            { alternatives: [{ transcript: "How are you" }], is_final: true, audio_processed: 5.0 },
+                                        ],
+                                    },
+                                ])
+                            ),
                         })),
                     },
                 },
@@ -123,19 +222,17 @@ describe("riva transcription runtime dependencies", () => {
                 riva: {
                     asr: {
                         RivaSpeechRecognition: jest.fn().mockImplementation(() => ({
-                            Recognize: (
-                                _request: unknown,
-                                _metadata: unknown,
-                                callback: (err: Error | null, response?: unknown) => void
-                            ) => {
-                                callback(null, {
-                                    results: [
-                                        // audio_processed missing / 0 on first segment
-                                        { alternatives: [{ transcript: "Zero time segment" }] },
-                                        { alternatives: [{ transcript: "Normal segment" }], audio_processed: 3.0 },
-                                    ],
-                                });
-                            },
+                            StreamingRecognize: jest.fn(() =>
+                                makeStreamingCall([
+                                    {
+                                        results: [
+                                            // audio_processed missing / 0 on first segment
+                                            { alternatives: [{ transcript: "Zero time segment" }], is_final: true },
+                                            { alternatives: [{ transcript: "Normal segment" }], is_final: true, audio_processed: 3.0 },
+                                        ],
+                                    },
+                                ])
+                            ),
                         })),
                     },
                 },

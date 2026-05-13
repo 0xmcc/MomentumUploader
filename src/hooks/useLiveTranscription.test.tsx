@@ -1084,3 +1084,141 @@ describe("useLiveTranscription session controls", () => {
         unmount();
     });
 });
+
+describe("useLiveTranscription tail regression guard", () => {
+    afterEach(() => {
+        jest.clearAllMocks();
+    });
+
+    function makeFetchForTailGuard(memoId: string, responses: string[]) {
+        let responseIndex = 0;
+
+        Object.defineProperty(global, "fetch", {
+            writable: true,
+            value: jest.fn(async (url: string) => {
+                if (url === "/api/memos/live") {
+                    return { ok: true, json: async () => ({ memoId }) };
+                }
+                if (url === `/api/memos/${memoId}/share`) {
+                    return { ok: true, json: async () => ({ shareUrl: `https://example.com/s/${memoId}` }) };
+                }
+                if (url === "/api/transcribe/live") {
+                    const text = responses[Math.min(responseIndex, responses.length - 1)];
+                    responseIndex += 1;
+                    return { ok: true, json: async () => ({ text }) };
+                }
+                return { ok: true, json: async () => ({ ok: true }) };
+            }),
+        });
+    }
+
+    it("does not overwrite a longer tail when the server returns a regressed (shorter prefix) response", async () => {
+        makeFetchForTailGuard("memo-tail-regression", [
+            "To me it was a wonderful experience speaking here today",
+            "To me",
+        ]);
+
+        const refs = buildChunkRefs(20);
+        const { result, unmount } = renderHook(() => useLiveTranscription(refs));
+
+        act(() => { result.current.beginRecordingSession(); });
+        await waitFor(() => { expect(result.current.liveShareState).toBe("ready"); });
+
+        act(() => { result.current.runLiveTick(); });
+        await waitFor(() => {
+            expect(result.current.liveTranscript).toBe(
+                "To me it was a wonderful experience speaking here today"
+            );
+        });
+
+        act(() => { result.current.runLiveTick(); });
+        await act(async () => { await flushMicrotasks(); });
+        await act(async () => { await flushMicrotasks(); });
+
+        expect(result.current.liveTranscript).toBe(
+            "To me it was a wonderful experience speaking here today"
+        );
+
+        unmount();
+    });
+
+    it("replaces the tail when the server returns a new sliding-window response (not a subset of previous)", async () => {
+        // Simulates RIVA's sliding-window hypothesis: each tick covers newer audio
+        // that doesn't overlap with the old tail — so we REPLACE, not merge.
+        makeFetchForTailGuard("memo-tail-slide", [
+            "interface but it is not recommended",
+            "something completely different here",
+        ]);
+
+        const refs = buildChunkRefs(20);
+        const { result, unmount } = renderHook(() => useLiveTranscription(refs));
+
+        act(() => { result.current.beginRecordingSession(); });
+        await waitFor(() => { expect(result.current.liveShareState).toBe("ready"); });
+
+        act(() => { result.current.runLiveTick(); });
+        await waitFor(() => {
+            expect(result.current.liveTranscript).toBe("interface but it is not recommended");
+        });
+
+        act(() => { result.current.runLiveTick(); });
+        await waitFor(() => {
+            expect(result.current.liveTranscript).toBe("something completely different here");
+        });
+
+        unmount();
+    });
+
+    it("does not clear the tail when the server returns an empty response", async () => {
+        makeFetchForTailGuard("memo-tail-empty", [
+            "Hello this is a long sentence",
+            "",
+        ]);
+
+        const refs = buildChunkRefs(20);
+        const { result, unmount } = renderHook(() => useLiveTranscription(refs));
+
+        act(() => { result.current.beginRecordingSession(); });
+        await waitFor(() => { expect(result.current.liveShareState).toBe("ready"); });
+
+        act(() => { result.current.runLiveTick(); });
+        await waitFor(() => {
+            expect(result.current.liveTranscript).toBe("Hello this is a long sentence");
+        });
+
+        act(() => { result.current.runLiveTick(); });
+        await act(async () => { await flushMicrotasks(); });
+        await act(async () => { await flushMicrotasks(); });
+
+        expect(result.current.liveTranscript).toBe("Hello this is a long sentence");
+
+        unmount();
+    });
+
+    it("extends the tail when the server returns a longer response for newer audio", async () => {
+        makeFetchForTailGuard("memo-tail-extend", [
+            "Hello world",
+            "Hello world how are you doing today",
+        ]);
+
+        const refs = buildChunkRefs(20);
+        const { result, unmount } = renderHook(() => useLiveTranscription(refs));
+
+        act(() => { result.current.beginRecordingSession(); });
+        await waitFor(() => { expect(result.current.liveShareState).toBe("ready"); });
+
+        act(() => { result.current.runLiveTick(); });
+        await waitFor(() => {
+            expect(result.current.liveTranscript).toBe("Hello world");
+        });
+
+        act(() => { result.current.runLiveTick(); });
+        await waitFor(() => {
+            expect(result.current.liveTranscript).toBe(
+                "Hello world how are you doing today"
+            );
+        });
+
+        unmount();
+    });
+});

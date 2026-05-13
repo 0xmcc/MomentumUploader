@@ -4,11 +4,12 @@
  * Endpoint: grpc.nvcf.nvidia.com:443
  * Function ID: d8dd4e9b-fbf5-4fb0-9dba-8cf436c8d965
  *
- * Riva only supports LINEAR_PCM, FLAC, MULAW, OGGOPUS — NOT WebM.
+ * The hosted NVIDIA NVCF endpoint expects a supported audio container
+ * (for example 16-bit mono WAV/OGG/OPUS), not browser WebM and not raw PCM.
  * Browser MediaRecorder outputs audio/webm;codecs=opus, so we use
- * ffmpeg to transcode to 16kHz mono LINEAR_PCM before sending.
+ * ffmpeg to transcode to a 16kHz mono WAV/PCM16 container before sending.
  *
- * CONCURRENCY: Riva's cloud endpoint degrades when two Recognize calls
+ * CONCURRENCY: Riva's cloud endpoint degrades when two ASR calls
  * hit the same channel simultaneously (live + final calls overlap when
  * recording stops). We enforce a sequential call queue so calls never
  * run concurrently — the final transcript always gets a clean channel.
@@ -34,6 +35,7 @@ const execFileAsync = promisify(execFile);
 const GRPC_TARGET = "grpc.nvcf.nvidia.com:443";
 const FUNCTION_ID = "d8dd4e9b-fbf5-4fb0-9dba-8cf436c8d965";
 const PROTO_ROOT = path.join(process.cwd(), "src/lib/proto");
+const STREAMING_AUDIO_CHUNK_BYTES = 64 * 1024;
 
 function resolveFfmpegPath(): string {
     const fromEnv = process.env.FFMPEG_PATH?.trim();
@@ -77,15 +79,12 @@ function enqueue<T>(fn: () => Promise<T>): Promise<T> {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-type RecognizeRequest = {
-    config: {
-        encoding: number;
-        sample_rate_hertz: number;
-        language_code: string;
-        max_alternatives: number;
-        enable_automatic_punctuation: boolean;
-    };
-    audio: Buffer;
+type RecognitionConfig = {
+    encoding?: number | string;
+    sample_rate_hertz?: number;
+    language_code: string;
+    max_alternatives: number;
+    enable_automatic_punctuation: boolean;
 };
 
 type RecognizeResult = {
@@ -95,16 +94,26 @@ type RecognizeResult = {
     audio_processed?: number; // cumulative seconds of audio processed up to this result
 };
 
-type RecognizeResponse = {
-    results?: RecognizeResult[];
+type StreamingRecognizeRequest = {
+    streaming_config?: {
+        config: RecognitionConfig;
+        interim_results: boolean;
+    };
+    audio_content?: Buffer;
+};
+
+type StreamingRecognizeResult = RecognizeResult & {
+    is_final?: boolean;
+};
+
+type StreamingRecognizeResponse = {
+    results?: StreamingRecognizeResult[];
 };
 
 type RivaAsrClient = {
-    Recognize: (
-        request: RecognizeRequest,
-        metadata: grpc.Metadata,
-        callback: (err: grpc.ServiceError | null, response?: RecognizeResponse) => void
-    ) => void;
+    StreamingRecognize: (
+        metadata: grpc.Metadata
+    ) => grpc.ClientDuplexStream<StreamingRecognizeRequest, StreamingRecognizeResponse>;
 };
 
 type RivaAsrConstructor = new (
@@ -156,14 +165,15 @@ function getAsrClient() {
 }
 
 /**
- * Converts any audio buffer (webm, ogg, mp4…) to raw 16kHz mono s16le PCM
- * using ffmpeg. This is what Riva expects for LINEAR_PCM encoding.
+ * Converts any audio buffer (webm, ogg, mp4...) to a 16kHz mono WAV/PCM16
+ * container using ffmpeg. This mirrors NVIDIA's hosted Riva client path, which
+ * sends container bytes and lets the service infer the audio encoding.
  */
-async function toPCM16(inputBuffer: Buffer, inputExt = "webm"): Promise<Buffer> {
+async function toWavPCM16(inputBuffer: Buffer, inputExt = "webm"): Promise<Buffer> {
     // Use random suffix so concurrent ffmpeg calls don't collide on filenames
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const tmpIn = path.join(os.tmpdir(), `riva-in-${id}.${inputExt}`);
-    const tmpOut = path.join(os.tmpdir(), `riva-out-${id}.raw`);
+    const tmpOut = path.join(os.tmpdir(), `riva-out-${id}.wav`);
 
     const ffmpegExecutable = resolveFfmpegPath();
 
@@ -175,14 +185,16 @@ async function toPCM16(inputBuffer: Buffer, inputExt = "webm"): Promise<Buffer> 
             "-i", tmpIn,
             "-ar", "16000",       // 16 kHz (Parakeet requirement)
             "-ac", "1",           // mono
-            "-f", "s16le",        // raw signed 16-bit little-endian PCM
+            "-sample_fmt", "s16",  // 16-bit samples inside the WAV container
+            "-f", "wav",
             "-acodec", "pcm_s16le",
             tmpOut,
         ]);
 
-        const pcm = await fs.readFile(tmpOut);
-        console.log(`[riva/ffmpeg] ${inputBuffer.byteLength}b → ${pcm.byteLength}b PCM (${(pcm.byteLength / 32000).toFixed(1)}s)`);
-        return pcm;
+        const wav = await fs.readFile(tmpOut);
+        const pcmPayloadBytes = Math.max(0, wav.byteLength - 44);
+        console.log(`[riva/ffmpeg] ${inputBuffer.byteLength}b → ${wav.byteLength}b WAV/PCM16 (${(pcmPayloadBytes / 32000).toFixed(1)}s)`);
+        return wav;
     } finally {
         await fs.unlink(tmpIn).catch(() => { });
         await fs.unlink(tmpOut).catch(() => { });
@@ -211,53 +223,81 @@ async function _doRecognize(
                 : normalizedMime.includes("mpeg") || normalizedMime.includes("mp3")
                     ? "mp3"
                     : "webm";
-    const pcmBuffer = await toPCM16(audioBytes, inputExt);
+    const wavBuffer = await toWavPCM16(audioBytes, inputExt);
 
     const metadata = new grpc.Metadata();
     metadata.set("authorization", `Bearer ${normalizedApiKey}`);
     metadata.set("function-id", FUNCTION_ID);
 
-    const request: RecognizeRequest = {
-        config: {
-            encoding: 1,                   // LINEAR_PCM = 1 in riva_audio.proto
-            sample_rate_hertz: 16000,
-            language_code: "en-US",
-            max_alternatives: 1,
-            enable_automatic_punctuation: true,
-        },
-        audio: pcmBuffer,
+    const config: RecognitionConfig = {
+        language_code: "en-US",
+        max_alternatives: 1,
+        enable_automatic_punctuation: true,
     };
 
     return new Promise<{ transcript: string; segments: TranscriptSegment[] }>((resolve, reject) => {
-        client.Recognize(request, metadata, (err, response) => {
-            if (err) {
-                console.error("[riva/grpc] Recognize error:", err);
-                reject(err);
+        const stream = client.StreamingRecognize(metadata);
+        const finalResults: StreamingRecognizeResult[] = [];
+        let fallbackResults: StreamingRecognizeResult[] = [];
+
+        stream.on("data", (response: StreamingRecognizeResponse) => {
+            const populatedResults = (response.results ?? []).filter((r: StreamingRecognizeResult) =>
+                r.alternatives?.[0]?.transcript?.trim()
+            );
+            if (populatedResults.length === 0) return;
+
+            const finals = populatedResults.filter((r) => r.is_final);
+            if (finals.length > 0) {
+                finalResults.push(...finals);
                 return;
             }
-            console.log("[riva/grpc] results:", JSON.stringify(response?.results?.length), "segments");
-            // Build timestamped segments from Riva results.
-            // audio_processed is cumulative seconds up to each result — use it to
-            // derive startMs/endMs. Guard against 0/missing values so endMs is
-            // always strictly greater than startMs.
-            let prevMs = 0;
-            const segments: TranscriptSegment[] = (response?.results ?? [])
-                .filter((r) => r.alternatives?.[0]?.transcript?.trim())
-                .map((r, i) => {
-                    const text = r.alternatives![0].transcript!.trim();
-                    const endMs = Math.max(prevMs + 1, Math.round((r.audio_processed ?? 0) * 1000));
-                    const seg: TranscriptSegment = { id: String(i), startMs: prevMs, endMs, text };
-                    prevMs = endMs;
-                    return seg;
-                });
+            fallbackResults = populatedResults;
+        });
+
+        stream.on("error", (err) => {
+            console.error("[riva/grpc] StreamingRecognize error:", err);
+            reject(err);
+        });
+
+        stream.on("end", () => {
+            const results = finalResults.length > 0 ? finalResults : fallbackResults;
+            console.log("[riva/grpc] streaming results:", JSON.stringify(results.length), "segments");
+            const segments = resultsToSegments(results);
             const transcript = segments.map((s) => s.text).join(" ");
             resolve({ transcript, segments });
         });
+
+        stream.write({
+            streaming_config: {
+                config,
+                interim_results: true,
+            },
+        });
+
+        for (let offset = 0; offset < wavBuffer.byteLength; offset += STREAMING_AUDIO_CHUNK_BYTES) {
+            stream.write({
+                audio_content: wavBuffer.subarray(offset, offset + STREAMING_AUDIO_CHUNK_BYTES),
+            });
+        }
+        stream.end();
+    });
+}
+
+function resultsToSegments(results: RecognizeResult[]): TranscriptSegment[] {
+    // audio_processed is cumulative seconds up to each result. Guard against
+    // 0/missing values so endMs is always strictly greater than startMs.
+    let prevMs = 0;
+    return results.map((r, i) => {
+        const text = r.alternatives?.[0]?.transcript?.trim() ?? "";
+        const endMs = Math.max(prevMs + 1, Math.round((r.audio_processed ?? 0) * 1000));
+        const seg: TranscriptSegment = { id: String(i), startMs: prevMs, endMs, text };
+        prevMs = endMs;
+        return seg;
     });
 }
 
 /**
- * Public entry point — always queues behind any in-flight Recognize call.
+ * Public entry point — always queues behind any in-flight ASR call.
  */
 export async function transcribeAudio(
     audioBytes: Buffer,
@@ -267,7 +307,7 @@ export async function transcribeAudio(
 ): Promise<{ transcript: string; segments: TranscriptSegment[] }> {
     const priority = options?.priority ?? "final";
     console.log(
-        `[riva] Recognize request priority=${priority} size=${(audioBytes.byteLength / 1024).toFixed(0)} KB`
+        `[riva] StreamingRecognize request priority=${priority} size=${(audioBytes.byteLength / 1024).toFixed(0)} KB`
     );
 
     // Keep live polling serialized to protect provider stability.
