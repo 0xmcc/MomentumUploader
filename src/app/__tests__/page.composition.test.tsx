@@ -7,6 +7,7 @@ const memoSidebarMock = jest.fn();
 const memoDetailViewMock = jest.fn();
 const primaryHeaderControlsMock = jest.fn();
 const recorderPanelMock = jest.fn();
+const transcriptFeedPanelMock = jest.fn();
 
 jest.mock("@clerk/nextjs", () => ({
   useUser: () => ({ isSignedIn: true, isLoaded: true }),
@@ -46,6 +47,20 @@ jest.mock("@/components/memos/MemoStudioSections", () => ({
       </div>
     );
   },
+  TranscriptFeedPanel: (props: {
+    onLoadMoreMemos: () => void;
+    onSelectMemo: (memoId: string) => void;
+    recorderPanel?: React.ReactNode;
+  }) => {
+    transcriptFeedPanelMock(props);
+    return (
+      <div data-testid="transcript-feed-panel">
+        {props.recorderPanel}
+        <button onClick={() => props.onLoadMoreMemos()}>Load next page</button>
+        <button onClick={() => props.onSelectMemo("memo-1")}>Open feed memo</button>
+      </div>
+    );
+  },
 }));
 
 const mockedUseMemosWorkspace = useMemosWorkspace as jest.MockedFunction<
@@ -68,6 +83,9 @@ describe("Home composition wiring", () => {
       retryUpload: jest.fn(),
       updateMemoTitle: jest.fn(),
       regenerateMemoTitle: jest.fn(),
+      hasMoreMemos: true,
+      loadMoreMemos: jest.fn(),
+      loadingMoreMemos: false,
       searchQuery: "",
       selectedMemoId: null,
       setSearchQuery: jest.fn(),
@@ -85,6 +103,7 @@ describe("Home composition wiring", () => {
 
     expect(screen.getByTestId("memo-sidebar")).toBeInTheDocument();
     expect(screen.getByTestId("primary-header-controls")).toBeInTheDocument();
+    expect(screen.getByTestId("transcript-feed-panel")).toBeInTheDocument();
     expect(screen.getByTestId("recorder-panel")).toBeInTheDocument();
     expect(screen.queryByTestId("memo-detail-view")).not.toBeInTheDocument();
 
@@ -107,6 +126,15 @@ describe("Home composition wiring", () => {
       })
     );
     expect(recorderPanelProps).not.toHaveProperty("onAudioInput");
+
+    expect(transcriptFeedPanelMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hasMoreMemos: true,
+        loadingMoreMemos: false,
+        memos: [],
+        onLoadMoreMemos: commonHookState.loadMoreMemos,
+      })
+    );
   });
 
   it("renders memo detail flow when a memo is selected", () => {
@@ -127,6 +155,9 @@ describe("Home composition wiring", () => {
       retryUpload: jest.fn(),
       updateMemoTitle: jest.fn(),
       regenerateMemoTitle: jest.fn(),
+      hasMoreMemos: false,
+      loadMoreMemos: jest.fn(),
+      loadingMoreMemos: false,
       searchQuery: "",
       selectedMemo,
       selectedMemoId: selectedMemo.id,
@@ -161,6 +192,9 @@ describe("Home composition wiring", () => {
       retryUpload: jest.fn(),
       updateMemoTitle: jest.fn(),
       regenerateMemoTitle: jest.fn(),
+      hasMoreMemos: false,
+      loadMoreMemos: jest.fn(),
+      loadingMoreMemos: false,
       searchQuery: "",
       selectedMemo: null,
       selectedMemoId: null,
@@ -195,6 +229,9 @@ describe("Home composition wiring", () => {
       retryUpload: jest.fn(),
       updateMemoTitle: jest.fn(),
       regenerateMemoTitle: jest.fn(),
+      hasMoreMemos: false,
+      loadMoreMemos: jest.fn(),
+      loadingMoreMemos: false,
       searchQuery: "",
       selectedMemo: null,
       selectedMemoId: null,
@@ -229,6 +266,9 @@ describe("Home composition wiring", () => {
       retryUpload: jest.fn(),
       updateMemoTitle: jest.fn(),
       regenerateMemoTitle: jest.fn(),
+      hasMoreMemos: false,
+      loadMoreMemos: jest.fn(),
+      loadingMoreMemos: false,
       searchQuery: "",
       selectedMemo: null,
       selectedMemoId: null,

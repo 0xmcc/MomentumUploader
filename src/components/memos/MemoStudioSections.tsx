@@ -3,6 +3,7 @@
 import React, {
   Profiler,
   useCallback,
+  useEffect,
   useRef,
   useState,
   type ProfilerOnRenderCallback,
@@ -61,6 +62,7 @@ import {
 } from "@/lib/memo-ui";
 
 const TRANSCRIPT_TIMESTAMPS_STORAGE_KEY = "memo-transcript-show-timestamps";
+const TRANSCRIPT_FEED_LOAD_THRESHOLD_PX = 220;
 
 function MemoListItem({
   memo,
@@ -618,6 +620,177 @@ export function MemoDetailView({
   );
 }
 
+type TranscriptFeedPanelProps = {
+  memos: Memo[];
+  loading: boolean;
+  hasMoreMemos: boolean;
+  loadingMoreMemos: boolean;
+  recorderPanel: React.ReactNode;
+  onLoadMoreMemos: () => void | Promise<void>;
+  onSelectMemo: (memoId: string) => void;
+};
+
+function getFeedTranscriptPreview(memo: Memo) {
+  if (isMemoFailed(memo)) {
+    return "Transcription failed.";
+  }
+
+  if (isMemoProcessing(memo) && !memo.transcript) {
+    return "Transcript is still processing.";
+  }
+
+  return memo.transcript || "No transcript available.";
+}
+
+export function TranscriptFeedPanel({
+  memos,
+  loading,
+  hasMoreMemos,
+  loadingMoreMemos,
+  recorderPanel,
+  onLoadMoreMemos,
+  onSelectMemo,
+}: TranscriptFeedPanelProps) {
+  const feedRef = useRef<HTMLDivElement>(null);
+
+  const maybeLoadMore = useCallback(
+    (node: Pick<HTMLDivElement, "scrollHeight" | "scrollTop" | "clientHeight">) => {
+      if (loading || loadingMoreMemos || !hasMoreMemos) return;
+
+      const remaining = node.scrollHeight - node.scrollTop - node.clientHeight;
+      if (remaining <= TRANSCRIPT_FEED_LOAD_THRESHOLD_PX) {
+        void onLoadMoreMemos();
+      }
+    },
+    [hasMoreMemos, loading, loadingMoreMemos, onLoadMoreMemos]
+  );
+
+  useEffect(() => {
+    const node = feedRef.current;
+    if (!node || node.clientHeight <= 0) return;
+    maybeLoadMore(node);
+  }, [maybeLoadMore, memos.length]);
+
+  return (
+    <div
+      ref={feedRef}
+      role="feed"
+      aria-label="Voice memo transcripts"
+      onScroll={(event) => maybeLoadMore(event.currentTarget)}
+      className="h-full overflow-y-auto px-5 pb-10 pt-24 md:px-8 lg:px-10"
+      style={{
+        scrollbarWidth: "thin",
+        scrollbarColor: "rgba(255,255,255,0.12) transparent",
+      }}
+    >
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+        <div className="border-b border-white/5 pb-6">{recorderPanel}</div>
+
+        <div className="flex items-end justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="text-xl font-semibold tracking-tight text-white/95">
+              Transcript feed
+            </h2>
+            <p className="mt-1 text-xs font-mono uppercase tracking-[0.18em] text-white/35">
+              {memos.length} loaded
+            </p>
+          </div>
+        </div>
+
+        {loading ? (
+          <div
+            role="status"
+            className="flex items-center justify-center gap-3 rounded-lg border border-white/5 bg-white/[0.02] px-5 py-12 text-sm text-white/45"
+          >
+            <Loader2 size={18} className="animate-spin" />
+            Loading transcripts
+          </div>
+        ) : memos.length === 0 ? (
+          <div className="rounded-lg border border-white/5 bg-white/[0.02] px-5 py-12 text-center text-sm text-white/35">
+            No transcripts yet.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {memos.map((memo) => {
+              const title = getMemoTitle(memo);
+              const durationLabel =
+                memo.durationSeconds != null
+                  ? formatSecs(memo.durationSeconds)
+                  : null;
+              const isFailed = isMemoFailed(memo);
+              const isProcessing = isMemoProcessing(memo);
+
+              return (
+                <article key={memo.id} aria-labelledby={`${memo.id}-feed-title`}>
+                  <button
+                    type="button"
+                    onClick={() => onSelectMemo(memo.id)}
+                    className="group w-full rounded-lg border border-white/8 bg-white/[0.025] px-5 py-4 text-left transition-colors hover:border-accent/35 hover:bg-white/[0.045] focus:outline-none focus:ring-1 focus:ring-accent/60"
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <h3
+                          id={`${memo.id}-feed-title`}
+                          className="truncate text-base font-semibold text-white/90"
+                        >
+                          {title}
+                        </h3>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono uppercase tracking-[0.16em] text-white/35">
+                          <span>{formatDate(memo.createdAt)}</span>
+                          {!isFailed && <span>{memo.wordCount} words</span>}
+                          {durationLabel && <span>{durationLabel}</span>}
+                          {memo.durationSeconds != null && (
+                            <span>{formatMemoEstimatedCost(memo.durationSeconds)}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {(isFailed || isProcessing) && (
+                        <StatusDot
+                          tone={isFailed ? "failed" : "processing"}
+                          label={isFailed ? "Failed" : "Processing"}
+                        />
+                      )}
+                    </div>
+
+                    <p
+                      className={`mt-4 text-sm leading-6 ${
+                        isFailed ? "text-red-300/55" : "text-white/68"
+                      }`}
+                      style={{
+                        display: "-webkit-box",
+                        WebkitBoxOrient: "vertical",
+                        WebkitLineClamp: 4,
+                        overflow: "hidden",
+                      }}
+                    >
+                      {getFeedTranscriptPreview(memo)}
+                    </p>
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        )}
+
+        {loadingMoreMemos ? (
+          <div
+            role="status"
+            className="flex items-center justify-center gap-3 py-6 text-sm text-white/40"
+          >
+            <Loader2 size={16} className="animate-spin" />
+            Loading more transcripts
+          </div>
+        ) : !hasMoreMemos && memos.length > 0 ? (
+          <div className="py-6 text-center text-xs font-mono uppercase tracking-[0.22em] text-white/25">
+            All transcripts loaded
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 type MemoSidebarProps = {
   filteredBookmarkedMemos: SharedMemoBookmark[];
   filteredMemos: Memo[];
@@ -771,6 +944,7 @@ export function PrimaryHeaderControls() {
 type RecorderPanelProps = {
   isUploading: boolean;
   uploadProgressPercent: number;
+  variant?: "centered" | "compact";
   onAudioInput?: (payload: AudioInputPayload) => void;
   onRecordingStateChange?: (isRecording: boolean) => void;
   onRetryUpload: () => void;
@@ -781,14 +955,23 @@ type RecorderPanelProps = {
 export function RecorderPanel({
   isUploading,
   uploadProgressPercent,
+  variant = "centered",
   onAudioInput,
   onRecordingStateChange,
   onRetryUpload,
   onUploadComplete,
   showUploadError,
 }: RecorderPanelProps) {
+  const isCompact = variant === "compact";
+
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-8 mt-12">
+    <div
+      className={
+        isCompact
+          ? "flex flex-col items-center justify-center rounded-lg border border-white/8 bg-black/20 px-5 py-6"
+          : "flex-1 flex flex-col items-center justify-center p-8 mt-12"
+      }
+    >
       {showUploadError && (
         <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
           Recording failed to save.
@@ -807,7 +990,11 @@ export function RecorderPanel({
         onAudioInput={onAudioInput}
         onRecordingStateChange={onRecordingStateChange}
       />
-      <div className="mt-8 text-center text-xs text-white/30 font-mono tracking-widest uppercase">
+      <div
+        className={`text-center text-xs text-white/30 font-mono tracking-widest uppercase ${
+          isCompact ? "mt-5" : "mt-8"
+        }`}
+      >
         <p>Powered by Supabase &amp; NVIDIA NIM</p>
       </div>
     </div>

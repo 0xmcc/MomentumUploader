@@ -24,6 +24,94 @@ describe("useMemosWorkspace", () => {
     });
   });
 
+  it("loads owned memos in pages and appends the next page on demand", async () => {
+    const mockFetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+      if (url === "/api/memos?limit=20&offset=0") {
+        return {
+          ok: true,
+          json: async () => ({
+            memos: [
+              {
+                id: "memo-page-1",
+                transcript: "First page transcript",
+                createdAt: "2026-04-01T10:00:00.000Z",
+                wordCount: 3,
+              },
+            ],
+            total: 2,
+            limit: 20,
+            offset: 0,
+          }),
+        };
+      }
+
+      if (url === "/api/shared-memo-bookmarks") {
+        return {
+          ok: true,
+          json: async () => ({ bookmarks: [] }),
+        };
+      }
+
+      if (url === "/api/memos?limit=20&offset=1") {
+        return {
+          ok: true,
+          json: async () => ({
+            memos: [
+              {
+                id: "memo-page-2",
+                transcript: "Second page transcript",
+                createdAt: "2026-04-01T09:00:00.000Z",
+                wordCount: 3,
+              },
+            ],
+            total: 2,
+            limit: 20,
+            offset: 1,
+          }),
+        };
+      }
+
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    Object.defineProperty(global, "fetch", { writable: true, value: mockFetch });
+
+    const { result } = renderHook(() =>
+      useMemosWorkspace({
+        isLoaded: true,
+        isSignedIn: true,
+        openSignIn: jest.fn(),
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.filteredMemos.map((memo) => memo.id)).toEqual([
+      "memo-page-1",
+    ]);
+    expect(result.current.hasMoreMemos).toBe(true);
+
+    await act(async () => {
+      await result.current.loadMoreMemos();
+    });
+
+    expect(result.current.filteredMemos.map((memo) => memo.id)).toEqual([
+      "memo-page-1",
+      "memo-page-2",
+    ]);
+    expect(result.current.hasMoreMemos).toBe(false);
+    expect(mockFetch).toHaveBeenCalledWith("/api/memos?limit=20&offset=0");
+    expect(mockFetch).toHaveBeenCalledWith("/api/memos?limit=20&offset=1");
+  });
+
   it("keeps selected memo visible during optimistic-to-persisted reconciliation when refresh is stale", async () => {
     const transcriptText = "alpha beta gamma delta epsilon zeta eta theta";
     let memosSequence: Array<{ memos: Array<Record<string, unknown>> }> = [
@@ -40,7 +128,7 @@ describe("useMemosWorkspace", () => {
             ? input.toString()
             : input.url;
 
-        if (url === "/api/memos") {
+        if (url === "/api/memos?limit=20&offset=0") {
           const next = memosSequence.shift() ?? { memos: [] };
           return {
             ok: true,
@@ -111,7 +199,7 @@ describe("useMemosWorkspace", () => {
             ? input.toString()
             : input.url;
 
-        if (url === "/api/memos") {
+        if (url === "/api/memos?limit=20&offset=0") {
           return {
             ok: true,
             json: async () => ({ memos: [] }),
@@ -159,7 +247,7 @@ describe("useMemosWorkspace", () => {
           ? input.toString()
           : input.url;
 
-      if (url === "/api/memos") {
+      if (url === "/api/memos?limit=20&offset=0") {
         return {
           ok: true,
           json: async () => ({ memos: [] }),
@@ -224,7 +312,7 @@ describe("useMemosWorkspace", () => {
           ? input.toString()
           : input.url;
 
-      if (url === "/api/memos") {
+      if (url === "/api/memos?limit=20&offset=0") {
         return {
           ok: true,
           json: async () => ({ memos: [] }),
@@ -313,7 +401,7 @@ describe("useMemosWorkspace", () => {
             ? input.toString()
             : input.url;
 
-        if (url === "/api/memos") {
+        if (url === "/api/memos?limit=20&offset=0") {
           return {
             ok: true,
             json: async () => ({
@@ -398,7 +486,7 @@ describe("useMemosWorkspace", () => {
             ? input.toString()
             : input.url;
 
-        if (url === "/api/memos") {
+        if (url === "/api/memos?limit=20&offset=0") {
           return {
             ok: true,
             json: async () => ({
@@ -490,7 +578,7 @@ describe("useMemosWorkspace", () => {
             ? input.toString()
             : input.url;
 
-        if (url === "/api/memos") {
+        if (url === "/api/memos?limit=20&offset=0") {
           return {
             ok: true,
             json: async () => ({ memos: [] }),
@@ -609,7 +697,7 @@ describe("useMemosWorkspace", () => {
             ? input.toString()
             : input.url;
 
-        if (url === "/api/memos") {
+        if (url === "/api/memos?limit=20&offset=0") {
           return {
             ok: true,
             json: async () => ({ memos: [] }),
@@ -685,7 +773,7 @@ describe("useMemosWorkspace", () => {
             ? input.toString()
             : input.url;
 
-        if (url === "/api/memos") {
+        if (url === "/api/memos?limit=20&offset=0") {
           return {
             ok: true,
             json: async () => ({ memos: [] }),

@@ -7,6 +7,7 @@ import {
   MemoSidebar,
   PrimaryHeaderControls,
   RecorderPanel,
+  TranscriptFeedPanel,
 } from "@/components/memos/MemoStudioSections";
 import StatusDot from "@/components/StatusDot";
 import { useMemosWorkspace } from "@/hooks/useMemosWorkspace";
@@ -19,8 +20,11 @@ export default function Home() {
   const {
     filteredBookmarkedMemos,
     filteredMemos,
+    hasMoreMemos,
     handleUploadComplete,
+    loadMoreMemos,
     loading,
+    loadingMoreMemos,
     isUploading,
     retryUpload,
     regenerateMemoTitle,
@@ -63,7 +67,7 @@ export default function Home() {
         onSelectMemo={handleSelectMemo}
       />
 
-      <section className="flex-1 flex flex-col relative bg-[#121212] overflow-y-auto">
+      <section className="flex-1 flex flex-col relative bg-[#121212] overflow-hidden">
         {!selectedMemo && <PrimaryHeaderControls />}
         {isUploading && (
           <div className="pointer-events-none absolute right-6 top-6 z-40">
@@ -92,13 +96,24 @@ export default function Home() {
             onTitleRegenerate={regenerateMemoTitle}
           />
         ) : (
-          <RecorderPanel
-            isUploading={isUploading}
-            uploadProgressPercent={uploadProgressPercent}
-            onRetryUpload={retryUpload}
-            onUploadComplete={handleUploadComplete}
-            onRecordingStateChange={setIsRecordingLive}
-            showUploadError={showUploadError}
+          <TranscriptFeedPanel
+            memos={filteredMemos}
+            loading={loading}
+            hasMoreMemos={hasMoreMemos}
+            loadingMoreMemos={loadingMoreMemos}
+            onLoadMoreMemos={loadMoreMemos}
+            onSelectMemo={handleSelectMemo}
+            recorderPanel={
+              <RecorderPanel
+                variant="compact"
+                isUploading={isUploading}
+                uploadProgressPercent={uploadProgressPercent}
+                onRetryUpload={retryUpload}
+                onUploadComplete={handleUploadComplete}
+                onRecordingStateChange={setIsRecordingLive}
+                showUploadError={showUploadError}
+              />
+            }
           />
         )}
       </section>

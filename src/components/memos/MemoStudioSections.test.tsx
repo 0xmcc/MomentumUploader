@@ -4,6 +4,7 @@ import {
   MemoDetailView,
   MemoSidebar,
   MemoTranscriptPanel,
+  TranscriptFeedPanel,
 } from "./MemoStudioSections";
 import type { useAudioPlayback as UseAudioPlayback } from "@/hooks/useMemoPlayback";
 
@@ -389,6 +390,52 @@ describe("MemoDetailView", () => {
 
     expect(screen.getByText("0:42")).toBeInTheDocument();
     expect(onRender).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("TranscriptFeedPanel", () => {
+  it("requests the next memo page when the transcript feed scrolls near the bottom", () => {
+    const loadMoreMemos = jest.fn();
+
+    render(
+      <TranscriptFeedPanel
+        memos={[
+          {
+            id: "memo-feed-1",
+            title: "Launch notes",
+            transcript: "First paginated transcript in the new homepage feed.",
+            createdAt: "2026-04-01T10:00:00.000Z",
+            wordCount: 8,
+          },
+        ]}
+        loading={false}
+        hasMoreMemos={true}
+        loadingMoreMemos={false}
+        recorderPanel={<div data-testid="feed-recorder" />}
+        onLoadMoreMemos={loadMoreMemos}
+        onSelectMemo={jest.fn()}
+      />
+    );
+
+    const feed = screen.getByRole("feed", { name: "Voice memo transcripts" });
+    Object.defineProperty(feed, "clientHeight", {
+      configurable: true,
+      value: 500,
+    });
+    Object.defineProperty(feed, "scrollHeight", {
+      configurable: true,
+      value: 900,
+    });
+    Object.defineProperty(feed, "scrollTop", {
+      configurable: true,
+      value: 260,
+    });
+
+    fireEvent.scroll(feed);
+
+    expect(loadMoreMemos).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Launch notes")).toBeInTheDocument();
+    expect(screen.getByTestId("feed-recorder")).toBeInTheDocument();
   });
 });
 

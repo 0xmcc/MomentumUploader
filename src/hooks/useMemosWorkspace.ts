@@ -28,6 +28,34 @@ type MemoDetailResponse = {
   };
 };
 
+type MemoListResponse = {
+  memos?: Memo[];
+  total?: number;
+};
+
+const MEMOS_PAGE_SIZE = 20;
+
+function getMemosPageUrl(offset: number) {
+  const params = new URLSearchParams({
+    limit: String(MEMOS_PAGE_SIZE),
+    offset: String(offset),
+  });
+  return `/api/memos?${params.toString()}`;
+}
+
+function mergeMemoPages(current: Memo[], incoming: Memo[]) {
+  const seenIds = new Set<string>();
+  const merged: Memo[] = [];
+
+  for (const memo of [...current, ...incoming]) {
+    if (seenIds.has(memo.id)) continue;
+    seenIds.add(memo.id);
+    merged.push(memo);
+  }
+
+  return merged;
+}
+
 export function useMemosWorkspace({
   isLoaded,
   isSignedIn,
@@ -36,6 +64,9 @@ export function useMemosWorkspace({
   const [memos, setMemos] = useState<Memo[]>([]);
   const [bookmarkedMemos, setBookmarkedMemos] = useState<SharedMemoBookmark[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMoreMemos, setLoadingMoreMemos] = useState(false);
+  const [totalMemoCount, setTotalMemoCount] = useState(0);
+  const [nextMemosOffset, setNextMemosOffset] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMemoId, setSelectedMemoId] = useState<string | null>(null);
 
@@ -54,11 +85,12 @@ export function useMemosWorkspace({
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedMemoRequestIdRef = useRef(0);
   const selectedMemoIdRef = useRef<string | null>(null);
+  const loadingMoreMemosRef = useRef(false);
 
   const fetchMemos = useCallback(async () => {
     try {
       const [memosRes, bookmarksRes] = await Promise.allSettled([
-        fetch("/api/memos"),
+        fetch(getMemosPageUrl(0)),
         isSignedIn ? fetch("/api/shared-memo-bookmarks") : Promise.resolve(null),
       ]);
 
@@ -81,7 +113,7 @@ export function useMemosWorkspace({
         throw memosRes.reason;
       }
 
-      const json = await memosRes.value.json();
+      const json = (await memosRes.value.json()) as MemoListResponse;
       if (Array.isArray(json.memos)) {
         const fetchedMemos = json.memos as Memo[];
         const fetchedIds = new Set(fetchedMemos.map((memo) => memo.id));
@@ -99,13 +131,44 @@ export function useMemosWorkspace({
           );
           return [...stillReconciling, ...fetchedMemos];
         });
+        setTotalMemoCount(
+          typeof json.total === "number" ? json.total : fetchedMemos.length
+        );
+        setNextMemosOffset(fetchedMemos.length);
       }
     } catch (err) {
       console.error("Failed to fetch memos:", err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isSignedIn]);
+
+  const loadMoreMemos = useCallback(async () => {
+    if (loading || loadingMoreMemosRef.current) return;
+    if (nextMemosOffset >= totalMemoCount) return;
+
+    loadingMoreMemosRef.current = true;
+    setLoadingMoreMemos(true);
+
+    try {
+      const res = await fetch(getMemosPageUrl(nextMemosOffset));
+      const json = (await res.json()) as MemoListResponse;
+
+      if (Array.isArray(json.memos)) {
+        const fetchedMemos = json.memos as Memo[];
+        setMemos((prev) => mergeMemoPages(prev, fetchedMemos));
+        setTotalMemoCount(
+          typeof json.total === "number" ? json.total : totalMemoCount
+        );
+        setNextMemosOffset(nextMemosOffset + fetchedMemos.length);
+      }
+    } catch (err) {
+      console.error("Failed to load more memos:", err);
+    } finally {
+      loadingMoreMemosRef.current = false;
+      setLoadingMoreMemos(false);
+    }
+  }, [loading, nextMemosOffset, totalMemoCount]);
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -316,6 +379,7 @@ export function useMemosWorkspace({
     : null;
   const isUploading = activeUploadCount > 0;
   const showUploadError = uploadError && Boolean(pendingBlob);
+  const hasMoreMemos = nextMemosOffset < totalMemoCount;
 
   const retryUpload = useCallback(() => {
     if (!pendingBlob) return;
@@ -363,9 +427,12 @@ export function useMemosWorkspace({
   return {
     filteredBookmarkedMemos,
     filteredMemos,
+    hasMoreMemos,
     handleAudioInput,
     handleUploadComplete,
+    loadMoreMemos,
     loading,
+    loadingMoreMemos,
     searchQuery,
     selectedMemo,
     selectedMemoId,
