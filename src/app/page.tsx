@@ -30,8 +30,11 @@ export default function Home() {
   const {
     filteredBookmarkedMemos,
     filteredMemos,
+    fathomImportMessage,
     hasMoreMemos,
     handleUploadComplete,
+    importFathomMemos,
+    importingFathom,
     loadMoreMemos,
     loading,
     loadingMoreMemos,
@@ -123,6 +126,9 @@ export default function Home() {
             hasMoreMemos={hasMoreMemos}
             loadingMoreMemos={loadingMoreMemos}
             authorProfile={authorProfile}
+            fathomImportMessage={fathomImportMessage}
+            importingFathom={importingFathom}
+            onImportFathom={importFathomMemos}
             onLoadMoreMemos={loadMoreMemos}
             onSelectMemo={handleSelectMemo}
             recorderPanel={

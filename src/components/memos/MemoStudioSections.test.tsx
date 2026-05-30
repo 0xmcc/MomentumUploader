@@ -489,6 +489,47 @@ describe("TranscriptFeedPanel", () => {
       screen.getByText("First paginated transcript in the new homepage feed.")
     ).toBeInTheDocument();
   });
+
+  it("shows an Import Fathom button and triggers the import action", () => {
+    const importFathom = jest.fn();
+
+    render(
+      <TranscriptFeedPanel
+        memos={[]}
+        loading={false}
+        hasMoreMemos={false}
+        loadingMoreMemos={false}
+        recorderPanel={<div data-testid="feed-recorder" />}
+        onImportFathom={importFathom}
+        onLoadMoreMemos={jest.fn()}
+        onSelectMemo={jest.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Import Fathom" }));
+
+    expect(importFathom).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables the Import Fathom button while an import is running", () => {
+    render(
+      <TranscriptFeedPanel
+        memos={[]}
+        loading={false}
+        hasMoreMemos={false}
+        loadingMoreMemos={false}
+        recorderPanel={<div data-testid="feed-recorder" />}
+        importingFathom
+        fathomImportMessage="Imported 2 Fathom meetings."
+        onImportFathom={jest.fn()}
+        onLoadMoreMemos={jest.fn()}
+        onSelectMemo={jest.fn()}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Importing Fathom" })).toBeDisabled();
+    expect(screen.getByText("Imported 2 Fathom meetings.")).toBeInTheDocument();
+  });
 });
 
 describe("MemoSidebar", () => {

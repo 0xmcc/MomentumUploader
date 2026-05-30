@@ -78,6 +78,10 @@ export function useMemosWorkspace({
   const [activeUploadCount, setActiveUploadCount] = useState(0);
   const [uploadProgressPercent, setUploadProgressPercent] = useState(0);
   const [uploadError, setUploadError] = useState(false);
+  const [importingFathom, setImportingFathom] = useState(false);
+  const [fathomImportMessage, setFathomImportMessage] = useState<string | null>(
+    null
+  );
   const [selectedMemoDetailRefreshToken, setSelectedMemoDetailRefreshToken] =
     useState(0);
 
@@ -424,12 +428,52 @@ export function useMemosWorkspace({
     []
   );
 
+  const importFathomMemos = useCallback(async () => {
+    if (importingFathom) return;
+
+    if (!isSignedIn) {
+      setFathomImportMessage(null);
+      void openSignIn();
+      return;
+    }
+
+    setImportingFathom(true);
+    setFathomImportMessage(null);
+
+    try {
+      const res = await fetch("/api/fathom/import", { method: "POST" });
+      const json = (await res.json().catch(() => ({}))) as {
+        imported?: number;
+        error?: string;
+        detail?: string;
+      };
+
+      if (!res.ok) {
+        throw new Error(json.detail || json.error || "Fathom import failed");
+      }
+
+      const imported = typeof json.imported === "number" ? json.imported : 0;
+      setFathomImportMessage(
+        `Imported ${imported} Fathom ${imported === 1 ? "meeting" : "meetings"}.`
+      );
+      await fetchMemos();
+    } catch (err) {
+      console.error("Failed to import Fathom meetings:", err);
+      setFathomImportMessage("Couldn't import Fathom meetings.");
+    } finally {
+      setImportingFathom(false);
+    }
+  }, [fetchMemos, importingFathom, isSignedIn, openSignIn]);
+
   return {
     filteredBookmarkedMemos,
     filteredMemos,
+    fathomImportMessage,
     hasMoreMemos,
     handleAudioInput,
     handleUploadComplete,
+    importFathomMemos,
+    importingFathom,
     loadMoreMemos,
     loading,
     loadingMoreMemos,

@@ -646,6 +646,9 @@ type TranscriptFeedPanelProps = {
   loadingMoreMemos: boolean;
   recorderPanel: React.ReactNode;
   authorProfile?: FeedAuthorProfile;
+  fathomImportMessage?: string | null;
+  importingFathom?: boolean;
+  onImportFathom?: () => void | Promise<void>;
   onLoadMoreMemos: () => void | Promise<void>;
   onSelectMemo: (memoId: string) => void;
 };
@@ -673,6 +676,9 @@ export function TranscriptFeedPanel({
   loadingMoreMemos,
   recorderPanel,
   authorProfile = DEFAULT_FEED_AUTHOR_PROFILE,
+  fathomImportMessage = null,
+  importingFathom = false,
+  onImportFathom,
   onLoadMoreMemos,
   onSelectMemo,
 }: TranscriptFeedPanelProps) {
@@ -736,37 +742,64 @@ export function TranscriptFeedPanel({
             </p>
           </div>
 
-          <div
-            role="group"
-            aria-label="Feed view"
-            className="inline-flex w-fit rounded-full border border-white/10 bg-black/30 p-1"
-          >
-            <button
-              type="button"
-              aria-pressed={!isPostView}
-              onClick={() => setViewMode("transcripts")}
-              className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-mono uppercase tracking-wide transition-colors ${
-                !isPostView
-                  ? "bg-white/12 text-white"
-                  : "text-white/45 hover:text-white/75"
-              }`}
-            >
-              <List size={13} />
-              Transcript
-            </button>
-            <button
-              type="button"
-              aria-pressed={isPostView}
-              onClick={() => setViewMode("posts")}
-              className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-mono uppercase tracking-wide transition-colors ${
-                isPostView
-                  ? "bg-white/12 text-white"
-                  : "text-white/45 hover:text-white/75"
-              }`}
-            >
-              <MessageCircle size={13} />
-              Posts
-            </button>
+          <div className="flex flex-col items-start gap-2 sm:items-end">
+            <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
+              {onImportFathom && (
+                <button
+                  type="button"
+                  disabled={importingFathom}
+                  onClick={() => {
+                    void onImportFathom();
+                  }}
+                  className="inline-flex h-10 items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 text-xs font-mono uppercase tracking-wide text-white/65 transition-colors hover:border-accent/35 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  {importingFathom ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <Download size={14} />
+                  )}
+                  {importingFathom ? "Importing Fathom" : "Import Fathom"}
+                </button>
+              )}
+
+              <div
+                role="group"
+                aria-label="Feed view"
+                className="inline-flex w-fit rounded-full border border-white/10 bg-black/30 p-1"
+              >
+                <button
+                  type="button"
+                  aria-pressed={!isPostView}
+                  onClick={() => setViewMode("transcripts")}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-mono uppercase tracking-wide transition-colors ${
+                    !isPostView
+                      ? "bg-white/12 text-white"
+                      : "text-white/45 hover:text-white/75"
+                  }`}
+                >
+                  <List size={13} />
+                  Transcript
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={isPostView}
+                  onClick={() => setViewMode("posts")}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-mono uppercase tracking-wide transition-colors ${
+                    isPostView
+                      ? "bg-white/12 text-white"
+                      : "text-white/45 hover:text-white/75"
+                  }`}
+                >
+                  <MessageCircle size={13} />
+                  Posts
+                </button>
+              </div>
+            </div>
+            {fathomImportMessage && (
+              <p className="max-w-xs text-right text-xs text-white/45">
+                {fathomImportMessage}
+              </p>
+            )}
           </div>
         </div>
 

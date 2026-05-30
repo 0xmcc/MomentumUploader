@@ -828,4 +828,83 @@ describe("useMemosWorkspace", () => {
 
     expect(uploadedMemoId).toBe("memo-live-1");
   });
+
+  it("imports Fathom meetings and refreshes the first memo page", async () => {
+    const memoPages = [
+      { memos: [], total: 0 },
+      {
+        memos: [
+          {
+            id: "memo-fathom-1",
+            title: "Acme discovery call",
+            transcript: "Alice: First customer point.",
+            createdAt: "2026-05-01T16:00:00.000Z",
+            wordCount: 4,
+            url: "https://fathom.video/share/abc",
+          },
+        ],
+        total: 1,
+      },
+    ];
+
+    const mockFetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+      if (url === "/api/memos?limit=20&offset=0") {
+        return {
+          ok: true,
+          json: async () => memoPages.shift() ?? { memos: [], total: 0 },
+        };
+      }
+
+      if (url === "/api/shared-memo-bookmarks") {
+        return {
+          ok: true,
+          json: async () => ({ bookmarks: [] }),
+        };
+      }
+
+      if (url === "/api/fathom/import" && init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({ imported: 1, meetings: 1 }),
+        };
+      }
+
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    Object.defineProperty(global, "fetch", { writable: true, value: mockFetch });
+
+    const { result } = renderHook(() =>
+      useMemosWorkspace({
+        isLoaded: true,
+        isSignedIn: true,
+        openSignIn: jest.fn(),
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.importFathomMemos();
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith("/api/fathom/import", {
+      method: "POST",
+    });
+    expect(result.current.filteredMemos.map((memo) => memo.id)).toEqual([
+      "memo-fathom-1",
+    ]);
+    expect(result.current.fathomImportMessage).toBe(
+      "Imported 1 Fathom meeting."
+    );
+    expect(result.current.importingFathom).toBe(false);
+  });
 });
