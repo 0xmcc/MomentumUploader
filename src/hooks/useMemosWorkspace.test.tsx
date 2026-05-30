@@ -907,4 +907,63 @@ describe("useMemosWorkspace", () => {
     );
     expect(result.current.importingFathom).toBe(false);
   });
+
+  it("surfaces the server Fathom configuration error when import is not configured", async () => {
+    const mockFetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+      if (url === "/api/memos?limit=20&offset=0") {
+        return {
+          ok: true,
+          json: async () => ({ memos: [], total: 0 }),
+        };
+      }
+
+      if (url === "/api/shared-memo-bookmarks") {
+        return {
+          ok: true,
+          json: async () => ({ bookmarks: [] }),
+        };
+      }
+
+      if (url === "/api/fathom/import" && init?.method === "POST") {
+        return {
+          ok: false,
+          json: async () => ({
+            error: "Fathom import is not configured",
+            detail: "FATHOM_API_KEY is not set on the server.",
+          }),
+        };
+      }
+
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    Object.defineProperty(global, "fetch", { writable: true, value: mockFetch });
+
+    const { result } = renderHook(() =>
+      useMemosWorkspace({
+        isLoaded: true,
+        isSignedIn: true,
+        openSignIn: jest.fn(),
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.importFathomMemos();
+    });
+
+    expect(result.current.fathomImportMessage).toBe(
+      "FATHOM_API_KEY is not set on the server."
+    );
+    expect(result.current.importingFathom).toBe(false);
+  });
 });

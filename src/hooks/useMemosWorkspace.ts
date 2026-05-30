@@ -459,7 +459,11 @@ export function useMemosWorkspace({
       await fetchMemos();
     } catch (err) {
       console.error("Failed to import Fathom meetings:", err);
-      setFathomImportMessage("Couldn't import Fathom meetings.");
+      setFathomImportMessage(
+        err instanceof Error
+          ? err.message
+          : "Couldn't import Fathom meetings."
+      );
     } finally {
       setImportingFathom(false);
     }
