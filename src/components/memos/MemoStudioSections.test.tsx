@@ -437,6 +437,58 @@ describe("TranscriptFeedPanel", () => {
     expect(screen.getByText("Launch notes")).toBeInTheDocument();
     expect(screen.getByTestId("feed-recorder")).toBeInTheDocument();
   });
+
+  it("toggles from transcript cards into a personal post feed", () => {
+    render(
+      <TranscriptFeedPanel
+        memos={[
+          {
+            id: "memo-post-1",
+            title: "Launch notes",
+            transcript: "First paginated transcript in the new homepage feed.",
+            createdAt: "2026-04-01T10:00:00.000Z",
+            wordCount: 8,
+            durationSeconds: 64,
+          },
+        ]}
+        loading={false}
+        hasMoreMemos={false}
+        loadingMoreMemos={false}
+        recorderPanel={<div data-testid="feed-recorder" />}
+        authorProfile={{
+          name: "Marko M",
+          handle: "@marko",
+          avatarUrl: "https://img.example.com/marko.png",
+        }}
+        onLoadMoreMemos={jest.fn()}
+        onSelectMemo={jest.fn()}
+      />
+    );
+
+    expect(
+      screen.getByRole("feed", { name: "Voice memo transcripts" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("Transcript feed")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Posts" }));
+
+    expect(
+      screen.getByRole("feed", { name: "Personal memo posts" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("Personal feed")).toBeInTheDocument();
+    expect(screen.getByText("Marko M")).toBeInTheDocument();
+    expect(screen.getByText("@marko")).toBeInTheDocument();
+    expect(screen.getByAltText("Marko M")).toHaveAttribute(
+      "src",
+      "https://img.example.com/marko.png"
+    );
+    expect(
+      screen.getByRole("button", { name: "Open Launch notes post" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("First paginated transcript in the new homepage feed.")
+    ).toBeInTheDocument();
+  });
 });
 
 describe("MemoSidebar", () => {

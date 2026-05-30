@@ -12,8 +12,18 @@ import {
 import StatusDot from "@/components/StatusDot";
 import { useMemosWorkspace } from "@/hooks/useMemosWorkspace";
 
+function getPersonalFeedHandle(source: string) {
+  const normalized = source
+    .trim()
+    .toLowerCase()
+    .replace(/^@/, "")
+    .replace(/[^a-z0-9_]+/g, "");
+
+  return `@${normalized || "you"}`;
+}
+
 export default function Home() {
-  const { isSignedIn, isLoaded } = useUser();
+  const { isSignedIn, isLoaded, user } = useUser();
   const { openSignIn } = useClerk();
   const [isRecordingLive, setIsRecordingLive] = useState(false);
 
@@ -52,6 +62,17 @@ export default function Home() {
     }
 
     setSelectedMemoId(memoId);
+  };
+
+  const userEmail = user?.primaryEmailAddress?.emailAddress ?? "";
+  const userDisplayName =
+    user?.fullName?.trim() || user?.username?.trim() || userEmail || "You";
+  const userHandleSource =
+    user?.username?.trim() || userEmail.split("@")[0] || userDisplayName;
+  const authorProfile = {
+    avatarUrl: user?.imageUrl ?? null,
+    handle: getPersonalFeedHandle(userHandleSource),
+    name: userDisplayName,
   };
 
   return (
@@ -101,6 +122,7 @@ export default function Home() {
             loading={loading}
             hasMoreMemos={hasMoreMemos}
             loadingMoreMemos={loadingMoreMemos}
+            authorProfile={authorProfile}
             onLoadMoreMemos={loadMoreMemos}
             onSelectMemo={handleSelectMemo}
             recorderPanel={

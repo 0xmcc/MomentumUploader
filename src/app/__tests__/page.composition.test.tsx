@@ -10,7 +10,16 @@ const recorderPanelMock = jest.fn();
 const transcriptFeedPanelMock = jest.fn();
 
 jest.mock("@clerk/nextjs", () => ({
-  useUser: () => ({ isSignedIn: true, isLoaded: true }),
+  useUser: () => ({
+    isSignedIn: true,
+    isLoaded: true,
+    user: {
+      fullName: "Marko M",
+      imageUrl: "https://img.example.com/marko.png",
+      primaryEmailAddress: { emailAddress: "marko@example.com" },
+      username: "marko",
+    },
+  }),
   useClerk: () => ({ openSignIn: jest.fn() }),
 }));
 
@@ -129,6 +138,11 @@ describe("Home composition wiring", () => {
 
     expect(transcriptFeedPanelMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        authorProfile: {
+          avatarUrl: "https://img.example.com/marko.png",
+          handle: "@marko",
+          name: "Marko M",
+        },
         hasMoreMemos: true,
         loadingMoreMemos: false,
         memos: [],

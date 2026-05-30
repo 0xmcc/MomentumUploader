@@ -13,18 +13,23 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  BarChart3,
   Clock3,
   Copy,
   Cpu,
   Download,
   ExternalLink,
   FileDown,
+  Heart,
+  List,
   Loader2,
+  MessageCircle,
   Mic2,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
   Plus,
+  Repeat2,
   Search,
   Sparkles,
   X,
@@ -63,6 +68,20 @@ import {
 
 const TRANSCRIPT_TIMESTAMPS_STORAGE_KEY = "memo-transcript-show-timestamps";
 const TRANSCRIPT_FEED_LOAD_THRESHOLD_PX = 220;
+
+type FeedAuthorProfile = {
+  name: string;
+  handle: string;
+  avatarUrl?: string | null;
+};
+
+type TranscriptFeedViewMode = "transcripts" | "posts";
+
+const DEFAULT_FEED_AUTHOR_PROFILE: FeedAuthorProfile = {
+  name: "You",
+  handle: "@you",
+  avatarUrl: null,
+};
 
 function MemoListItem({
   memo,
@@ -626,6 +645,7 @@ type TranscriptFeedPanelProps = {
   hasMoreMemos: boolean;
   loadingMoreMemos: boolean;
   recorderPanel: React.ReactNode;
+  authorProfile?: FeedAuthorProfile;
   onLoadMoreMemos: () => void | Promise<void>;
   onSelectMemo: (memoId: string) => void;
 };
@@ -642,16 +662,24 @@ function getFeedTranscriptPreview(memo: Memo) {
   return memo.transcript || "No transcript available.";
 }
 
+function getAuthorInitial(name: string) {
+  return name.trim().charAt(0).toUpperCase() || "Y";
+}
+
 export function TranscriptFeedPanel({
   memos,
   loading,
   hasMoreMemos,
   loadingMoreMemos,
   recorderPanel,
+  authorProfile = DEFAULT_FEED_AUTHOR_PROFILE,
   onLoadMoreMemos,
   onSelectMemo,
 }: TranscriptFeedPanelProps) {
   const feedRef = useRef<HTMLDivElement>(null);
+  const [viewMode, setViewMode] =
+    useState<TranscriptFeedViewMode>("transcripts");
+  const isPostView = viewMode === "posts";
 
   const maybeLoadMore = useCallback(
     (node: Pick<HTMLDivElement, "scrollHeight" | "scrollTop" | "clientHeight">) => {
@@ -675,7 +703,7 @@ export function TranscriptFeedPanel({
     <div
       ref={feedRef}
       role="feed"
-      aria-label="Voice memo transcripts"
+      aria-label={isPostView ? "Personal memo posts" : "Voice memo transcripts"}
       onScroll={(event) => maybeLoadMore(event.currentTarget)}
       className="h-full overflow-y-auto px-5 pb-10 pt-24 md:px-8 lg:px-10"
       style={{
@@ -683,17 +711,62 @@ export function TranscriptFeedPanel({
         scrollbarColor: "rgba(255,255,255,0.12) transparent",
       }}
     >
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-        <div className="border-b border-white/5 pb-6">{recorderPanel}</div>
+      <div
+        className={`mx-auto flex w-full flex-col gap-6 ${
+          isPostView ? "max-w-2xl" : "max-w-5xl"
+        }`}
+      >
+        <div
+          className={
+            isPostView
+              ? "rounded-xl border border-white/8 bg-white/[0.025] px-4 py-4"
+              : "border-b border-white/5 pb-6"
+          }
+        >
+          {recorderPanel}
+        </div>
 
-        <div className="flex items-end justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
             <h2 className="text-xl font-semibold tracking-tight text-white/95">
-              Transcript feed
+              {isPostView ? "Personal feed" : "Transcript feed"}
             </h2>
             <p className="mt-1 text-xs font-mono uppercase tracking-[0.18em] text-white/35">
-              {memos.length} loaded
+              {memos.length} {isPostView ? "posts" : "loaded"}
             </p>
+          </div>
+
+          <div
+            role="group"
+            aria-label="Feed view"
+            className="inline-flex w-fit rounded-full border border-white/10 bg-black/30 p-1"
+          >
+            <button
+              type="button"
+              aria-pressed={!isPostView}
+              onClick={() => setViewMode("transcripts")}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-mono uppercase tracking-wide transition-colors ${
+                !isPostView
+                  ? "bg-white/12 text-white"
+                  : "text-white/45 hover:text-white/75"
+              }`}
+            >
+              <List size={13} />
+              Transcript
+            </button>
+            <button
+              type="button"
+              aria-pressed={isPostView}
+              onClick={() => setViewMode("posts")}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-mono uppercase tracking-wide transition-colors ${
+                isPostView
+                  ? "bg-white/12 text-white"
+                  : "text-white/45 hover:text-white/75"
+              }`}
+            >
+              <MessageCircle size={13} />
+              Posts
+            </button>
           </div>
         </div>
 
@@ -703,11 +776,126 @@ export function TranscriptFeedPanel({
             className="flex items-center justify-center gap-3 rounded-lg border border-white/5 bg-white/[0.02] px-5 py-12 text-sm text-white/45"
           >
             <Loader2 size={18} className="animate-spin" />
-            Loading transcripts
+            {isPostView ? "Loading posts" : "Loading transcripts"}
           </div>
         ) : memos.length === 0 ? (
           <div className="rounded-lg border border-white/5 bg-white/[0.02] px-5 py-12 text-center text-sm text-white/35">
-            No transcripts yet.
+            {isPostView ? "No posts yet." : "No transcripts yet."}
+          </div>
+        ) : isPostView ? (
+          <div className="flex flex-col border-y border-white/8">
+            {memos.map((memo) => {
+              const title = getMemoTitle(memo);
+              const durationLabel =
+                memo.durationSeconds != null
+                  ? formatSecs(memo.durationSeconds)
+                  : null;
+              const isFailed = isMemoFailed(memo);
+              const isProcessing = isMemoProcessing(memo);
+
+              return (
+                <article
+                  key={memo.id}
+                  aria-label={`${title} post`}
+                  className="border-b border-white/8 py-5 last:border-b-0"
+                >
+                  <button
+                    type="button"
+                    aria-label={`Open ${title} post`}
+                    onClick={() => onSelectMemo(memo.id)}
+                    className="group grid w-full grid-cols-[40px_minmax(0,1fr)] gap-3 text-left transition-colors focus:outline-none focus:ring-1 focus:ring-accent/60"
+                  >
+                    <div className="h-10 w-10 overflow-hidden rounded-full border border-white/10 bg-white/10">
+                      {authorProfile.avatarUrl ? (
+                        <img
+                          src={authorProfile.avatarUrl}
+                          alt={authorProfile.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span
+                          aria-hidden="true"
+                          className="flex h-full w-full items-center justify-center text-sm font-semibold text-white/75"
+                        >
+                          {getAuthorInitial(authorProfile.name)}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                        <span className="font-semibold text-white/92">
+                          {authorProfile.name}
+                        </span>
+                        <span className="font-mono text-xs text-white/35">
+                          {authorProfile.handle}
+                        </span>
+                        <span aria-hidden="true" className="text-white/25">
+                          ·
+                        </span>
+                        <span className="font-mono text-xs text-white/35">
+                          {formatDate(memo.createdAt)}
+                        </span>
+                      </div>
+
+                      <h3 className="mt-1 text-base font-semibold leading-snug text-white/92 group-hover:text-accent">
+                        {title}
+                      </h3>
+
+                      <p
+                        className={`mt-2 whitespace-pre-wrap text-[15px] leading-6 ${
+                          isFailed ? "text-red-300/65" : "text-white/78"
+                        }`}
+                        style={{
+                          display: "-webkit-box",
+                          WebkitBoxOrient: "vertical",
+                          WebkitLineClamp: 8,
+                          overflow: "hidden",
+                        }}
+                      >
+                        {getFeedTranscriptPreview(memo)}
+                      </p>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono uppercase tracking-[0.16em] text-white/35">
+                        {!isFailed && <span>{memo.wordCount} words</span>}
+                        {durationLabel && <span>{durationLabel}</span>}
+                        {memo.durationSeconds != null && (
+                          <span>{formatMemoEstimatedCost(memo.durationSeconds)}</span>
+                        )}
+                        {(isFailed || isProcessing) && (
+                          <StatusDot
+                            tone={isFailed ? "failed" : "processing"}
+                            label={isFailed ? "Failed" : "Processing"}
+                          />
+                        )}
+                      </div>
+
+                      <div
+                        aria-hidden="true"
+                        className="mt-4 flex max-w-sm items-center justify-between text-white/35"
+                      >
+                        <span className="inline-flex items-center gap-1.5">
+                          <MessageCircle size={16} />
+                          0
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <Repeat2 size={16} />
+                          0
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <Heart size={16} />
+                          0
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <BarChart3 size={16} />
+                          {memo.wordCount}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                </article>
+              );
+            })}
           </div>
         ) : (
           <div className="flex flex-col gap-3">
@@ -783,7 +971,7 @@ export function TranscriptFeedPanel({
           </div>
         ) : !hasMoreMemos && memos.length > 0 ? (
           <div className="py-6 text-center text-xs font-mono uppercase tracking-[0.22em] text-white/25">
-            All transcripts loaded
+            {isPostView ? "All posts loaded" : "All transcripts loaded"}
           </div>
         ) : null}
       </div>
