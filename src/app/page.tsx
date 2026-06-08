@@ -31,6 +31,7 @@ export default function Home() {
     filteredBookmarkedMemos,
     filteredMemos,
     fathomImportMessage,
+    fathomSettings,
     hasMoreMemos,
     handleUploadComplete,
     importFathomMemos,
@@ -127,6 +128,7 @@ export default function Home() {
             loadingMoreMemos={loadingMoreMemos}
             authorProfile={authorProfile}
             fathomImportMessage={fathomImportMessage}
+            fathomSettings={fathomSettings}
             importingFathom={importingFathom}
             onImportFathom={importFathomMemos}
             onLoadMoreMemos={loadMoreMemos}

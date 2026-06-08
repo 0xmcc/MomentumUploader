@@ -530,6 +530,39 @@ describe("TranscriptFeedPanel", () => {
     expect(screen.getByRole("button", { name: "Importing Fathom" })).toBeDisabled();
     expect(screen.getByText("Imported 2 Fathom meetings.")).toBeInTheDocument();
   });
+
+  it("shows Fathom connection status and latest import count", () => {
+    render(
+      <TranscriptFeedPanel
+        memos={[]}
+        loading={false}
+        hasMoreMemos={false}
+        loadingMoreMemos={false}
+        recorderPanel={<div data-testid="feed-recorder" />}
+        fathomSettings={{
+          configured: true,
+          connectionStatus: "connected",
+          lastImport: {
+            jobId: "fathom-run-1",
+            status: "succeeded",
+            imported: 7,
+            meetings: 8,
+            processedPages: 2,
+            startedAt: "2026-06-08T19:00:01.000Z",
+            completedAt: "2026-06-08T19:00:09.000Z",
+            error: null,
+          },
+        }}
+        onImportFathom={jest.fn()}
+        onLoadMoreMemos={jest.fn()}
+        onSelectMemo={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText("Fathom connected")).toBeInTheDocument();
+    expect(screen.getByText("Last import")).toBeInTheDocument();
+    expect(screen.getByText("7 imported")).toBeInTheDocument();
+  });
 });
 
 describe("MemoSidebar", () => {

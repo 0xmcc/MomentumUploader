@@ -52,6 +52,7 @@ import type {
 import ThemeToggle from "@/components/ThemeToggle";
 import { useTheme } from "@/components/ThemeProvider";
 import { useMemoShare } from "@/hooks/useMemoPlayback";
+import type { FathomImportSettings } from "@/hooks/useMemosWorkspace";
 import {
   MEMO_ESTIMATED_COST_PER_MINUTE_USD,
   exportMarkdown,
@@ -647,6 +648,7 @@ type TranscriptFeedPanelProps = {
   recorderPanel: React.ReactNode;
   authorProfile?: FeedAuthorProfile;
   fathomImportMessage?: string | null;
+  fathomSettings?: FathomImportSettings | null;
   importingFathom?: boolean;
   onImportFathom?: () => void | Promise<void>;
   onLoadMoreMemos: () => void | Promise<void>;
@@ -677,6 +679,7 @@ export function TranscriptFeedPanel({
   recorderPanel,
   authorProfile = DEFAULT_FEED_AUTHOR_PROFILE,
   fathomImportMessage = null,
+  fathomSettings = null,
   importingFathom = false,
   onImportFathom,
   onLoadMoreMemos,
@@ -799,6 +802,35 @@ export function TranscriptFeedPanel({
               <p className="max-w-xs text-right text-xs text-white/45">
                 {fathomImportMessage}
               </p>
+            )}
+            {fathomSettings && (
+              <div className="flex max-w-xs flex-col items-start gap-1 text-xs text-white/45 sm:items-end">
+                <p className="inline-flex items-center gap-1.5 font-mono uppercase tracking-wide">
+                  {fathomSettings.connectionStatus === "connected" ? (
+                    <Check size={12} className="text-emerald-300" />
+                  ) : (
+                    <X size={12} className="text-rose-300" />
+                  )}
+                  {fathomSettings.connectionStatus === "connected"
+                    ? "Fathom connected"
+                    : "Fathom needs API key"}
+                </p>
+                {fathomSettings.lastImport ? (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 sm:justify-end">
+                    <span>Last import</span>
+                    <span className="text-white/70">
+                      {fathomSettings.lastImport.imported} imported
+                    </span>
+                    {fathomSettings.lastImport.completedAt && (
+                      <span>
+                        {formatDate(fathomSettings.lastImport.completedAt)}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span>No Fathom imports yet.</span>
+                )}
+              </div>
             )}
           </div>
         </div>

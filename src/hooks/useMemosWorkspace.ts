@@ -35,10 +35,34 @@ type MemoListResponse = {
 
 const MEMOS_PAGE_SIZE = 20;
 export const FATHOM_IMPORT_CLIENT_TIMEOUT_MS = 45_000;
+export const FATHOM_IMPORT_POLL_INTERVAL_MS = 1_500;
 const FATHOM_IMPORT_PROGRESS_MESSAGE =
   "Importing Fathom meetings. This can take up to 45 seconds.";
 const FATHOM_IMPORT_TIMEOUT_MESSAGE =
   "Fathom import timed out. Try again in a minute.";
+
+export type FathomImportRunStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed";
+
+export type FathomImportRunSummary = {
+  jobId: string;
+  status: FathomImportRunStatus;
+  imported: number;
+  meetings: number;
+  processedPages: number;
+  startedAt: string | null;
+  completedAt: string | null;
+  error: string | null;
+};
+
+export type FathomImportSettings = {
+  configured: boolean;
+  connectionStatus: "connected" | "not_configured";
+  lastImport: FathomImportRunSummary | null;
+};
 
 function getMemosPageUrl(offset: number) {
   const params = new URLSearchParams({
@@ -86,6 +110,74 @@ async function postFathomImport() {
   }
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function formatFathomProgress(status: FathomImportRunSummary) {
+  if (status.meetings > 0) {
+    return `Importing Fathom meetings: ${status.imported} imported from ${status.meetings} seen.`;
+  }
+
+  return FATHOM_IMPORT_PROGRESS_MESSAGE;
+}
+
+function settingsWithLastImport(
+  current: FathomImportSettings | null,
+  lastImport: FathomImportRunSummary
+): FathomImportSettings {
+  return {
+    configured: current?.configured ?? true,
+    connectionStatus: current?.connectionStatus ?? "connected",
+    lastImport,
+  };
+}
+
+async function getFathomImportStatus(
+  jobId: string
+): Promise<FathomImportRunSummary> {
+  const res = await fetch(`/api/fathom/import/${jobId}`);
+  const json = (await res.json().catch(() => ({}))) as
+    | Partial<FathomImportRunSummary>
+    | { error?: string; detail?: string };
+
+  const status = "status" in json ? json.status : undefined;
+  if (!res.ok && status !== "failed") {
+    throw new Error(
+      "detail" in json && json.detail
+        ? json.detail
+        : "error" in json && json.error
+        ? json.error
+        : "Fathom import failed"
+    );
+  }
+
+  if (!("jobId" in json) || typeof json.jobId !== "string") {
+    throw new Error("Fathom import status response was invalid.");
+  }
+
+  return json as FathomImportRunSummary;
+}
+
+async function getFathomSettings(): Promise<FathomImportSettings> {
+  const res = await fetch("/api/fathom/import/settings");
+  const json = (await res.json().catch(() => ({}))) as Partial<FathomImportSettings> & {
+    error?: string;
+    detail?: string;
+  };
+
+  if (!res.ok) {
+    throw new Error(json.detail || json.error || "Fathom settings failed");
+  }
+
+  return {
+    configured: Boolean(json.configured),
+    connectionStatus:
+      json.connectionStatus === "connected" ? "connected" : "not_configured",
+    lastImport: json.lastImport ?? null,
+  };
+}
+
 export function useMemosWorkspace({
   isLoaded,
   isSignedIn,
@@ -112,6 +204,8 @@ export function useMemosWorkspace({
   const [fathomImportMessage, setFathomImportMessage] = useState<string | null>(
     null
   );
+  const [fathomSettings, setFathomSettings] =
+    useState<FathomImportSettings | null>(null);
   const [selectedMemoDetailRefreshToken, setSelectedMemoDetailRefreshToken] =
     useState(0);
 
@@ -209,6 +303,24 @@ export function useMemosWorkspace({
     setLoading(true);
     void fetchMemos();
   }, [fetchMemos, isLoaded, isSignedIn]);
+
+  const refreshFathomSettings = useCallback(async () => {
+    if (!isSignedIn) {
+      setFathomSettings(null);
+      return;
+    }
+
+    try {
+      setFathomSettings(await getFathomSettings());
+    } catch {
+      setFathomSettings(null);
+    }
+  }, [isSignedIn]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    void refreshFathomSettings();
+  }, [isLoaded, refreshFathomSettings]);
 
   const handleUploadComplete = useCallback(
     (data: UploadCompletePayload) => {
@@ -473,7 +585,13 @@ export function useMemosWorkspace({
     try {
       const res = await postFathomImport();
       const json = (await res.json().catch(() => ({}))) as {
+        jobId?: string;
+        status?: FathomImportRunStatus;
         imported?: number;
+        meetings?: number;
+        processedPages?: number;
+        startedAt?: string | null;
+        completedAt?: string | null;
         error?: string;
         detail?: string;
       };
@@ -482,10 +600,42 @@ export function useMemosWorkspace({
         throw new Error(json.detail || json.error || "Fathom import failed");
       }
 
-      const imported = typeof json.imported === "number" ? json.imported : 0;
+      if (!json.jobId) {
+        throw new Error("Fathom import did not return a job id.");
+      }
+
+      let status: FathomImportRunSummary = {
+        jobId: json.jobId,
+        status: json.status ?? "queued",
+        imported: typeof json.imported === "number" ? json.imported : 0,
+        meetings: typeof json.meetings === "number" ? json.meetings : 0,
+        processedPages:
+          typeof json.processedPages === "number" ? json.processedPages : 0,
+        startedAt: json.startedAt ?? null,
+        completedAt: json.completedAt ?? null,
+        error: json.error ?? null,
+      };
+
+      while (status.status === "queued" || status.status === "running") {
+        status = await getFathomImportStatus(status.jobId);
+        setFathomSettings((current) => settingsWithLastImport(current, status));
+
+        if (status.status === "succeeded") {
+          break;
+        }
+        if (status.status === "failed") {
+          throw new Error(status.error || "Fathom import failed");
+        }
+
+        setFathomImportMessage(formatFathomProgress(status));
+        await sleep(FATHOM_IMPORT_POLL_INTERVAL_MS);
+      }
+
+      const imported = status.imported;
       setFathomImportMessage(
         `Imported ${imported} Fathom ${imported === 1 ? "meeting" : "meetings"}.`
       );
+      setFathomSettings((current) => settingsWithLastImport(current, status));
       await fetchMemos();
     } catch (err) {
       console.error("Failed to import Fathom meetings:", err);
@@ -503,6 +653,7 @@ export function useMemosWorkspace({
     filteredBookmarkedMemos,
     filteredMemos,
     fathomImportMessage,
+    fathomSettings,
     hasMoreMemos,
     handleAudioInput,
     handleUploadComplete,

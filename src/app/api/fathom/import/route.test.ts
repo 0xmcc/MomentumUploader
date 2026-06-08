@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 import { NextRequest } from "next/server";
-import { FATHOM_REQUEST_TIMEOUT_MS, POST } from "./route";
+import { POST } from "./route";
 import { resolveMemoUserId } from "@/lib/memo-api-auth";
 import { supabaseAdmin } from "@/lib/supabase";
 
@@ -56,57 +56,30 @@ describe("POST /api/fathom/import", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("imports Fathom meetings into memos and final transcript segments", async () => {
-    const fetchMock = jest.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        next_cursor: null,
-        items: [
-          {
-            title: "Customer discovery",
-            meeting_title: "Acme discovery call",
-            recording_id: 98765,
-            url: "https://fathom.video/abc",
-            share_url: "https://fathom.video/share/abc",
-            created_at: "2026-05-01T16:00:00Z",
-            recording_start_time: "2026-05-01T16:01:00Z",
-            recording_end_time: "2026-05-01T16:31:00Z",
-            transcript: [
-              {
-                speaker: { display_name: "Alice" },
-                text: "First customer point.",
-                timestamp: "00:00:05",
-              },
-              {
-                speaker: { display_name: "Bob" },
-                text: "Second customer point.",
-                timestamp: "00:00:12",
-              },
-            ],
-          },
-        ],
-      }),
-    });
+  it("starts a Fathom import job without fetching meetings in the initial request", async () => {
+    const fetchMock = jest.fn();
     global.fetch = fetchMock;
 
-    const memoSingle = jest.fn().mockResolvedValue({
-      data: { id: "memo-fathom-1", source_id: "98765" },
+    const runSingle = jest.fn().mockResolvedValue({
+      data: {
+        id: "fathom-run-1",
+        status: "queued",
+        imported_count: 0,
+        meeting_count: 0,
+        processed_pages: 0,
+        created_at: "2026-06-08T19:00:00.000Z",
+        started_at: null,
+        completed_at: null,
+        last_error: null,
+      },
       error: null,
     });
-    const memoSelect = jest.fn(() => ({ single: memoSingle }));
-    const memoUpsert = jest.fn(() => ({ select: memoSelect }));
-
-    const segmentDeleteSecondEq = jest.fn().mockResolvedValue({ error: null });
-    const segmentDeleteFirstEq = jest.fn(() => ({ eq: segmentDeleteSecondEq }));
-    const segmentDelete = jest.fn(() => ({ eq: segmentDeleteFirstEq }));
-    const segmentInsert = jest.fn().mockResolvedValue({ error: null });
+    const runSelect = jest.fn(() => ({ single: runSingle }));
+    const runInsert = jest.fn(() => ({ select: runSelect }));
 
     (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
-      if (table === "memos") {
-        return { upsert: memoUpsert };
-      }
-      if (table === "memo_transcript_segments") {
-        return { delete: segmentDelete, insert: segmentInsert };
+      if (table === "fathom_import_runs") {
+        return { insert: runInsert };
       }
       throw new Error(`Unexpected table: ${table}`);
     });
@@ -114,80 +87,27 @@ describe("POST /api/fathom/import", () => {
     const res = await POST({} as NextRequest);
     const body = await res.json();
 
-    expect(res.status).toBe(200);
-    expect(body).toEqual({ imported: 1, meetings: 1 });
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.fathom.ai/external/v1/meetings?include_transcript=true&include_summary=true&include_action_items=true",
+    expect(res.status).toBe(202);
+    expect(body).toEqual({
+      jobId: "fathom-run-1",
+      status: "queued",
+      imported: 0,
+      meetings: 0,
+      processedPages: 0,
+      startedAt: null,
+      completedAt: null,
+      error: null,
+    });
+    expect(runInsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        headers: expect.objectContaining({ "X-Api-Key": "fathom-test-key" }),
+        user_id: "user-1",
+        status: "queued",
+        imported_count: 0,
+        meeting_count: 0,
+        processed_pages: 0,
       })
     );
-    expect(memoUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        user_id: "user-1",
-        source_app: "fathom",
-        source_id: "98765",
-        title: "Acme discovery call",
-        transcript: "Alice: First customer point.\n\nBob: Second customer point.",
-        audio_url: "https://fathom.video/share/abc",
-        duration: 1800,
-        transcript_status: "complete",
-      }),
-      { onConflict: "user_id,source_app,source_id" }
-    );
-    expect(segmentDeleteFirstEq).toHaveBeenCalledWith("memo_id", "memo-fathom-1");
-    expect(segmentDeleteSecondEq).toHaveBeenCalledWith("source", "final");
-    expect(segmentInsert).toHaveBeenCalledWith([
-      expect.objectContaining({
-        memo_id: "memo-fathom-1",
-        user_id: "user-1",
-        segment_index: 0,
-        start_ms: 5000,
-        end_ms: 12000,
-        text: "Alice: First customer point.",
-        source: "final",
-      }),
-      expect.objectContaining({
-        memo_id: "memo-fathom-1",
-        user_id: "user-1",
-        segment_index: 1,
-        start_ms: 12000,
-        text: "Bob: Second customer point.",
-        source: "final",
-      }),
-    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("returns a timeout error instead of hanging when Fathom does not respond", async () => {
-    jest.useFakeTimers();
-
-    const fetchMock = jest.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => {
-          const abortError = new Error("The operation was aborted.");
-          abortError.name = "AbortError";
-          reject(abortError);
-        });
-      });
-    });
-    global.fetch = fetchMock;
-
-    try {
-      const responsePromise = POST({} as NextRequest);
-      await Promise.resolve();
-
-      jest.advanceTimersByTime(FATHOM_REQUEST_TIMEOUT_MS);
-
-      const res = await responsePromise;
-      const body = await res.json();
-
-      expect(res.status).toBe(504);
-      expect(body).toEqual({
-        error: "Fathom import timed out",
-        detail: "Fathom did not respond before the import timeout.",
-      });
-    } finally {
-      jest.useRealTimers();
-    }
-  });
 });

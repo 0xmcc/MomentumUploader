@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import {
   FATHOM_IMPORT_CLIENT_TIMEOUT_MS,
+  FATHOM_IMPORT_POLL_INTERVAL_MS,
   useMemosWorkspace,
 } from "./useMemosWorkspace";
 import { MEMO_RECONCILE_DELAY_MS } from "@/lib/memo-ui";
@@ -832,7 +833,7 @@ describe("useMemosWorkspace", () => {
     expect(uploadedMemoId).toBe("memo-live-1");
   });
 
-  it("imports Fathom meetings and refreshes the first memo page", async () => {
+  it("starts a Fathom import job, polls progress, stores settings, and refreshes memos on completion", async () => {
     const memoPages = [
       { memos: [], total: 0 },
       {
@@ -847,6 +848,28 @@ describe("useMemosWorkspace", () => {
           },
         ],
         total: 1,
+      },
+    ];
+    const statusResponses = [
+      {
+        jobId: "fathom-run-1",
+        status: "running",
+        imported: 1,
+        meetings: 2,
+        processedPages: 1,
+        startedAt: "2026-06-08T19:00:01.000Z",
+        completedAt: null,
+        error: null,
+      },
+      {
+        jobId: "fathom-run-1",
+        status: "succeeded",
+        imported: 2,
+        meetings: 2,
+        processedPages: 2,
+        startedAt: "2026-06-08T19:00:01.000Z",
+        completedAt: "2026-06-08T19:00:09.000Z",
+        error: null,
       },
     ];
 
@@ -872,10 +895,42 @@ describe("useMemosWorkspace", () => {
         };
       }
 
+      if (url === "/api/fathom/import/settings") {
+        return {
+          ok: true,
+          json: async () => ({
+            configured: true,
+            connectionStatus: "connected",
+            lastImport: null,
+          }),
+        };
+      }
+
       if (url === "/api/fathom/import" && init?.method === "POST") {
         return {
           ok: true,
-          json: async () => ({ imported: 1, meetings: 1 }),
+          status: 202,
+          json: async () => ({
+            jobId: "fathom-run-1",
+            status: "queued",
+            imported: 0,
+            meetings: 0,
+            processedPages: 0,
+            startedAt: null,
+            completedAt: null,
+            error: null,
+          }),
+        };
+      }
+
+      if (url === "/api/fathom/import/fathom-run-1") {
+        const nextStatus = statusResponses.shift();
+        if (!nextStatus) {
+          throw new Error("Status polled too many times");
+        }
+        return {
+          ok: true,
+          json: async () => nextStatus,
         };
       }
 
@@ -895,20 +950,43 @@ describe("useMemosWorkspace", () => {
       expect(result.current.loading).toBe(false);
     });
 
+    let importPromise: Promise<void>;
     await act(async () => {
-      await result.current.importFathomMemos();
+      importPromise = result.current.importFathomMemos();
+      await Promise.resolve();
     });
 
     expect(mockFetch).toHaveBeenCalledWith(
       "/api/fathom/import",
       expect.objectContaining({ method: "POST" })
     );
+    expect(mockFetch).toHaveBeenCalledWith("/api/fathom/import/fathom-run-1");
+    expect(result.current.importingFathom).toBe(true);
+    expect(result.current.fathomImportMessage).toBe(
+      "Importing Fathom meetings: 1 imported from 2 seen."
+    );
+
+    await act(async () => {
+      jest.advanceTimersByTime(FATHOM_IMPORT_POLL_INTERVAL_MS);
+      await importPromise;
+    });
+
     expect(result.current.filteredMemos.map((memo) => memo.id)).toEqual([
       "memo-fathom-1",
     ]);
     expect(result.current.fathomImportMessage).toBe(
-      "Imported 1 Fathom meeting."
+      "Imported 2 Fathom meetings."
     );
+    expect(result.current.fathomSettings?.lastImport).toEqual({
+      jobId: "fathom-run-1",
+      status: "succeeded",
+      imported: 2,
+      meetings: 2,
+      processedPages: 2,
+      startedAt: "2026-06-08T19:00:01.000Z",
+      completedAt: "2026-06-08T19:00:09.000Z",
+      error: null,
+    });
     expect(result.current.importingFathom).toBe(false);
   });
 
