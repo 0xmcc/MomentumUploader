@@ -34,6 +34,11 @@ type MemoListResponse = {
 };
 
 const MEMOS_PAGE_SIZE = 20;
+export const FATHOM_IMPORT_CLIENT_TIMEOUT_MS = 45_000;
+const FATHOM_IMPORT_PROGRESS_MESSAGE =
+  "Importing Fathom meetings. This can take up to 45 seconds.";
+const FATHOM_IMPORT_TIMEOUT_MESSAGE =
+  "Fathom import timed out. Try again in a minute.";
 
 function getMemosPageUrl(offset: number) {
   const params = new URLSearchParams({
@@ -54,6 +59,31 @@ function mergeMemoPages(current: Memo[], incoming: Memo[]) {
   }
 
   return merged;
+}
+
+async function postFathomImport() {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, FATHOM_IMPORT_CLIENT_TIMEOUT_MS);
+
+  try {
+    return await fetch("/api/fathom/import", {
+      method: "POST",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (
+      controller.signal.aborted ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
+      throw new Error(FATHOM_IMPORT_TIMEOUT_MESSAGE);
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function useMemosWorkspace({
@@ -438,10 +468,10 @@ export function useMemosWorkspace({
     }
 
     setImportingFathom(true);
-    setFathomImportMessage(null);
+    setFathomImportMessage(FATHOM_IMPORT_PROGRESS_MESSAGE);
 
     try {
-      const res = await fetch("/api/fathom/import", { method: "POST" });
+      const res = await postFathomImport();
       const json = (await res.json().catch(() => ({}))) as {
         imported?: number;
         error?: string;

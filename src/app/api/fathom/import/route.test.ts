@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 import { NextRequest } from "next/server";
-import { POST } from "./route";
+import { FATHOM_REQUEST_TIMEOUT_MS, POST } from "./route";
 import { resolveMemoUserId } from "@/lib/memo-api-auth";
 import { supabaseAdmin } from "@/lib/supabase";
 
@@ -156,5 +156,38 @@ describe("POST /api/fathom/import", () => {
         source: "final",
       }),
     ]);
+  });
+
+  it("returns a timeout error instead of hanging when Fathom does not respond", async () => {
+    jest.useFakeTimers();
+
+    const fetchMock = jest.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          const abortError = new Error("The operation was aborted.");
+          abortError.name = "AbortError";
+          reject(abortError);
+        });
+      });
+    });
+    global.fetch = fetchMock;
+
+    try {
+      const responsePromise = POST({} as NextRequest);
+      await Promise.resolve();
+
+      jest.advanceTimersByTime(FATHOM_REQUEST_TIMEOUT_MS);
+
+      const res = await responsePromise;
+      const body = await res.json();
+
+      expect(res.status).toBe(504);
+      expect(body).toEqual({
+        error: "Fathom import timed out",
+        detail: "Fathom did not respond before the import timeout.",
+      });
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

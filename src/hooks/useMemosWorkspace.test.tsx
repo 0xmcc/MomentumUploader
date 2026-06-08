@@ -1,5 +1,8 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { useMemosWorkspace } from "./useMemosWorkspace";
+import {
+  FATHOM_IMPORT_CLIENT_TIMEOUT_MS,
+  useMemosWorkspace,
+} from "./useMemosWorkspace";
 import { MEMO_RECONCILE_DELAY_MS } from "@/lib/memo-ui";
 
 describe("useMemosWorkspace", () => {
@@ -896,9 +899,10 @@ describe("useMemosWorkspace", () => {
       await result.current.importFathomMemos();
     });
 
-    expect(mockFetch).toHaveBeenCalledWith("/api/fathom/import", {
-      method: "POST",
-    });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/fathom/import",
+      expect.objectContaining({ method: "POST" })
+    );
     expect(result.current.filteredMemos.map((memo) => memo.id)).toEqual([
       "memo-fathom-1",
     ]);
@@ -965,5 +969,75 @@ describe("useMemosWorkspace", () => {
       "FATHOM_API_KEY is not set on the server."
     );
     expect(result.current.importingFathom).toBe(false);
+  });
+
+  it("shows import progress immediately and releases the button when Fathom import hangs", async () => {
+    const mockFetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+      if (url === "/api/memos?limit=20&offset=0") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ memos: [], total: 0 }),
+        } as Response);
+      }
+
+      if (url === "/api/shared-memo-bookmarks") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ bookmarks: [] }),
+        } as Response);
+      }
+
+      if (url === "/api/fathom/import" && init?.method === "POST") {
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => {
+            const abortError = new Error("The operation was aborted.");
+            abortError.name = "AbortError";
+            reject(abortError);
+          });
+        });
+      }
+
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    Object.defineProperty(global, "fetch", { writable: true, value: mockFetch });
+
+    const { result } = renderHook(() =>
+      useMemosWorkspace({
+        isLoaded: true,
+        isSignedIn: true,
+        openSignIn: jest.fn(),
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    let importPromise: Promise<void>;
+    act(() => {
+      importPromise = result.current.importFathomMemos();
+    });
+
+    expect(result.current.importingFathom).toBe(true);
+    expect(result.current.fathomImportMessage).toBe(
+      "Importing Fathom meetings. This can take up to 45 seconds."
+    );
+
+    await act(async () => {
+      jest.advanceTimersByTime(FATHOM_IMPORT_CLIENT_TIMEOUT_MS);
+      await importPromise;
+    });
+
+    expect(result.current.importingFathom).toBe(false);
+    expect(result.current.fathomImportMessage).toBe(
+      "Fathom import timed out. Try again in a minute."
+    );
   });
 });

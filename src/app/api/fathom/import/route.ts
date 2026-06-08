@@ -10,6 +10,14 @@ const CORS = {
 
 const FATHOM_MEETINGS_URL = "https://api.fathom.ai/external/v1/meetings";
 const MAX_FATHOM_PAGES = 20;
+export const FATHOM_REQUEST_TIMEOUT_MS = 25_000;
+
+class FathomTimeoutError extends Error {
+  constructor() {
+    super("Fathom did not respond before the import timeout.");
+    this.name = "FathomTimeoutError";
+  }
+}
 
 type FathomTranscriptEntry = {
   speaker?: {
@@ -206,12 +214,7 @@ async function fetchFathomMeetings(apiKey: string): Promise<FathomMeeting[]> {
       url.searchParams.set("cursor", cursor);
     }
 
-    const response = await fetch(url.toString(), {
-      headers: {
-        "X-Api-Key": apiKey,
-        Accept: "application/json",
-      },
-    });
+    const response = await fetchFathomPage(url.toString(), apiKey);
 
     if (!response.ok) {
       throw new Error(`Fathom request failed with status ${response.status}`);
@@ -226,6 +229,34 @@ async function fetchFathomMeetings(apiKey: string): Promise<FathomMeeting[]> {
   }
 
   return meetings;
+}
+
+async function fetchFathomPage(url: string, apiKey: string): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, FATHOM_REQUEST_TIMEOUT_MS);
+
+  try {
+    return await fetch(url, {
+      headers: {
+        "X-Api-Key": apiKey,
+        Accept: "application/json",
+      },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (
+      controller.signal.aborted ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
+      throw new FathomTimeoutError();
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function replaceFinalSegments(
@@ -326,6 +357,16 @@ export async function POST(req: NextRequest) {
 
     return json({ imported: meetings.length, meetings: rawMeetings.length });
   } catch (error) {
+    if (error instanceof FathomTimeoutError) {
+      return json(
+        {
+          error: "Fathom import timed out",
+          detail: error.message,
+        },
+        504
+      );
+    }
+
     const detail = error instanceof Error ? error.message : String(error);
     return json({ error: "Failed to import Fathom meetings", detail }, 502);
   }
