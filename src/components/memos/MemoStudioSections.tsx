@@ -3,6 +3,7 @@
 import React, {
   Profiler,
   useCallback,
+  useEffect,
   useRef,
   useState,
   type ProfilerOnRenderCallback,
@@ -12,18 +13,23 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  BarChart3,
   Clock3,
   Copy,
   Cpu,
   Download,
   ExternalLink,
   FileDown,
+  Heart,
+  List,
   Loader2,
+  MessageCircle,
   Mic2,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
   Plus,
+  Repeat2,
   Search,
   Sparkles,
   X,
@@ -46,6 +52,7 @@ import type {
 import ThemeToggle from "@/components/ThemeToggle";
 import { useTheme } from "@/components/ThemeProvider";
 import { useMemoShare } from "@/hooks/useMemoPlayback";
+import type { FathomImportSettings } from "@/hooks/useMemosWorkspace";
 import {
   MEMO_ESTIMATED_COST_PER_MINUTE_USD,
   exportMarkdown,
@@ -61,6 +68,22 @@ import {
 } from "@/lib/memo-ui";
 
 const TRANSCRIPT_TIMESTAMPS_STORAGE_KEY = "memo-transcript-show-timestamps";
+const TRANSCRIPT_FEED_LOAD_THRESHOLD_PX = 220;
+const MEMO_POST_SUMMARY_MAX_CHARS = 280;
+
+type FeedAuthorProfile = {
+  name: string;
+  handle: string;
+  avatarUrl?: string | null;
+};
+
+type TranscriptFeedViewMode = "transcripts" | "posts";
+
+const DEFAULT_FEED_AUTHOR_PROFILE: FeedAuthorProfile = {
+  name: "You",
+  handle: "@you",
+  avatarUrl: null,
+};
 
 function MemoListItem({
   memo,
@@ -618,24 +641,464 @@ export function MemoDetailView({
   );
 }
 
+type TranscriptFeedPanelProps = {
+  memos: Memo[];
+  loading: boolean;
+  hasMoreMemos: boolean;
+  loadingMoreMemos: boolean;
+  authorProfile?: FeedAuthorProfile;
+  fathomImportMessage?: string | null;
+  fathomSettings?: FathomImportSettings | null;
+  importingFathom?: boolean;
+  onImportFathom?: () => void | Promise<void>;
+  onLoadMoreMemos: () => void | Promise<void>;
+  onRecordNewMemo: () => void;
+  onSelectMemo: (memoId: string) => void;
+};
+
+function getFeedTranscriptPreview(memo: Memo) {
+  if (isMemoFailed(memo)) {
+    return "Transcription failed.";
+  }
+
+  if (isMemoProcessing(memo) && !memo.transcript) {
+    return "Transcript is still processing.";
+  }
+
+  return memo.transcript || "No transcript available.";
+}
+
+function normalizeFeedText(text: string) {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function trimToMemoPostLength(text: string) {
+  const normalized = normalizeFeedText(text);
+  if (normalized.length <= MEMO_POST_SUMMARY_MAX_CHARS) {
+    return normalized;
+  }
+
+  const trimmed = normalized.slice(0, MEMO_POST_SUMMARY_MAX_CHARS - 3);
+  const lastSpace = trimmed.lastIndexOf(" ");
+  const end = lastSpace > 180 ? lastSpace : trimmed.length;
+  return `${trimmed.slice(0, end).trimEnd()}...`;
+}
+
+function getMemoPostSummary(memo: Memo) {
+  if (isMemoFailed(memo) || isMemoProcessing(memo)) {
+    return getFeedTranscriptPreview(memo);
+  }
+
+  return trimToMemoPostLength(memo.summary || memo.transcript || "No transcript available.");
+}
+
+function getAuthorInitial(name: string) {
+  return name.trim().charAt(0).toUpperCase() || "Y";
+}
+
+export function TranscriptFeedPanel({
+  memos,
+  loading,
+  hasMoreMemos,
+  loadingMoreMemos,
+  authorProfile = DEFAULT_FEED_AUTHOR_PROFILE,
+  fathomImportMessage = null,
+  fathomSettings = null,
+  importingFathom = false,
+  onImportFathom,
+  onLoadMoreMemos,
+  onRecordNewMemo,
+  onSelectMemo,
+}: TranscriptFeedPanelProps) {
+  const feedRef = useRef<HTMLDivElement>(null);
+  const [viewMode, setViewMode] =
+    useState<TranscriptFeedViewMode>("posts");
+  const isPostView = viewMode === "posts";
+
+  const maybeLoadMore = useCallback(
+    (node: Pick<HTMLDivElement, "scrollHeight" | "scrollTop" | "clientHeight">) => {
+      if (loading || loadingMoreMemos || !hasMoreMemos) return;
+
+      const remaining = node.scrollHeight - node.scrollTop - node.clientHeight;
+      if (remaining <= TRANSCRIPT_FEED_LOAD_THRESHOLD_PX) {
+        void onLoadMoreMemos();
+      }
+    },
+    [hasMoreMemos, loading, loadingMoreMemos, onLoadMoreMemos]
+  );
+
+  useEffect(() => {
+    const node = feedRef.current;
+    if (!node || node.clientHeight <= 0) return;
+    maybeLoadMore(node);
+  }, [maybeLoadMore, memos.length]);
+
+  return (
+    <div
+      ref={feedRef}
+      role="feed"
+      aria-label={isPostView ? "Personal memo posts" : "Voice memo transcripts"}
+      onScroll={(event) => maybeLoadMore(event.currentTarget)}
+      className="h-full overflow-y-auto px-5 pb-10 pt-24 md:px-8 lg:px-10"
+      style={{
+        scrollbarWidth: "thin",
+        scrollbarColor: "rgba(255,255,255,0.12) transparent",
+      }}
+    >
+      <div
+        className={`mx-auto flex w-full flex-col gap-6 ${
+          isPostView ? "max-w-2xl" : "max-w-5xl"
+        }`}
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="text-xl font-semibold tracking-tight text-white/95">
+              {isPostView ? "Previous recordings" : "Transcript feed"}
+            </h2>
+            <p className="mt-1 text-xs font-mono uppercase tracking-[0.18em] text-white/35">
+              {memos.length} {isPostView ? "posts" : "loaded"}
+            </p>
+          </div>
+
+          <div className="flex flex-col items-start gap-2 sm:items-end">
+            <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
+              <button
+                type="button"
+                onClick={onRecordNewMemo}
+                className="inline-flex h-10 items-center gap-2 rounded-full border border-accent/30 bg-accent/15 px-4 text-xs font-mono uppercase tracking-wide text-white transition-colors hover:border-accent/50 hover:bg-accent/25"
+              >
+                <Mic2 size={14} />
+                Record new memo
+              </button>
+
+              {onImportFathom && (
+                <button
+                  type="button"
+                  disabled={importingFathom}
+                  onClick={() => {
+                    void onImportFathom();
+                  }}
+                  className="inline-flex h-10 items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 text-xs font-mono uppercase tracking-wide text-white/65 transition-colors hover:border-accent/35 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  {importingFathom ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <Download size={14} />
+                  )}
+                  {importingFathom ? "Importing Fathom" : "Import Fathom"}
+                </button>
+              )}
+
+              <div
+                role="group"
+                aria-label="Feed view"
+                className="inline-flex w-fit rounded-full border border-white/10 bg-black/30 p-1"
+              >
+                <button
+                  type="button"
+                  aria-pressed={!isPostView}
+                  onClick={() => setViewMode("transcripts")}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-mono uppercase tracking-wide transition-colors ${
+                    !isPostView
+                      ? "bg-white/12 text-white"
+                      : "text-white/45 hover:text-white/75"
+                  }`}
+                >
+                  <List size={13} />
+                  Transcript
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={isPostView}
+                  onClick={() => setViewMode("posts")}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-mono uppercase tracking-wide transition-colors ${
+                    isPostView
+                      ? "bg-white/12 text-white"
+                      : "text-white/45 hover:text-white/75"
+                  }`}
+                >
+                  <MessageCircle size={13} />
+                  Posts
+                </button>
+              </div>
+            </div>
+            {fathomImportMessage && (
+              <p className="max-w-xs text-right text-xs text-white/45">
+                {fathomImportMessage}
+              </p>
+            )}
+            {fathomSettings && (
+              <div className="flex max-w-xs flex-col items-start gap-1 text-xs text-white/45 sm:items-end">
+                <p className="inline-flex items-center gap-1.5 font-mono uppercase tracking-wide">
+                  {fathomSettings.connectionStatus === "connected" ? (
+                    <Check size={12} className="text-emerald-300" />
+                  ) : (
+                    <X size={12} className="text-rose-300" />
+                  )}
+                  {fathomSettings.connectionStatus === "connected"
+                    ? "Fathom connected"
+                    : "Fathom needs API key"}
+                </p>
+                {fathomSettings.lastImport ? (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 sm:justify-end">
+                    <span>Last import</span>
+                    <span className="text-white/70">
+                      {fathomSettings.lastImport.imported} imported
+                    </span>
+                    {fathomSettings.lastImport.completedAt && (
+                      <span>
+                        {formatDate(fathomSettings.lastImport.completedAt)}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span>No Fathom imports yet.</span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {loading ? (
+          <div
+            role="status"
+            className="flex items-center justify-center gap-3 rounded-lg border border-white/5 bg-white/[0.02] px-5 py-12 text-sm text-white/45"
+          >
+            <Loader2 size={18} className="animate-spin" />
+            {isPostView ? "Loading memo posts" : "Loading transcripts"}
+          </div>
+        ) : memos.length === 0 ? (
+          <div className="rounded-lg border border-white/5 bg-white/[0.02] px-5 py-12 text-center text-sm text-white/35">
+            {isPostView ? "No recordings yet." : "No transcripts yet."}
+          </div>
+        ) : isPostView ? (
+          <div className="flex flex-col gap-4">
+            {memos.map((memo) => {
+              const title = getMemoTitle(memo);
+              const durationLabel =
+                memo.durationSeconds != null
+                  ? formatSecs(memo.durationSeconds)
+                  : null;
+              const isFailed = isMemoFailed(memo);
+              const isProcessing = isMemoProcessing(memo);
+              const summary = getMemoPostSummary(memo);
+
+              return (
+                <article
+                  key={memo.id}
+                  aria-label={`${title} post`}
+                  className="rounded-lg border border-white/8 bg-[#171717] px-4 py-4 shadow-[0_14px_48px_rgba(0,0,0,0.20)]"
+                >
+                  <button
+                    type="button"
+                    aria-label={`Open ${title} post`}
+                    onClick={() => onSelectMemo(memo.id)}
+                    className="group grid w-full grid-cols-[40px_minmax(0,1fr)] gap-3 text-left transition-colors focus:outline-none focus:ring-1 focus:ring-accent/60"
+                  >
+                    <div className="h-10 w-10 overflow-hidden rounded-full border border-white/10 bg-white/10">
+                      {authorProfile.avatarUrl ? (
+                        <img
+                          src={authorProfile.avatarUrl}
+                          alt={authorProfile.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span
+                          aria-hidden="true"
+                          className="flex h-full w-full items-center justify-center text-sm font-semibold text-white/75"
+                        >
+                          {getAuthorInitial(authorProfile.name)}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                        <span className="font-semibold text-white/92">
+                          {authorProfile.name}
+                        </span>
+                        <span className="font-mono text-xs text-white/35">
+                          {authorProfile.handle}
+                        </span>
+                        <span aria-hidden="true" className="text-white/25">
+                          ·
+                        </span>
+                        <span className="font-mono text-xs text-white/35">
+                          {formatDate(memo.createdAt)}
+                        </span>
+                      </div>
+
+                      <h3 className="mt-1 text-base font-semibold leading-snug text-white/92 group-hover:text-accent">
+                        {title}
+                      </h3>
+
+                      <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-accent/20 bg-accent/10 px-2.5 py-1 text-[10px] font-mono uppercase tracking-[0.16em] text-accent/90">
+                        <Sparkles size={12} />
+                        AI summary
+                      </div>
+
+                      <p
+                        aria-label={`${title} summary`}
+                        className={`mt-2 whitespace-pre-wrap text-[15px] leading-6 ${
+                          isFailed ? "text-red-300/65" : "text-white/78"
+                        }`}
+                        style={{
+                          display: "-webkit-box",
+                          WebkitBoxOrient: "vertical",
+                          WebkitLineClamp: 8,
+                          overflow: "hidden",
+                        }}
+                      >
+                        {summary}
+                      </p>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono uppercase tracking-[0.16em] text-white/35">
+                        {!isFailed && <span>{memo.wordCount} words</span>}
+                        {durationLabel && <span>{durationLabel}</span>}
+                        {memo.durationSeconds != null && (
+                          <span>{formatMemoEstimatedCost(memo.durationSeconds)}</span>
+                        )}
+                        {(isFailed || isProcessing) && (
+                          <StatusDot
+                            tone={isFailed ? "failed" : "processing"}
+                            label={isFailed ? "Failed" : "Processing"}
+                          />
+                        )}
+                      </div>
+
+                      <div
+                        aria-hidden="true"
+                        className="mt-4 flex max-w-sm items-center justify-between text-white/35"
+                      >
+                        <span className="inline-flex items-center gap-1.5">
+                          <MessageCircle size={16} />
+                          0
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <Repeat2 size={16} />
+                          0
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <Heart size={16} />
+                          0
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <BarChart3 size={16} />
+                          {memo.wordCount}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {memos.map((memo) => {
+              const title = getMemoTitle(memo);
+              const durationLabel =
+                memo.durationSeconds != null
+                  ? formatSecs(memo.durationSeconds)
+                  : null;
+              const isFailed = isMemoFailed(memo);
+              const isProcessing = isMemoProcessing(memo);
+
+              return (
+                <article key={memo.id} aria-labelledby={`${memo.id}-feed-title`}>
+                  <button
+                    type="button"
+                    onClick={() => onSelectMemo(memo.id)}
+                    className="group w-full rounded-lg border border-white/8 bg-white/[0.025] px-5 py-4 text-left transition-colors hover:border-accent/35 hover:bg-white/[0.045] focus:outline-none focus:ring-1 focus:ring-accent/60"
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <h3
+                          id={`${memo.id}-feed-title`}
+                          className="truncate text-base font-semibold text-white/90"
+                        >
+                          {title}
+                        </h3>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono uppercase tracking-[0.16em] text-white/35">
+                          <span>{formatDate(memo.createdAt)}</span>
+                          {!isFailed && <span>{memo.wordCount} words</span>}
+                          {durationLabel && <span>{durationLabel}</span>}
+                          {memo.durationSeconds != null && (
+                            <span>{formatMemoEstimatedCost(memo.durationSeconds)}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {(isFailed || isProcessing) && (
+                        <StatusDot
+                          tone={isFailed ? "failed" : "processing"}
+                          label={isFailed ? "Failed" : "Processing"}
+                        />
+                      )}
+                    </div>
+
+                    <p
+                      className={`mt-4 text-sm leading-6 ${
+                        isFailed ? "text-red-300/55" : "text-white/68"
+                      }`}
+                      style={{
+                        display: "-webkit-box",
+                        WebkitBoxOrient: "vertical",
+                        WebkitLineClamp: 4,
+                        overflow: "hidden",
+                      }}
+                    >
+                      {getFeedTranscriptPreview(memo)}
+                    </p>
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        )}
+
+        {loadingMoreMemos ? (
+          <div
+            role="status"
+            className="flex items-center justify-center gap-3 py-6 text-sm text-white/40"
+          >
+            <Loader2 size={16} className="animate-spin" />
+            {isPostView ? "Loading more memo posts" : "Loading more transcripts"}
+          </div>
+        ) : !hasMoreMemos && memos.length > 0 ? (
+          <div className="py-6 text-center text-xs font-mono uppercase tracking-[0.22em] text-white/25">
+            {isPostView ? "All posts loaded" : "All transcripts loaded"}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 type MemoSidebarProps = {
+  activeView: "record" | "feed" | "detail";
   filteredBookmarkedMemos: SharedMemoBookmark[];
   filteredMemos: Memo[];
   isSignedIn: boolean | undefined;
   loading: boolean;
   searchQuery: string;
   selectedMemoId: string | null;
+  onShowFeed: () => void;
+  onShowRecord: () => void;
   onSearchQueryChange: (value: string) => void;
   onSelectMemo: (memoId: string | null) => void;
 };
 
 export function MemoSidebar({
+  activeView,
   filteredBookmarkedMemos,
   filteredMemos,
   isSignedIn,
   loading,
   searchQuery,
   selectedMemoId,
+  onShowFeed,
+  onShowRecord,
   onSearchQueryChange,
   onSelectMemo,
 }: MemoSidebarProps) {
@@ -643,7 +1106,7 @@ export function MemoSidebar({
 
   if (collapsed) {
     return (
-      <aside className="w-14 flex-shrink-0 flex flex-col items-center border-r border-white/10 bg-[#0F0F0F]/80 backdrop-blur-xl z-20 py-4 gap-4">
+      <aside className="hidden md:flex w-14 flex-shrink-0 flex-col items-center border-r border-white/10 bg-[#0F0F0F]/80 backdrop-blur-xl z-20 py-4 gap-4">
         <div className="w-10 h-10 bg-accent/20 rounded-xl flex items-center justify-center text-accent shadow-[0_0_20px_var(--theme-glow)] border border-accent/20">
           <Mic2 size={20} />
         </div>
@@ -654,12 +1117,36 @@ export function MemoSidebar({
         >
           <PanelLeftOpen size={18} />
         </button>
+        <button
+          onClick={onShowRecord}
+          aria-current={activeView === "record" ? "page" : undefined}
+          className={`w-10 h-10 rounded-full active:scale-90 flex items-center justify-center transition-all border ${
+            activeView === "record"
+              ? "border-accent/35 bg-accent/15 text-accent"
+              : "border-white/10 bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/80"
+          }`}
+          title="Record"
+        >
+          <Mic2 size={17} />
+        </button>
+        <button
+          onClick={onShowFeed}
+          aria-current={activeView === "feed" ? "page" : undefined}
+          className={`w-10 h-10 rounded-full active:scale-90 flex items-center justify-center transition-all border ${
+            activeView === "feed"
+              ? "border-accent/35 bg-accent/15 text-accent"
+              : "border-white/10 bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/80"
+          }`}
+          title="Feed"
+        >
+          <MessageCircle size={17} />
+        </button>
       </aside>
     );
   }
 
   return (
-    <aside className="w-80 flex-shrink-0 flex flex-col border-r border-white/10 bg-[#0F0F0F]/80 backdrop-blur-xl z-20">
+    <aside className="hidden md:flex w-80 flex-shrink-0 flex-col border-r border-white/10 bg-[#0F0F0F]/80 backdrop-blur-xl z-20">
       <div className="p-6 border-b border-white/5 flex flex-col gap-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 active:scale-95 transition-transform cursor-default">
@@ -677,7 +1164,7 @@ export function MemoSidebar({
               <PanelLeftClose size={16} />
             </button>
             <button
-              onClick={() => onSelectMemo(null)}
+              onClick={onShowRecord}
               className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 active:scale-90 flex items-center justify-center text-white/70 transition-all border border-white/10 shadow-lg"
               title="New Recording"
             >
@@ -699,6 +1186,35 @@ export function MemoSidebar({
             className="w-full bg-black/40 border border-white/10 rounded-xl py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-accent/50 focus:border-accent transition-all text-white/90 placeholder:text-white/30"
           />
         </div>
+
+        <nav aria-label="Workspace views" className="flex flex-col gap-1">
+          <button
+            type="button"
+            onClick={onShowRecord}
+            aria-current={activeView === "record" ? "page" : undefined}
+            className={`inline-flex h-11 w-full items-center justify-start gap-3 rounded-lg border px-3.5 text-xs font-mono uppercase tracking-wide transition-colors ${
+              activeView === "record"
+                ? "border-white/10 bg-white/[0.08] text-white shadow-[0_10px_28px_rgba(0,0,0,0.18)]"
+                : "border-transparent bg-transparent text-white/55 hover:bg-white/[0.04] hover:text-white/85"
+            }`}
+          >
+            <Mic2 size={16} />
+            Record
+          </button>
+          <button
+            type="button"
+            onClick={onShowFeed}
+            aria-current={activeView === "feed" ? "page" : undefined}
+            className={`inline-flex h-11 w-full items-center justify-start gap-3 rounded-lg border px-3.5 text-xs font-mono uppercase tracking-wide transition-colors ${
+              activeView === "feed"
+                ? "border-white/10 bg-white/[0.08] text-white shadow-[0_10px_28px_rgba(0,0,0,0.18)]"
+                : "border-transparent bg-transparent text-white/55 hover:bg-white/[0.04] hover:text-white/85"
+            }`}
+          >
+            <MessageCircle size={16} />
+            Feed
+          </button>
+        </nav>
       </div>
 
       <div
@@ -771,6 +1287,7 @@ export function PrimaryHeaderControls() {
 type RecorderPanelProps = {
   isUploading: boolean;
   uploadProgressPercent: number;
+  variant?: "centered" | "compact";
   onAudioInput?: (payload: AudioInputPayload) => void;
   onRecordingStateChange?: (isRecording: boolean) => void;
   onRetryUpload: () => void;
@@ -781,14 +1298,23 @@ type RecorderPanelProps = {
 export function RecorderPanel({
   isUploading,
   uploadProgressPercent,
+  variant = "centered",
   onAudioInput,
   onRecordingStateChange,
   onRetryUpload,
   onUploadComplete,
   showUploadError,
 }: RecorderPanelProps) {
+  const isCompact = variant === "compact";
+
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-8 mt-12">
+    <div
+      className={
+        isCompact
+          ? "flex flex-col items-center justify-center rounded-lg border border-white/8 bg-black/20 px-5 py-6"
+          : "flex-1 flex flex-col items-center justify-center p-8 mt-12"
+      }
+    >
       {showUploadError && (
         <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
           Recording failed to save.
@@ -807,7 +1333,11 @@ export function RecorderPanel({
         onAudioInput={onAudioInput}
         onRecordingStateChange={onRecordingStateChange}
       />
-      <div className="mt-8 text-center text-xs text-white/30 font-mono tracking-widest uppercase">
+      <div
+        className={`text-center text-xs text-white/30 font-mono tracking-widest uppercase ${
+          isCompact ? "mt-5" : "mt-8"
+        }`}
+      >
         <p>Powered by Supabase &amp; NVIDIA NIM</p>
       </div>
     </div>

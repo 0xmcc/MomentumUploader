@@ -7,20 +7,41 @@ import {
   MemoSidebar,
   PrimaryHeaderControls,
   RecorderPanel,
+  TranscriptFeedPanel,
 } from "@/components/memos/MemoStudioSections";
 import StatusDot from "@/components/StatusDot";
 import { useMemosWorkspace } from "@/hooks/useMemosWorkspace";
 
+type WorkspaceView = "record" | "feed";
+
+function getPersonalFeedHandle(source: string) {
+  const normalized = source
+    .trim()
+    .toLowerCase()
+    .replace(/^@/, "")
+    .replace(/[^a-z0-9_]+/g, "");
+
+  return `@${normalized || "you"}`;
+}
+
 export default function Home() {
-  const { isSignedIn, isLoaded } = useUser();
+  const { isSignedIn, isLoaded, user } = useUser();
   const { openSignIn } = useClerk();
   const [isRecordingLive, setIsRecordingLive] = useState(false);
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("record");
 
   const {
     filteredBookmarkedMemos,
     filteredMemos,
+    fathomImportMessage,
+    fathomSettings,
+    hasMoreMemos,
     handleUploadComplete,
+    importFathomMemos,
+    importingFathom,
+    loadMoreMemos,
     loading,
+    loadingMoreMemos,
     isUploading,
     retryUpload,
     regenerateMemoTitle,
@@ -47,23 +68,58 @@ export default function Home() {
       return;
     }
 
+    if (memoId === null) {
+      setWorkspaceView("record");
+    }
     setSelectedMemoId(memoId);
+  };
+
+  const handleShowRecord = () => {
+    handleSelectMemo(null);
+    setWorkspaceView("record");
+  };
+
+  const handleShowFeed = () => {
+    if (
+      isRecordingLive &&
+      workspaceView !== "feed" &&
+      !window.confirm("Switching memos will stop the current recording. Continue?")
+    ) {
+      return;
+    }
+
+    setSelectedMemoId(null);
+    setWorkspaceView("feed");
+  };
+
+  const userEmail = user?.primaryEmailAddress?.emailAddress ?? "";
+  const userDisplayName =
+    user?.fullName?.trim() || user?.username?.trim() || userEmail || "You";
+  const userHandleSource =
+    user?.username?.trim() || userEmail.split("@")[0] || userDisplayName;
+  const authorProfile = {
+    avatarUrl: user?.imageUrl ?? null,
+    handle: getPersonalFeedHandle(userHandleSource),
+    name: userDisplayName,
   };
 
   return (
     <main className="flex h-screen w-full bg-[#0A0A0A] overflow-hidden text-white font-sans">
       <MemoSidebar
+        activeView={selectedMemo ? "detail" : workspaceView}
         filteredBookmarkedMemos={filteredBookmarkedMemos}
         filteredMemos={filteredMemos}
         isSignedIn={isSignedIn}
         loading={loading}
         searchQuery={searchQuery}
         selectedMemoId={selectedMemoId}
+        onShowFeed={handleShowFeed}
+        onShowRecord={handleShowRecord}
         onSearchQueryChange={setSearchQuery}
         onSelectMemo={handleSelectMemo}
       />
 
-      <section className="flex-1 flex flex-col relative bg-[#121212] overflow-y-auto">
+      <section className="flex-1 flex flex-col relative bg-[#121212] overflow-hidden">
         {!selectedMemo && <PrimaryHeaderControls />}
         {isUploading && (
           <div className="pointer-events-none absolute right-6 top-6 z-40">
@@ -91,8 +147,24 @@ export default function Home() {
             onTitleSave={updateMemoTitle}
             onTitleRegenerate={regenerateMemoTitle}
           />
+        ) : workspaceView === "feed" ? (
+          <TranscriptFeedPanel
+            memos={filteredMemos}
+            loading={loading}
+            hasMoreMemos={hasMoreMemos}
+            loadingMoreMemos={loadingMoreMemos}
+            authorProfile={authorProfile}
+            fathomImportMessage={fathomImportMessage}
+            fathomSettings={fathomSettings}
+            importingFathom={importingFathom}
+            onImportFathom={importFathomMemos}
+            onLoadMoreMemos={loadMoreMemos}
+            onRecordNewMemo={handleShowRecord}
+            onSelectMemo={handleSelectMemo}
+          />
         ) : (
           <RecorderPanel
+            variant="centered"
             isUploading={isUploading}
             uploadProgressPercent={uploadProgressPercent}
             onRetryUpload={retryUpload}

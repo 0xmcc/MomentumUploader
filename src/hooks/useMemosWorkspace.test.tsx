@@ -1,5 +1,9 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { useMemosWorkspace } from "./useMemosWorkspace";
+import {
+  FATHOM_IMPORT_CLIENT_TIMEOUT_MS,
+  FATHOM_IMPORT_POLL_INTERVAL_MS,
+  useMemosWorkspace,
+} from "./useMemosWorkspace";
 import { MEMO_RECONCILE_DELAY_MS } from "@/lib/memo-ui";
 
 describe("useMemosWorkspace", () => {
@@ -24,6 +28,94 @@ describe("useMemosWorkspace", () => {
     });
   });
 
+  it("loads owned memos in pages and appends the next page on demand", async () => {
+    const mockFetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+      if (url === "/api/memos?limit=20&offset=0") {
+        return {
+          ok: true,
+          json: async () => ({
+            memos: [
+              {
+                id: "memo-page-1",
+                transcript: "First page transcript",
+                createdAt: "2026-04-01T10:00:00.000Z",
+                wordCount: 3,
+              },
+            ],
+            total: 2,
+            limit: 20,
+            offset: 0,
+          }),
+        };
+      }
+
+      if (url === "/api/shared-memo-bookmarks") {
+        return {
+          ok: true,
+          json: async () => ({ bookmarks: [] }),
+        };
+      }
+
+      if (url === "/api/memos?limit=20&offset=1") {
+        return {
+          ok: true,
+          json: async () => ({
+            memos: [
+              {
+                id: "memo-page-2",
+                transcript: "Second page transcript",
+                createdAt: "2026-04-01T09:00:00.000Z",
+                wordCount: 3,
+              },
+            ],
+            total: 2,
+            limit: 20,
+            offset: 1,
+          }),
+        };
+      }
+
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    Object.defineProperty(global, "fetch", { writable: true, value: mockFetch });
+
+    const { result } = renderHook(() =>
+      useMemosWorkspace({
+        isLoaded: true,
+        isSignedIn: true,
+        openSignIn: jest.fn(),
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.filteredMemos.map((memo) => memo.id)).toEqual([
+      "memo-page-1",
+    ]);
+    expect(result.current.hasMoreMemos).toBe(true);
+
+    await act(async () => {
+      await result.current.loadMoreMemos();
+    });
+
+    expect(result.current.filteredMemos.map((memo) => memo.id)).toEqual([
+      "memo-page-1",
+      "memo-page-2",
+    ]);
+    expect(result.current.hasMoreMemos).toBe(false);
+    expect(mockFetch).toHaveBeenCalledWith("/api/memos?limit=20&offset=0");
+    expect(mockFetch).toHaveBeenCalledWith("/api/memos?limit=20&offset=1");
+  });
+
   it("keeps selected memo visible during optimistic-to-persisted reconciliation when refresh is stale", async () => {
     const transcriptText = "alpha beta gamma delta epsilon zeta eta theta";
     let memosSequence: Array<{ memos: Array<Record<string, unknown>> }> = [
@@ -40,7 +132,7 @@ describe("useMemosWorkspace", () => {
             ? input.toString()
             : input.url;
 
-        if (url === "/api/memos") {
+        if (url === "/api/memos?limit=20&offset=0") {
           const next = memosSequence.shift() ?? { memos: [] };
           return {
             ok: true,
@@ -111,7 +203,7 @@ describe("useMemosWorkspace", () => {
             ? input.toString()
             : input.url;
 
-        if (url === "/api/memos") {
+        if (url === "/api/memos?limit=20&offset=0") {
           return {
             ok: true,
             json: async () => ({ memos: [] }),
@@ -159,7 +251,7 @@ describe("useMemosWorkspace", () => {
           ? input.toString()
           : input.url;
 
-      if (url === "/api/memos") {
+      if (url === "/api/memos?limit=20&offset=0") {
         return {
           ok: true,
           json: async () => ({ memos: [] }),
@@ -224,7 +316,7 @@ describe("useMemosWorkspace", () => {
           ? input.toString()
           : input.url;
 
-      if (url === "/api/memos") {
+      if (url === "/api/memos?limit=20&offset=0") {
         return {
           ok: true,
           json: async () => ({ memos: [] }),
@@ -313,7 +405,7 @@ describe("useMemosWorkspace", () => {
             ? input.toString()
             : input.url;
 
-        if (url === "/api/memos") {
+        if (url === "/api/memos?limit=20&offset=0") {
           return {
             ok: true,
             json: async () => ({
@@ -398,7 +490,7 @@ describe("useMemosWorkspace", () => {
             ? input.toString()
             : input.url;
 
-        if (url === "/api/memos") {
+        if (url === "/api/memos?limit=20&offset=0") {
           return {
             ok: true,
             json: async () => ({
@@ -490,7 +582,7 @@ describe("useMemosWorkspace", () => {
             ? input.toString()
             : input.url;
 
-        if (url === "/api/memos") {
+        if (url === "/api/memos?limit=20&offset=0") {
           return {
             ok: true,
             json: async () => ({ memos: [] }),
@@ -609,7 +701,7 @@ describe("useMemosWorkspace", () => {
             ? input.toString()
             : input.url;
 
-        if (url === "/api/memos") {
+        if (url === "/api/memos?limit=20&offset=0") {
           return {
             ok: true,
             json: async () => ({ memos: [] }),
@@ -685,7 +777,7 @@ describe("useMemosWorkspace", () => {
             ? input.toString()
             : input.url;
 
-        if (url === "/api/memos") {
+        if (url === "/api/memos?limit=20&offset=0") {
           return {
             ok: true,
             json: async () => ({ memos: [] }),
@@ -739,5 +831,291 @@ describe("useMemosWorkspace", () => {
     });
 
     expect(uploadedMemoId).toBe("memo-live-1");
+  });
+
+  it("starts a Fathom import job, polls progress, stores settings, and refreshes memos on completion", async () => {
+    const memoPages = [
+      { memos: [], total: 0 },
+      {
+        memos: [
+          {
+            id: "memo-fathom-1",
+            title: "Acme discovery call",
+            transcript: "Alice: First customer point.",
+            createdAt: "2026-05-01T16:00:00.000Z",
+            wordCount: 4,
+            url: "https://fathom.video/share/abc",
+          },
+        ],
+        total: 1,
+      },
+    ];
+    const statusResponses = [
+      {
+        jobId: "fathom-run-1",
+        status: "running",
+        imported: 1,
+        meetings: 2,
+        processedPages: 1,
+        startedAt: "2026-06-08T19:00:01.000Z",
+        completedAt: null,
+        error: null,
+      },
+      {
+        jobId: "fathom-run-1",
+        status: "succeeded",
+        imported: 2,
+        meetings: 2,
+        processedPages: 2,
+        startedAt: "2026-06-08T19:00:01.000Z",
+        completedAt: "2026-06-08T19:00:09.000Z",
+        error: null,
+      },
+    ];
+
+    const mockFetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+      if (url === "/api/memos?limit=20&offset=0") {
+        return {
+          ok: true,
+          json: async () => memoPages.shift() ?? { memos: [], total: 0 },
+        };
+      }
+
+      if (url === "/api/shared-memo-bookmarks") {
+        return {
+          ok: true,
+          json: async () => ({ bookmarks: [] }),
+        };
+      }
+
+      if (url === "/api/fathom/import/settings") {
+        return {
+          ok: true,
+          json: async () => ({
+            configured: true,
+            connectionStatus: "connected",
+            lastImport: null,
+          }),
+        };
+      }
+
+      if (url === "/api/fathom/import" && init?.method === "POST") {
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({
+            jobId: "fathom-run-1",
+            status: "queued",
+            imported: 0,
+            meetings: 0,
+            processedPages: 0,
+            startedAt: null,
+            completedAt: null,
+            error: null,
+          }),
+        };
+      }
+
+      if (url === "/api/fathom/import/fathom-run-1") {
+        const nextStatus = statusResponses.shift();
+        if (!nextStatus) {
+          throw new Error("Status polled too many times");
+        }
+        return {
+          ok: true,
+          json: async () => nextStatus,
+        };
+      }
+
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    Object.defineProperty(global, "fetch", { writable: true, value: mockFetch });
+
+    const { result } = renderHook(() =>
+      useMemosWorkspace({
+        isLoaded: true,
+        isSignedIn: true,
+        openSignIn: jest.fn(),
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    let importPromise: Promise<void>;
+    await act(async () => {
+      importPromise = result.current.importFathomMemos();
+      await Promise.resolve();
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/fathom/import",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(mockFetch).toHaveBeenCalledWith("/api/fathom/import/fathom-run-1");
+    expect(result.current.importingFathom).toBe(true);
+    expect(result.current.fathomImportMessage).toBe(
+      "Importing Fathom meetings: 1 imported from 2 seen."
+    );
+
+    await act(async () => {
+      jest.advanceTimersByTime(FATHOM_IMPORT_POLL_INTERVAL_MS);
+      await importPromise;
+    });
+
+    expect(result.current.filteredMemos.map((memo) => memo.id)).toEqual([
+      "memo-fathom-1",
+    ]);
+    expect(result.current.fathomImportMessage).toBe(
+      "Imported 2 Fathom meetings."
+    );
+    expect(result.current.fathomSettings?.lastImport).toEqual({
+      jobId: "fathom-run-1",
+      status: "succeeded",
+      imported: 2,
+      meetings: 2,
+      processedPages: 2,
+      startedAt: "2026-06-08T19:00:01.000Z",
+      completedAt: "2026-06-08T19:00:09.000Z",
+      error: null,
+    });
+    expect(result.current.importingFathom).toBe(false);
+  });
+
+  it("surfaces the server Fathom configuration error when import is not configured", async () => {
+    const mockFetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+      if (url === "/api/memos?limit=20&offset=0") {
+        return {
+          ok: true,
+          json: async () => ({ memos: [], total: 0 }),
+        };
+      }
+
+      if (url === "/api/shared-memo-bookmarks") {
+        return {
+          ok: true,
+          json: async () => ({ bookmarks: [] }),
+        };
+      }
+
+      if (url === "/api/fathom/import" && init?.method === "POST") {
+        return {
+          ok: false,
+          json: async () => ({
+            error: "Fathom import is not configured",
+            detail: "FATHOM_API_KEY is not set on the server.",
+          }),
+        };
+      }
+
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    Object.defineProperty(global, "fetch", { writable: true, value: mockFetch });
+
+    const { result } = renderHook(() =>
+      useMemosWorkspace({
+        isLoaded: true,
+        isSignedIn: true,
+        openSignIn: jest.fn(),
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.importFathomMemos();
+    });
+
+    expect(result.current.fathomImportMessage).toBe(
+      "FATHOM_API_KEY is not set on the server."
+    );
+    expect(result.current.importingFathom).toBe(false);
+  });
+
+  it("shows import progress immediately and releases the button when Fathom import hangs", async () => {
+    const mockFetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+      if (url === "/api/memos?limit=20&offset=0") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ memos: [], total: 0 }),
+        } as Response);
+      }
+
+      if (url === "/api/shared-memo-bookmarks") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ bookmarks: [] }),
+        } as Response);
+      }
+
+      if (url === "/api/fathom/import" && init?.method === "POST") {
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => {
+            const abortError = new Error("The operation was aborted.");
+            abortError.name = "AbortError";
+            reject(abortError);
+          });
+        });
+      }
+
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    Object.defineProperty(global, "fetch", { writable: true, value: mockFetch });
+
+    const { result } = renderHook(() =>
+      useMemosWorkspace({
+        isLoaded: true,
+        isSignedIn: true,
+        openSignIn: jest.fn(),
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    let importPromise: Promise<void>;
+    act(() => {
+      importPromise = result.current.importFathomMemos();
+    });
+
+    expect(result.current.importingFathom).toBe(true);
+    expect(result.current.fathomImportMessage).toBe(
+      "Importing Fathom meetings. This can take up to 45 seconds."
+    );
+
+    await act(async () => {
+      jest.advanceTimersByTime(FATHOM_IMPORT_CLIENT_TIMEOUT_MS);
+      await importPromise;
+    });
+
+    expect(result.current.importingFathom).toBe(false);
+    expect(result.current.fathomImportMessage).toBe(
+      "Fathom import timed out. Try again in a minute."
+    );
   });
 });

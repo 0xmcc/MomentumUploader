@@ -7,9 +7,19 @@ const memoSidebarMock = jest.fn();
 const memoDetailViewMock = jest.fn();
 const primaryHeaderControlsMock = jest.fn();
 const recorderPanelMock = jest.fn();
+const transcriptFeedPanelMock = jest.fn();
 
 jest.mock("@clerk/nextjs", () => ({
-  useUser: () => ({ isSignedIn: true, isLoaded: true }),
+  useUser: () => ({
+    isSignedIn: true,
+    isLoaded: true,
+    user: {
+      fullName: "Marko M",
+      imageUrl: "https://img.example.com/marko.png",
+      primaryEmailAddress: { emailAddress: "marko@example.com" },
+      username: "marko",
+    },
+  }),
   useClerk: () => ({ openSignIn: jest.fn() }),
 }));
 
@@ -18,10 +28,16 @@ jest.mock("@/hooks/useMemosWorkspace", () => ({
 }));
 
 jest.mock("@/components/memos/MemoStudioSections", () => ({
-  MemoSidebar: (props: { onSelectMemo: (memoId: string | null) => void }) => {
+  MemoSidebar: (props: {
+    onSelectMemo: (memoId: string | null) => void;
+    onShowFeed: () => void;
+    onShowRecord: () => void;
+  }) => {
     memoSidebarMock(props);
     return (
       <div data-testid="memo-sidebar">
+        <button onClick={() => props.onShowRecord()}>Show record</button>
+        <button onClick={() => props.onShowFeed()}>Show feed</button>
         <button onClick={() => props.onSelectMemo("memo-2")}>Select memo</button>
       </div>
     );
@@ -46,6 +62,20 @@ jest.mock("@/components/memos/MemoStudioSections", () => ({
       </div>
     );
   },
+  TranscriptFeedPanel: (props: {
+    onLoadMoreMemos: () => void;
+    onSelectMemo: (memoId: string) => void;
+    onRecordNewMemo?: () => void;
+  }) => {
+    transcriptFeedPanelMock(props);
+    return (
+      <div data-testid="transcript-feed-panel">
+        <button onClick={() => props.onRecordNewMemo?.()}>Record from feed</button>
+        <button onClick={() => props.onLoadMoreMemos()}>Load next page</button>
+        <button onClick={() => props.onSelectMemo("memo-1")}>Open feed memo</button>
+      </div>
+    );
+  },
 }));
 
 const mockedUseMemosWorkspace = useMemosWorkspace as jest.MockedFunction<
@@ -57,17 +87,24 @@ describe("Home composition wiring", () => {
     jest.clearAllMocks();
   });
 
-  it("renders recorder flow when no memo is selected", () => {
+  it("renders the full-screen recorder as the default landing view", () => {
     const commonHookState = {
       filteredBookmarkedMemos: [],
       filteredMemos: [],
+      fathomImportMessage: null,
+      fathomSettings: null,
       handleAudioInput: jest.fn(),
       handleUploadComplete: jest.fn(),
+      importFathomMemos: jest.fn(),
+      importingFathom: false,
       isUploading: false,
       loading: false,
       retryUpload: jest.fn(),
       updateMemoTitle: jest.fn(),
       regenerateMemoTitle: jest.fn(),
+      hasMoreMemos: true,
+      loadMoreMemos: jest.fn(),
+      loadingMoreMemos: false,
       searchQuery: "",
       selectedMemoId: null,
       setSearchQuery: jest.fn(),
@@ -86,6 +123,7 @@ describe("Home composition wiring", () => {
     expect(screen.getByTestId("memo-sidebar")).toBeInTheDocument();
     expect(screen.getByTestId("primary-header-controls")).toBeInTheDocument();
     expect(screen.getByTestId("recorder-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("transcript-feed-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("memo-detail-view")).not.toBeInTheDocument();
 
     expect(memoSidebarMock).toHaveBeenCalledWith(
@@ -104,9 +142,111 @@ describe("Home composition wiring", () => {
         isUploading: false,
         onUploadComplete: commonHookState.handleUploadComplete,
         showUploadError: false,
+        variant: "centered",
       })
     );
     expect(recorderPanelProps).not.toHaveProperty("onAudioInput");
+    expect(transcriptFeedPanelMock).not.toHaveBeenCalled();
+  });
+
+  it("opens the social feed from the sidebar navigation", () => {
+    const commonHookState = {
+      filteredBookmarkedMemos: [],
+      filteredMemos: [
+        {
+          id: "memo-feed-1",
+          transcript: "Feed memo transcript.",
+          createdAt: "2026-02-22T10:00:00.000Z",
+          wordCount: 3,
+        },
+      ],
+      fathomImportMessage: null,
+      fathomSettings: null,
+      handleAudioInput: jest.fn(),
+      handleUploadComplete: jest.fn(),
+      importFathomMemos: jest.fn(),
+      importingFathom: false,
+      isUploading: false,
+      loading: false,
+      retryUpload: jest.fn(),
+      updateMemoTitle: jest.fn(),
+      regenerateMemoTitle: jest.fn(),
+      hasMoreMemos: true,
+      loadMoreMemos: jest.fn(),
+      loadingMoreMemos: false,
+      searchQuery: "",
+      selectedMemo: null,
+      selectedMemoId: null,
+      setSearchQuery: jest.fn(),
+      setSelectedMemoId: jest.fn(),
+      showUploadError: false,
+      uploadProgressPercent: 0,
+    };
+
+    mockedUseMemosWorkspace.mockReturnValue(commonHookState);
+
+    render(<Home />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Show feed" }));
+
+    expect(screen.getByTestId("transcript-feed-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("recorder-panel")).not.toBeInTheDocument();
+
+    expect(transcriptFeedPanelMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorProfile: {
+          avatarUrl: "https://img.example.com/marko.png",
+          handle: "@marko",
+          name: "Marko M",
+        },
+        hasMoreMemos: true,
+        fathomImportMessage: null,
+        fathomSettings: null,
+        importingFathom: false,
+        loadingMoreMemos: false,
+        memos: commonHookState.filteredMemos,
+        onRecordNewMemo: expect.any(Function),
+        onImportFathom: commonHookState.importFathomMemos,
+        onLoadMoreMemos: commonHookState.loadMoreMemos,
+      })
+    );
+  });
+
+  it("returns from the feed navigation to the recorder landing view", () => {
+    mockedUseMemosWorkspace.mockReturnValue({
+      filteredMemos: [],
+      filteredBookmarkedMemos: [],
+      fathomImportMessage: null,
+      fathomSettings: null,
+      handleAudioInput: jest.fn(),
+      handleUploadComplete: jest.fn(),
+      importFathomMemos: jest.fn(),
+      importingFathom: false,
+      isUploading: false,
+      loading: false,
+      retryUpload: jest.fn(),
+      updateMemoTitle: jest.fn(),
+      regenerateMemoTitle: jest.fn(),
+      hasMoreMemos: false,
+      loadMoreMemos: jest.fn(),
+      loadingMoreMemos: false,
+      searchQuery: "",
+      selectedMemo: null,
+      selectedMemoId: null,
+      setSearchQuery: jest.fn(),
+      setSelectedMemoId: jest.fn(),
+      showUploadError: false,
+      uploadProgressPercent: 0,
+    });
+
+    render(<Home />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Show feed" }));
+    expect(screen.getByTestId("transcript-feed-panel")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show record" }));
+    expect(screen.getByTestId("recorder-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("transcript-feed-panel")).not.toBeInTheDocument();
   });
 
   it("renders memo detail flow when a memo is selected", () => {
@@ -120,13 +260,20 @@ describe("Home composition wiring", () => {
     mockedUseMemosWorkspace.mockReturnValue({
       filteredMemos: [selectedMemo],
       filteredBookmarkedMemos: [],
+      fathomImportMessage: null,
+      fathomSettings: null,
       handleAudioInput: jest.fn(),
       handleUploadComplete: jest.fn(),
+      importFathomMemos: jest.fn(),
+      importingFathom: false,
       isUploading: false,
       loading: false,
       retryUpload: jest.fn(),
       updateMemoTitle: jest.fn(),
       regenerateMemoTitle: jest.fn(),
+      hasMoreMemos: false,
+      loadMoreMemos: jest.fn(),
+      loadingMoreMemos: false,
       searchQuery: "",
       selectedMemo,
       selectedMemoId: selectedMemo.id,
@@ -154,13 +301,20 @@ describe("Home composition wiring", () => {
     mockedUseMemosWorkspace.mockReturnValue({
       filteredMemos: [],
       filteredBookmarkedMemos: [],
+      fathomImportMessage: null,
+      fathomSettings: null,
       handleAudioInput: jest.fn(),
       handleUploadComplete: jest.fn(),
+      importFathomMemos: jest.fn(),
+      importingFathom: false,
       isUploading: true,
       loading: false,
       retryUpload: jest.fn(),
       updateMemoTitle: jest.fn(),
       regenerateMemoTitle: jest.fn(),
+      hasMoreMemos: false,
+      loadMoreMemos: jest.fn(),
+      loadingMoreMemos: false,
       searchQuery: "",
       selectedMemo: null,
       selectedMemoId: null,
@@ -188,13 +342,20 @@ describe("Home composition wiring", () => {
     mockedUseMemosWorkspace.mockReturnValue({
       filteredMemos: [],
       filteredBookmarkedMemos: [],
+      fathomImportMessage: null,
+      fathomSettings: null,
       handleAudioInput: jest.fn(),
       handleUploadComplete: jest.fn(),
+      importFathomMemos: jest.fn(),
+      importingFathom: false,
       isUploading: false,
       loading: false,
       retryUpload: jest.fn(),
       updateMemoTitle: jest.fn(),
       regenerateMemoTitle: jest.fn(),
+      hasMoreMemos: false,
+      loadMoreMemos: jest.fn(),
+      loadingMoreMemos: false,
       searchQuery: "",
       selectedMemo: null,
       selectedMemoId: null,
@@ -222,13 +383,20 @@ describe("Home composition wiring", () => {
     mockedUseMemosWorkspace.mockReturnValue({
       filteredMemos: [],
       filteredBookmarkedMemos: [],
+      fathomImportMessage: null,
+      fathomSettings: null,
       handleAudioInput: jest.fn(),
       handleUploadComplete: jest.fn(),
+      importFathomMemos: jest.fn(),
+      importingFathom: false,
       isUploading: false,
       loading: false,
       retryUpload: jest.fn(),
       updateMemoTitle: jest.fn(),
       regenerateMemoTitle: jest.fn(),
+      hasMoreMemos: false,
+      loadMoreMemos: jest.fn(),
+      loadingMoreMemos: false,
       searchQuery: "",
       selectedMemo: null,
       selectedMemoId: null,

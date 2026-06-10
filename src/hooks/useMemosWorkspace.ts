@@ -28,6 +28,156 @@ type MemoDetailResponse = {
   };
 };
 
+type MemoListResponse = {
+  memos?: Memo[];
+  total?: number;
+};
+
+const MEMOS_PAGE_SIZE = 20;
+export const FATHOM_IMPORT_CLIENT_TIMEOUT_MS = 45_000;
+export const FATHOM_IMPORT_POLL_INTERVAL_MS = 1_500;
+const FATHOM_IMPORT_PROGRESS_MESSAGE =
+  "Importing Fathom meetings. This can take up to 45 seconds.";
+const FATHOM_IMPORT_TIMEOUT_MESSAGE =
+  "Fathom import timed out. Try again in a minute.";
+
+export type FathomImportRunStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed";
+
+export type FathomImportRunSummary = {
+  jobId: string;
+  status: FathomImportRunStatus;
+  imported: number;
+  meetings: number;
+  processedPages: number;
+  startedAt: string | null;
+  completedAt: string | null;
+  error: string | null;
+};
+
+export type FathomImportSettings = {
+  configured: boolean;
+  connectionStatus: "connected" | "not_configured";
+  lastImport: FathomImportRunSummary | null;
+};
+
+function getMemosPageUrl(offset: number) {
+  const params = new URLSearchParams({
+    limit: String(MEMOS_PAGE_SIZE),
+    offset: String(offset),
+  });
+  return `/api/memos?${params.toString()}`;
+}
+
+function mergeMemoPages(current: Memo[], incoming: Memo[]) {
+  const seenIds = new Set<string>();
+  const merged: Memo[] = [];
+
+  for (const memo of [...current, ...incoming]) {
+    if (seenIds.has(memo.id)) continue;
+    seenIds.add(memo.id);
+    merged.push(memo);
+  }
+
+  return merged;
+}
+
+async function postFathomImport() {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, FATHOM_IMPORT_CLIENT_TIMEOUT_MS);
+
+  try {
+    return await fetch("/api/fathom/import", {
+      method: "POST",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (
+      controller.signal.aborted ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
+      throw new Error(FATHOM_IMPORT_TIMEOUT_MESSAGE);
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function formatFathomProgress(status: FathomImportRunSummary) {
+  if (status.meetings > 0) {
+    return `Importing Fathom meetings: ${status.imported} imported from ${status.meetings} seen.`;
+  }
+
+  return FATHOM_IMPORT_PROGRESS_MESSAGE;
+}
+
+function settingsWithLastImport(
+  current: FathomImportSettings | null,
+  lastImport: FathomImportRunSummary
+): FathomImportSettings {
+  return {
+    configured: current?.configured ?? true,
+    connectionStatus: current?.connectionStatus ?? "connected",
+    lastImport,
+  };
+}
+
+async function getFathomImportStatus(
+  jobId: string
+): Promise<FathomImportRunSummary> {
+  const res = await fetch(`/api/fathom/import/${jobId}`);
+  const json = (await res.json().catch(() => ({}))) as
+    | Partial<FathomImportRunSummary>
+    | { error?: string; detail?: string };
+
+  const status = "status" in json ? json.status : undefined;
+  if (!res.ok && status !== "failed") {
+    throw new Error(
+      "detail" in json && json.detail
+        ? json.detail
+        : "error" in json && json.error
+        ? json.error
+        : "Fathom import failed"
+    );
+  }
+
+  if (!("jobId" in json) || typeof json.jobId !== "string") {
+    throw new Error("Fathom import status response was invalid.");
+  }
+
+  return json as FathomImportRunSummary;
+}
+
+async function getFathomSettings(): Promise<FathomImportSettings> {
+  const res = await fetch("/api/fathom/import/settings");
+  const json = (await res.json().catch(() => ({}))) as Partial<FathomImportSettings> & {
+    error?: string;
+    detail?: string;
+  };
+
+  if (!res.ok) {
+    throw new Error(json.detail || json.error || "Fathom settings failed");
+  }
+
+  return {
+    configured: Boolean(json.configured),
+    connectionStatus:
+      json.connectionStatus === "connected" ? "connected" : "not_configured",
+    lastImport: json.lastImport ?? null,
+  };
+}
+
 export function useMemosWorkspace({
   isLoaded,
   isSignedIn,
@@ -36,6 +186,9 @@ export function useMemosWorkspace({
   const [memos, setMemos] = useState<Memo[]>([]);
   const [bookmarkedMemos, setBookmarkedMemos] = useState<SharedMemoBookmark[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMoreMemos, setLoadingMoreMemos] = useState(false);
+  const [totalMemoCount, setTotalMemoCount] = useState(0);
+  const [nextMemosOffset, setNextMemosOffset] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMemoId, setSelectedMemoId] = useState<string | null>(null);
 
@@ -47,6 +200,12 @@ export function useMemosWorkspace({
   const [activeUploadCount, setActiveUploadCount] = useState(0);
   const [uploadProgressPercent, setUploadProgressPercent] = useState(0);
   const [uploadError, setUploadError] = useState(false);
+  const [importingFathom, setImportingFathom] = useState(false);
+  const [fathomImportMessage, setFathomImportMessage] = useState<string | null>(
+    null
+  );
+  const [fathomSettings, setFathomSettings] =
+    useState<FathomImportSettings | null>(null);
   const [selectedMemoDetailRefreshToken, setSelectedMemoDetailRefreshToken] =
     useState(0);
 
@@ -54,11 +213,12 @@ export function useMemosWorkspace({
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedMemoRequestIdRef = useRef(0);
   const selectedMemoIdRef = useRef<string | null>(null);
+  const loadingMoreMemosRef = useRef(false);
 
   const fetchMemos = useCallback(async () => {
     try {
       const [memosRes, bookmarksRes] = await Promise.allSettled([
-        fetch("/api/memos"),
+        fetch(getMemosPageUrl(0)),
         isSignedIn ? fetch("/api/shared-memo-bookmarks") : Promise.resolve(null),
       ]);
 
@@ -81,7 +241,7 @@ export function useMemosWorkspace({
         throw memosRes.reason;
       }
 
-      const json = await memosRes.value.json();
+      const json = (await memosRes.value.json()) as MemoListResponse;
       if (Array.isArray(json.memos)) {
         const fetchedMemos = json.memos as Memo[];
         const fetchedIds = new Set(fetchedMemos.map((memo) => memo.id));
@@ -99,19 +259,68 @@ export function useMemosWorkspace({
           );
           return [...stillReconciling, ...fetchedMemos];
         });
+        setTotalMemoCount(
+          typeof json.total === "number" ? json.total : fetchedMemos.length
+        );
+        setNextMemosOffset(fetchedMemos.length);
       }
     } catch (err) {
       console.error("Failed to fetch memos:", err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isSignedIn]);
+
+  const loadMoreMemos = useCallback(async () => {
+    if (loading || loadingMoreMemosRef.current) return;
+    if (nextMemosOffset >= totalMemoCount) return;
+
+    loadingMoreMemosRef.current = true;
+    setLoadingMoreMemos(true);
+
+    try {
+      const res = await fetch(getMemosPageUrl(nextMemosOffset));
+      const json = (await res.json()) as MemoListResponse;
+
+      if (Array.isArray(json.memos)) {
+        const fetchedMemos = json.memos as Memo[];
+        setMemos((prev) => mergeMemoPages(prev, fetchedMemos));
+        setTotalMemoCount(
+          typeof json.total === "number" ? json.total : totalMemoCount
+        );
+        setNextMemosOffset(nextMemosOffset + fetchedMemos.length);
+      }
+    } catch (err) {
+      console.error("Failed to load more memos:", err);
+    } finally {
+      loadingMoreMemosRef.current = false;
+      setLoadingMoreMemos(false);
+    }
+  }, [loading, nextMemosOffset, totalMemoCount]);
 
   useEffect(() => {
     if (!isLoaded) return;
     setLoading(true);
     void fetchMemos();
   }, [fetchMemos, isLoaded, isSignedIn]);
+
+  const refreshFathomSettings = useCallback(async () => {
+    if (!isSignedIn) {
+      setFathomSettings(null);
+      return;
+    }
+
+    try {
+      setFathomSettings(await getFathomSettings());
+    } catch {
+      setFathomSettings(null);
+    }
+  }, [isSignedIn]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    void refreshFathomSettings();
+  }, [isLoaded, refreshFathomSettings]);
 
   const handleUploadComplete = useCallback(
     (data: UploadCompletePayload) => {
@@ -316,6 +525,7 @@ export function useMemosWorkspace({
     : null;
   const isUploading = activeUploadCount > 0;
   const showUploadError = uploadError && Boolean(pendingBlob);
+  const hasMoreMemos = nextMemosOffset < totalMemoCount;
 
   const retryUpload = useCallback(() => {
     if (!pendingBlob) return;
@@ -360,12 +570,98 @@ export function useMemosWorkspace({
     []
   );
 
+  const importFathomMemos = useCallback(async () => {
+    if (importingFathom) return;
+
+    if (!isSignedIn) {
+      setFathomImportMessage(null);
+      void openSignIn();
+      return;
+    }
+
+    setImportingFathom(true);
+    setFathomImportMessage(FATHOM_IMPORT_PROGRESS_MESSAGE);
+
+    try {
+      const res = await postFathomImport();
+      const json = (await res.json().catch(() => ({}))) as {
+        jobId?: string;
+        status?: FathomImportRunStatus;
+        imported?: number;
+        meetings?: number;
+        processedPages?: number;
+        startedAt?: string | null;
+        completedAt?: string | null;
+        error?: string;
+        detail?: string;
+      };
+
+      if (!res.ok) {
+        throw new Error(json.detail || json.error || "Fathom import failed");
+      }
+
+      if (!json.jobId) {
+        throw new Error("Fathom import did not return a job id.");
+      }
+
+      let status: FathomImportRunSummary = {
+        jobId: json.jobId,
+        status: json.status ?? "queued",
+        imported: typeof json.imported === "number" ? json.imported : 0,
+        meetings: typeof json.meetings === "number" ? json.meetings : 0,
+        processedPages:
+          typeof json.processedPages === "number" ? json.processedPages : 0,
+        startedAt: json.startedAt ?? null,
+        completedAt: json.completedAt ?? null,
+        error: json.error ?? null,
+      };
+
+      while (status.status === "queued" || status.status === "running") {
+        status = await getFathomImportStatus(status.jobId);
+        setFathomSettings((current) => settingsWithLastImport(current, status));
+
+        if (status.status === "succeeded") {
+          break;
+        }
+        if (status.status === "failed") {
+          throw new Error(status.error || "Fathom import failed");
+        }
+
+        setFathomImportMessage(formatFathomProgress(status));
+        await sleep(FATHOM_IMPORT_POLL_INTERVAL_MS);
+      }
+
+      const imported = status.imported;
+      setFathomImportMessage(
+        `Imported ${imported} Fathom ${imported === 1 ? "meeting" : "meetings"}.`
+      );
+      setFathomSettings((current) => settingsWithLastImport(current, status));
+      await fetchMemos();
+    } catch (err) {
+      console.error("Failed to import Fathom meetings:", err);
+      setFathomImportMessage(
+        err instanceof Error
+          ? err.message
+          : "Couldn't import Fathom meetings."
+      );
+    } finally {
+      setImportingFathom(false);
+    }
+  }, [fetchMemos, importingFathom, isSignedIn, openSignIn]);
+
   return {
     filteredBookmarkedMemos,
     filteredMemos,
+    fathomImportMessage,
+    fathomSettings,
+    hasMoreMemos,
     handleAudioInput,
     handleUploadComplete,
+    importFathomMemos,
+    importingFathom,
+    loadMoreMemos,
     loading,
+    loadingMoreMemos,
     searchQuery,
     selectedMemo,
     selectedMemoId,

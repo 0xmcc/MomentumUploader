@@ -24,8 +24,83 @@ type MemoRow = {
     transcript_status?: "processing" | "complete" | "failed" | null;
 };
 
+type MemoArtifactRow = {
+    memo_id: string | null;
+    source: "live" | "final" | string | null;
+    payload: unknown;
+};
+
+type MemoListItem = {
+    id: string;
+    transcriptStatus: "processing" | "complete" | "failed";
+};
+
 export async function OPTIONS() {
     return new NextResponse(null, { status: 204, headers: CORS });
+}
+
+function readSummaryPayload(payload: unknown) {
+    if (!payload || typeof payload !== "object") {
+        return null;
+    }
+
+    const summary = (payload as { summary?: unknown }).summary;
+    return typeof summary === "string" && summary.trim() ? summary.trim() : null;
+}
+
+async function loadMemoFeedSummaries(memos: MemoListItem[]) {
+    const memoIds = memos.map((memo) => memo.id);
+    if (memoIds.length === 0) {
+        return new Map<string, string>();
+    }
+
+    try {
+        const { data, error } = await supabaseAdmin
+            .from("memo_artifacts")
+            .select("memo_id, source, payload, updated_at, version")
+            .in("memo_id", memoIds)
+            .eq("artifact_type", "rolling_summary")
+            .eq("status", "ready")
+            .order("updated_at", { ascending: false });
+
+        if (error || !Array.isArray(data)) {
+            return new Map<string, string>();
+        }
+
+        const desiredSourceByMemo = new Map(
+            memos.map((memo) => [
+                memo.id,
+                memo.transcriptStatus === "processing" ? "live" : "final",
+            ])
+        );
+        const summaryByMemo = new Map<string, string>();
+        const sourceByMemo = new Map<string, string | null>();
+
+        for (const row of data as MemoArtifactRow[]) {
+            if (!row.memo_id || !memoIds.includes(row.memo_id)) {
+                continue;
+            }
+
+            const summary = readSummaryPayload(row.payload);
+            if (!summary) {
+                continue;
+            }
+
+            const desiredSource = desiredSourceByMemo.get(row.memo_id) ?? "final";
+            const existingSource = sourceByMemo.get(row.memo_id);
+            if (
+                !summaryByMemo.has(row.memo_id) ||
+                (row.source === desiredSource && existingSource !== desiredSource)
+            ) {
+                summaryByMemo.set(row.memo_id, summary);
+                sourceByMemo.set(row.memo_id, row.source);
+            }
+        }
+
+        return summaryByMemo;
+    } catch {
+        return new Map<string, string>();
+    }
 }
 
 /** GET /api/memos
@@ -86,14 +161,24 @@ export async function GET(req: NextRequest) {
         title: row.title ?? null,
         transcript: row.transcript ?? "",
         url: row.audio_url ?? null,
+        durationSeconds: row.duration ?? null,
         wordCount: row.transcript ? row.transcript.split(/\s+/).filter(Boolean).length : 0,
         createdAt: row.created_at,
         updatedAt: row.created_at, // No updated_at in schema, fallback to created_at
         transcriptStatus: (row.transcript_status ?? "complete") as "processing" | "complete" | "failed",
     }));
+    const summaryByMemo = await loadMemoFeedSummaries(memos);
 
     return NextResponse.json(
-        { memos, total: count ?? memos.length, limit, offset },
+        {
+            memos: memos.map((memo) => ({
+                ...memo,
+                summary: summaryByMemo.get(memo.id) ?? null,
+            })),
+            total: count ?? memos.length,
+            limit,
+            offset,
+        },
         { headers: CORS }
     );
 }
