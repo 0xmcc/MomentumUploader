@@ -69,6 +69,7 @@ import {
 
 const TRANSCRIPT_TIMESTAMPS_STORAGE_KEY = "memo-transcript-show-timestamps";
 const TRANSCRIPT_FEED_LOAD_THRESHOLD_PX = 220;
+const MEMO_POST_SUMMARY_MAX_CHARS = 280;
 
 type FeedAuthorProfile = {
   name: string;
@@ -645,13 +646,13 @@ type TranscriptFeedPanelProps = {
   loading: boolean;
   hasMoreMemos: boolean;
   loadingMoreMemos: boolean;
-  recorderPanel: React.ReactNode;
   authorProfile?: FeedAuthorProfile;
   fathomImportMessage?: string | null;
   fathomSettings?: FathomImportSettings | null;
   importingFathom?: boolean;
   onImportFathom?: () => void | Promise<void>;
   onLoadMoreMemos: () => void | Promise<void>;
+  onRecordNewMemo: () => void;
   onSelectMemo: (memoId: string) => void;
 };
 
@@ -667,6 +668,30 @@ function getFeedTranscriptPreview(memo: Memo) {
   return memo.transcript || "No transcript available.";
 }
 
+function normalizeFeedText(text: string) {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function trimToMemoPostLength(text: string) {
+  const normalized = normalizeFeedText(text);
+  if (normalized.length <= MEMO_POST_SUMMARY_MAX_CHARS) {
+    return normalized;
+  }
+
+  const trimmed = normalized.slice(0, MEMO_POST_SUMMARY_MAX_CHARS - 3);
+  const lastSpace = trimmed.lastIndexOf(" ");
+  const end = lastSpace > 180 ? lastSpace : trimmed.length;
+  return `${trimmed.slice(0, end).trimEnd()}...`;
+}
+
+function getMemoPostSummary(memo: Memo) {
+  if (isMemoFailed(memo) || isMemoProcessing(memo)) {
+    return getFeedTranscriptPreview(memo);
+  }
+
+  return trimToMemoPostLength(memo.summary || memo.transcript || "No transcript available.");
+}
+
 function getAuthorInitial(name: string) {
   return name.trim().charAt(0).toUpperCase() || "Y";
 }
@@ -676,18 +701,18 @@ export function TranscriptFeedPanel({
   loading,
   hasMoreMemos,
   loadingMoreMemos,
-  recorderPanel,
   authorProfile = DEFAULT_FEED_AUTHOR_PROFILE,
   fathomImportMessage = null,
   fathomSettings = null,
   importingFathom = false,
   onImportFathom,
   onLoadMoreMemos,
+  onRecordNewMemo,
   onSelectMemo,
 }: TranscriptFeedPanelProps) {
   const feedRef = useRef<HTMLDivElement>(null);
   const [viewMode, setViewMode] =
-    useState<TranscriptFeedViewMode>("transcripts");
+    useState<TranscriptFeedViewMode>("posts");
   const isPostView = viewMode === "posts";
 
   const maybeLoadMore = useCallback(
@@ -725,20 +750,10 @@ export function TranscriptFeedPanel({
           isPostView ? "max-w-2xl" : "max-w-5xl"
         }`}
       >
-        <div
-          className={
-            isPostView
-              ? "rounded-xl border border-white/8 bg-white/[0.025] px-4 py-4"
-              : "border-b border-white/5 pb-6"
-          }
-        >
-          {recorderPanel}
-        </div>
-
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
             <h2 className="text-xl font-semibold tracking-tight text-white/95">
-              {isPostView ? "Personal feed" : "Transcript feed"}
+              {isPostView ? "Previous recordings" : "Transcript feed"}
             </h2>
             <p className="mt-1 text-xs font-mono uppercase tracking-[0.18em] text-white/35">
               {memos.length} {isPostView ? "posts" : "loaded"}
@@ -747,6 +762,15 @@ export function TranscriptFeedPanel({
 
           <div className="flex flex-col items-start gap-2 sm:items-end">
             <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
+              <button
+                type="button"
+                onClick={onRecordNewMemo}
+                className="inline-flex h-10 items-center gap-2 rounded-full border border-accent/30 bg-accent/15 px-4 text-xs font-mono uppercase tracking-wide text-white transition-colors hover:border-accent/50 hover:bg-accent/25"
+              >
+                <Mic2 size={14} />
+                Record new memo
+              </button>
+
               {onImportFathom && (
                 <button
                   type="button"
@@ -841,14 +865,14 @@ export function TranscriptFeedPanel({
             className="flex items-center justify-center gap-3 rounded-lg border border-white/5 bg-white/[0.02] px-5 py-12 text-sm text-white/45"
           >
             <Loader2 size={18} className="animate-spin" />
-            {isPostView ? "Loading posts" : "Loading transcripts"}
+            {isPostView ? "Loading memo posts" : "Loading transcripts"}
           </div>
         ) : memos.length === 0 ? (
           <div className="rounded-lg border border-white/5 bg-white/[0.02] px-5 py-12 text-center text-sm text-white/35">
-            {isPostView ? "No posts yet." : "No transcripts yet."}
+            {isPostView ? "No recordings yet." : "No transcripts yet."}
           </div>
         ) : isPostView ? (
-          <div className="flex flex-col border-y border-white/8">
+          <div className="flex flex-col gap-4">
             {memos.map((memo) => {
               const title = getMemoTitle(memo);
               const durationLabel =
@@ -857,12 +881,13 @@ export function TranscriptFeedPanel({
                   : null;
               const isFailed = isMemoFailed(memo);
               const isProcessing = isMemoProcessing(memo);
+              const summary = getMemoPostSummary(memo);
 
               return (
                 <article
                   key={memo.id}
                   aria-label={`${title} post`}
-                  className="border-b border-white/8 py-5 last:border-b-0"
+                  className="rounded-lg border border-white/8 bg-[#171717] px-4 py-4 shadow-[0_14px_48px_rgba(0,0,0,0.20)]"
                 >
                   <button
                     type="button"
@@ -907,7 +932,13 @@ export function TranscriptFeedPanel({
                         {title}
                       </h3>
 
+                      <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-accent/20 bg-accent/10 px-2.5 py-1 text-[10px] font-mono uppercase tracking-[0.16em] text-accent/90">
+                        <Sparkles size={12} />
+                        AI summary
+                      </div>
+
                       <p
+                        aria-label={`${title} summary`}
                         className={`mt-2 whitespace-pre-wrap text-[15px] leading-6 ${
                           isFailed ? "text-red-300/65" : "text-white/78"
                         }`}
@@ -918,7 +949,7 @@ export function TranscriptFeedPanel({
                           overflow: "hidden",
                         }}
                       >
-                        {getFeedTranscriptPreview(memo)}
+                        {summary}
                       </p>
 
                       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono uppercase tracking-[0.16em] text-white/35">
@@ -1032,7 +1063,7 @@ export function TranscriptFeedPanel({
             className="flex items-center justify-center gap-3 py-6 text-sm text-white/40"
           >
             <Loader2 size={16} className="animate-spin" />
-            Loading more transcripts
+            {isPostView ? "Loading more memo posts" : "Loading more transcripts"}
           </div>
         ) : !hasMoreMemos && memos.length > 0 ? (
           <div className="py-6 text-center text-xs font-mono uppercase tracking-[0.22em] text-white/25">
@@ -1045,23 +1076,29 @@ export function TranscriptFeedPanel({
 }
 
 type MemoSidebarProps = {
+  activeView: "record" | "feed" | "detail";
   filteredBookmarkedMemos: SharedMemoBookmark[];
   filteredMemos: Memo[];
   isSignedIn: boolean | undefined;
   loading: boolean;
   searchQuery: string;
   selectedMemoId: string | null;
+  onShowFeed: () => void;
+  onShowRecord: () => void;
   onSearchQueryChange: (value: string) => void;
   onSelectMemo: (memoId: string | null) => void;
 };
 
 export function MemoSidebar({
+  activeView,
   filteredBookmarkedMemos,
   filteredMemos,
   isSignedIn,
   loading,
   searchQuery,
   selectedMemoId,
+  onShowFeed,
+  onShowRecord,
   onSearchQueryChange,
   onSelectMemo,
 }: MemoSidebarProps) {
@@ -1069,7 +1106,7 @@ export function MemoSidebar({
 
   if (collapsed) {
     return (
-      <aside className="w-14 flex-shrink-0 flex flex-col items-center border-r border-white/10 bg-[#0F0F0F]/80 backdrop-blur-xl z-20 py-4 gap-4">
+      <aside className="hidden md:flex w-14 flex-shrink-0 flex-col items-center border-r border-white/10 bg-[#0F0F0F]/80 backdrop-blur-xl z-20 py-4 gap-4">
         <div className="w-10 h-10 bg-accent/20 rounded-xl flex items-center justify-center text-accent shadow-[0_0_20px_var(--theme-glow)] border border-accent/20">
           <Mic2 size={20} />
         </div>
@@ -1080,12 +1117,36 @@ export function MemoSidebar({
         >
           <PanelLeftOpen size={18} />
         </button>
+        <button
+          onClick={onShowRecord}
+          aria-current={activeView === "record" ? "page" : undefined}
+          className={`w-10 h-10 rounded-full active:scale-90 flex items-center justify-center transition-all border ${
+            activeView === "record"
+              ? "border-accent/35 bg-accent/15 text-accent"
+              : "border-white/10 bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/80"
+          }`}
+          title="Record"
+        >
+          <Mic2 size={17} />
+        </button>
+        <button
+          onClick={onShowFeed}
+          aria-current={activeView === "feed" ? "page" : undefined}
+          className={`w-10 h-10 rounded-full active:scale-90 flex items-center justify-center transition-all border ${
+            activeView === "feed"
+              ? "border-accent/35 bg-accent/15 text-accent"
+              : "border-white/10 bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/80"
+          }`}
+          title="Feed"
+        >
+          <MessageCircle size={17} />
+        </button>
       </aside>
     );
   }
 
   return (
-    <aside className="w-80 flex-shrink-0 flex flex-col border-r border-white/10 bg-[#0F0F0F]/80 backdrop-blur-xl z-20">
+    <aside className="hidden md:flex w-80 flex-shrink-0 flex-col border-r border-white/10 bg-[#0F0F0F]/80 backdrop-blur-xl z-20">
       <div className="p-6 border-b border-white/5 flex flex-col gap-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 active:scale-95 transition-transform cursor-default">
@@ -1103,7 +1164,7 @@ export function MemoSidebar({
               <PanelLeftClose size={16} />
             </button>
             <button
-              onClick={() => onSelectMemo(null)}
+              onClick={onShowRecord}
               className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 active:scale-90 flex items-center justify-center text-white/70 transition-all border border-white/10 shadow-lg"
               title="New Recording"
             >
@@ -1125,6 +1186,35 @@ export function MemoSidebar({
             className="w-full bg-black/40 border border-white/10 rounded-xl py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-accent/50 focus:border-accent transition-all text-white/90 placeholder:text-white/30"
           />
         </div>
+
+        <nav aria-label="Workspace views" className="flex flex-col gap-1">
+          <button
+            type="button"
+            onClick={onShowRecord}
+            aria-current={activeView === "record" ? "page" : undefined}
+            className={`inline-flex h-11 w-full items-center justify-start gap-3 rounded-lg border px-3.5 text-xs font-mono uppercase tracking-wide transition-colors ${
+              activeView === "record"
+                ? "border-white/10 bg-white/[0.08] text-white shadow-[0_10px_28px_rgba(0,0,0,0.18)]"
+                : "border-transparent bg-transparent text-white/55 hover:bg-white/[0.04] hover:text-white/85"
+            }`}
+          >
+            <Mic2 size={16} />
+            Record
+          </button>
+          <button
+            type="button"
+            onClick={onShowFeed}
+            aria-current={activeView === "feed" ? "page" : undefined}
+            className={`inline-flex h-11 w-full items-center justify-start gap-3 rounded-lg border px-3.5 text-xs font-mono uppercase tracking-wide transition-colors ${
+              activeView === "feed"
+                ? "border-white/10 bg-white/[0.08] text-white shadow-[0_10px_28px_rgba(0,0,0,0.18)]"
+                : "border-transparent bg-transparent text-white/55 hover:bg-white/[0.04] hover:text-white/85"
+            }`}
+          >
+            <MessageCircle size={16} />
+            Feed
+          </button>
+        </nav>
       </div>
 
       <div

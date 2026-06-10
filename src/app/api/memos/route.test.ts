@@ -68,6 +68,74 @@ describe("GET /api/memos", () => {
         expect(body.memos).toHaveLength(1);
         expect(body.memos[0].id).toBe("memo-1");
         expect(body.memos[0].wordCount).toBe(2);
+        expect(body.memos[0].durationSeconds).toBe(20);
+    });
+
+    it("includes ready rolling summaries for feed cards when artifacts exist", async () => {
+        (auth as unknown as jest.Mock).mockResolvedValue({ userId: "user_abc" });
+
+        const queryResult = {
+            data: [
+                {
+                    id: "memo-1",
+                    title: "Memo",
+                    transcript: "hello world",
+                    audio_url: "https://example.com/audio.webm",
+                    duration: 20,
+                    created_at: "2026-02-21T00:00:00.000Z",
+                    transcript_status: "complete",
+                },
+            ],
+            error: null,
+            count: 1,
+        };
+        const range = jest.fn(() => queryResult);
+        const order = jest.fn(() => ({ range }));
+        const eq = jest.fn(() => ({ order }));
+        const memoSelect = jest.fn(() => ({ eq }));
+
+        const artifactResult = {
+            data: [
+                {
+                    memo_id: "memo-1",
+                    source: "final",
+                    payload: {
+                        summary:
+                            "AI summary: customer asked about onboarding, pricing, and next steps.",
+                    },
+                    updated_at: "2026-02-21T00:05:00.000Z",
+                    version: 2,
+                },
+            ],
+            error: null,
+        };
+        const artifactOrder = jest.fn(() => artifactResult);
+        const artifactEqStatus = jest.fn(() => ({ order: artifactOrder }));
+        const artifactEqType = jest.fn(() => ({ eq: artifactEqStatus }));
+        const artifactIn = jest.fn(() => ({ eq: artifactEqType }));
+        const artifactSelect = jest.fn(() => ({ in: artifactIn }));
+
+        (supabaseAdmin.from as jest.Mock).mockImplementation((table: string) => {
+            if (table === "memo_artifacts") {
+                return { select: artifactSelect };
+            }
+            return { select: memoSelect };
+        });
+
+        const req = {
+            nextUrl: new URL("https://example.com/api/memos?limit=10&offset=0"),
+        } as NextRequest;
+
+        const res = await GET(req);
+        const body = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(artifactIn).toHaveBeenCalledWith("memo_id", ["memo-1"]);
+        expect(body.memos[0]).toMatchObject({
+            id: "memo-1",
+            summary:
+                "AI summary: customer asked about onboarding, pricing, and next steps.",
+        });
     });
 
     it("accepts a bearer api token when no session cookie exists", async () => {
@@ -163,7 +231,8 @@ describe("GET /api/memos", () => {
         const body = await res.json();
 
         expect(res.status).toBe(200);
-        expect(supabaseAdmin.from).toHaveBeenCalledTimes(2);
+        expect(supabaseAdmin.from).toHaveBeenCalledTimes(3);
+        expect(supabaseAdmin.from).toHaveBeenLastCalledWith("memo_artifacts");
         expect(statusSelect).toHaveBeenCalledWith(
             "id, title, transcript, audio_url, duration, created_at, transcript_status",
             { count: "exact" }

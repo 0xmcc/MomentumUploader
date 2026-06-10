@@ -12,6 +12,8 @@ import {
 import StatusDot from "@/components/StatusDot";
 import { useMemosWorkspace } from "@/hooks/useMemosWorkspace";
 
+type WorkspaceView = "record" | "feed";
+
 function getPersonalFeedHandle(source: string) {
   const normalized = source
     .trim()
@@ -26,6 +28,7 @@ export default function Home() {
   const { isSignedIn, isLoaded, user } = useUser();
   const { openSignIn } = useClerk();
   const [isRecordingLive, setIsRecordingLive] = useState(false);
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("record");
 
   const {
     filteredBookmarkedMemos,
@@ -65,7 +68,28 @@ export default function Home() {
       return;
     }
 
+    if (memoId === null) {
+      setWorkspaceView("record");
+    }
     setSelectedMemoId(memoId);
+  };
+
+  const handleShowRecord = () => {
+    handleSelectMemo(null);
+    setWorkspaceView("record");
+  };
+
+  const handleShowFeed = () => {
+    if (
+      isRecordingLive &&
+      workspaceView !== "feed" &&
+      !window.confirm("Switching memos will stop the current recording. Continue?")
+    ) {
+      return;
+    }
+
+    setSelectedMemoId(null);
+    setWorkspaceView("feed");
   };
 
   const userEmail = user?.primaryEmailAddress?.emailAddress ?? "";
@@ -82,12 +106,15 @@ export default function Home() {
   return (
     <main className="flex h-screen w-full bg-[#0A0A0A] overflow-hidden text-white font-sans">
       <MemoSidebar
+        activeView={selectedMemo ? "detail" : workspaceView}
         filteredBookmarkedMemos={filteredBookmarkedMemos}
         filteredMemos={filteredMemos}
         isSignedIn={isSignedIn}
         loading={loading}
         searchQuery={searchQuery}
         selectedMemoId={selectedMemoId}
+        onShowFeed={handleShowFeed}
+        onShowRecord={handleShowRecord}
         onSearchQueryChange={setSearchQuery}
         onSelectMemo={handleSelectMemo}
       />
@@ -120,7 +147,7 @@ export default function Home() {
             onTitleSave={updateMemoTitle}
             onTitleRegenerate={regenerateMemoTitle}
           />
-        ) : (
+        ) : workspaceView === "feed" ? (
           <TranscriptFeedPanel
             memos={filteredMemos}
             loading={loading}
@@ -132,18 +159,18 @@ export default function Home() {
             importingFathom={importingFathom}
             onImportFathom={importFathomMemos}
             onLoadMoreMemos={loadMoreMemos}
+            onRecordNewMemo={handleShowRecord}
             onSelectMemo={handleSelectMemo}
-            recorderPanel={
-              <RecorderPanel
-                variant="compact"
-                isUploading={isUploading}
-                uploadProgressPercent={uploadProgressPercent}
-                onRetryUpload={retryUpload}
-                onUploadComplete={handleUploadComplete}
-                onRecordingStateChange={setIsRecordingLive}
-                showUploadError={showUploadError}
-              />
-            }
+          />
+        ) : (
+          <RecorderPanel
+            variant="centered"
+            isUploading={isUploading}
+            uploadProgressPercent={uploadProgressPercent}
+            onRetryUpload={retryUpload}
+            onUploadComplete={handleUploadComplete}
+            onRecordingStateChange={setIsRecordingLive}
+            showUploadError={showUploadError}
           />
         )}
       </section>

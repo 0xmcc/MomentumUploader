@@ -6,6 +6,7 @@ export type TranscriptStatus = "processing" | "complete" | "failed";
 export type Memo = {
   id: string;
   title?: string | null;
+  summary?: string | null;
   transcript: string;
   transcriptSegments?: TranscriptSegment[] | null;
   transcriptStatus?: TranscriptStatus;

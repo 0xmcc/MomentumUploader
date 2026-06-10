@@ -1,5 +1,11 @@
 import React from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import {
   MemoDetailView,
   MemoSidebar,
@@ -394,7 +400,7 @@ describe("MemoDetailView", () => {
 });
 
 describe("TranscriptFeedPanel", () => {
-  it("requests the next memo page when the transcript feed scrolls near the bottom", () => {
+  it("requests the next memo page when the memo post feed scrolls near the bottom", () => {
     const loadMoreMemos = jest.fn();
 
     render(
@@ -411,13 +417,13 @@ describe("TranscriptFeedPanel", () => {
         loading={false}
         hasMoreMemos={true}
         loadingMoreMemos={false}
-        recorderPanel={<div data-testid="feed-recorder" />}
+        onRecordNewMemo={jest.fn()}
         onLoadMoreMemos={loadMoreMemos}
         onSelectMemo={jest.fn()}
       />
     );
 
-    const feed = screen.getByRole("feed", { name: "Voice memo transcripts" });
+    const feed = screen.getByRole("feed", { name: "Personal memo posts" });
     Object.defineProperty(feed, "clientHeight", {
       configurable: true,
       value: 500,
@@ -435,47 +441,50 @@ describe("TranscriptFeedPanel", () => {
 
     expect(loadMoreMemos).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Launch notes")).toBeInTheDocument();
-    expect(screen.getByTestId("feed-recorder")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Record new memo" })
+    ).toBeInTheDocument();
   });
 
-  it("toggles from transcript cards into a personal post feed", () => {
+  it("renders the feed page as a social-style feed with a primary record navigation CTA", () => {
+    const longTranscript =
+      "Customer walked through onboarding friction around setup, billing, and handoff. ".repeat(
+        8
+      );
+    const recordNewMemo = jest.fn();
+
     render(
       <TranscriptFeedPanel
         memos={[
           {
             id: "memo-post-1",
             title: "Launch notes",
-            transcript: "First paginated transcript in the new homepage feed.",
+            transcript: longTranscript,
             createdAt: "2026-04-01T10:00:00.000Z",
-            wordCount: 8,
+            wordCount: 72,
             durationSeconds: 64,
           },
         ]}
         loading={false}
         hasMoreMemos={false}
         loadingMoreMemos={false}
-        recorderPanel={<div data-testid="feed-recorder" />}
         authorProfile={{
           name: "Marko M",
           handle: "@marko",
           avatarUrl: "https://img.example.com/marko.png",
         }}
+        onRecordNewMemo={recordNewMemo}
         onLoadMoreMemos={jest.fn()}
         onSelectMemo={jest.fn()}
       />
     );
 
     expect(
-      screen.getByRole("feed", { name: "Voice memo transcripts" })
-    ).toBeInTheDocument();
-    expect(screen.getByText("Transcript feed")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Posts" }));
-
-    expect(
       screen.getByRole("feed", { name: "Personal memo posts" })
     ).toBeInTheDocument();
-    expect(screen.getByText("Personal feed")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Record new memo" }));
+    expect(recordNewMemo).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Previous recordings")).toBeInTheDocument();
     expect(screen.getByText("Marko M")).toBeInTheDocument();
     expect(screen.getByText("@marko")).toBeInTheDocument();
     expect(screen.getByAltText("Marko M")).toHaveAttribute(
@@ -485,8 +494,149 @@ describe("TranscriptFeedPanel", () => {
     expect(
       screen.getByRole("button", { name: "Open Launch notes post" })
     ).toBeInTheDocument();
+
+    const article = screen.getByRole("article", { name: "Launch notes post" });
+    expect(within(article).getByText("AI summary")).toBeInTheDocument();
+    expect(within(article).getByText("72 words")).toBeInTheDocument();
+    expect(within(article).getByText("1:04")).toBeInTheDocument();
+
+    const summary = screen.getByLabelText("Launch notes summary");
+    expect(summary.textContent?.length ?? 0).toBeLessThanOrEqual(280);
+    expect(summary).toHaveTextContent("Customer walked through onboarding friction");
+    expect(summary).not.toHaveTextContent(longTranscript);
+  });
+
+  it("prefers a provided memo summary and keeps it tweet length", () => {
+    const providedSummary =
+      "Discussed the onboarding reset, pricing objections, and the Friday handoff. Main takeaway: send the revised proposal today and confirm scope before the customer review. ".repeat(
+        3
+      );
+
+    render(
+      <TranscriptFeedPanel
+        memos={[
+          {
+            id: "memo-summary-1",
+            title: "Customer review",
+            summary: providedSummary,
+            transcript: "This raw transcript should not be used for the feed summary.",
+            createdAt: "2026-04-01T10:00:00.000Z",
+            wordCount: 18,
+          } as never,
+        ]}
+        loading={false}
+        hasMoreMemos={false}
+        loadingMoreMemos={false}
+        onRecordNewMemo={jest.fn()}
+        onLoadMoreMemos={jest.fn()}
+        onSelectMemo={jest.fn()}
+      />
+    );
+
+    const summary = screen.getByLabelText("Customer review summary");
+    expect(summary.textContent?.length ?? 0).toBeLessThanOrEqual(280);
+    expect(summary).toHaveTextContent("Discussed the onboarding reset");
+    expect(summary).not.toHaveTextContent("This raw transcript should not be used");
+  });
+
+  it("opens the memo detail flow when a social post is clicked", () => {
+    const selectMemo = jest.fn();
+
+    render(
+      <TranscriptFeedPanel
+        memos={[
+          {
+            id: "memo-open-1",
+            title: "Openable memo",
+            transcript: "Short summary candidate.",
+            createdAt: "2026-04-01T10:00:00.000Z",
+            wordCount: 3,
+          },
+        ]}
+        loading={false}
+        hasMoreMemos={false}
+        loadingMoreMemos={false}
+        onRecordNewMemo={jest.fn()}
+        onLoadMoreMemos={jest.fn()}
+        onSelectMemo={selectMemo}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Openable memo post" }));
+
+    expect(selectMemo).toHaveBeenCalledWith("memo-open-1");
+  });
+
+  it("can switch from the default post feed to transcript cards", () => {
+    render(
+      <TranscriptFeedPanel
+        memos={[
+          {
+            id: "memo-transcript-toggle-1",
+            title: "Transcript view memo",
+            transcript: "First paginated transcript in the new homepage feed.",
+            createdAt: "2026-04-01T10:00:00.000Z",
+            wordCount: 8,
+            durationSeconds: 64,
+          },
+        ]}
+        loading={false}
+        hasMoreMemos={false}
+        loadingMoreMemos={false}
+        onRecordNewMemo={jest.fn()}
+        onLoadMoreMemos={jest.fn()}
+        onSelectMemo={jest.fn()}
+      />
+    );
+
+    expect(
+      screen.getByRole("feed", { name: "Personal memo posts" })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Transcript" }));
+
+    expect(
+      screen.getByRole("feed", { name: "Voice memo transcripts" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("Transcript feed")).toBeInTheDocument();
     expect(
       screen.getByText("First paginated transcript in the new homepage feed.")
+    ).toBeInTheDocument();
+  });
+
+  it("uses post-first loading and empty states", () => {
+    const { rerender } = render(
+      <TranscriptFeedPanel
+        memos={[]}
+        loading
+        hasMoreMemos={false}
+        loadingMoreMemos={false}
+        onRecordNewMemo={jest.fn()}
+        onLoadMoreMemos={jest.fn()}
+        onSelectMemo={jest.fn()}
+      />
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Loading memo posts");
+    expect(
+      screen.getByRole("button", { name: "Record new memo" })
+    ).toBeInTheDocument();
+
+    rerender(
+      <TranscriptFeedPanel
+        memos={[]}
+        loading={false}
+        hasMoreMemos={false}
+        loadingMoreMemos={false}
+        onRecordNewMemo={jest.fn()}
+        onLoadMoreMemos={jest.fn()}
+        onSelectMemo={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText("No recordings yet.")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Record new memo" })
     ).toBeInTheDocument();
   });
 
@@ -499,7 +649,7 @@ describe("TranscriptFeedPanel", () => {
         loading={false}
         hasMoreMemos={false}
         loadingMoreMemos={false}
-        recorderPanel={<div data-testid="feed-recorder" />}
+        onRecordNewMemo={jest.fn()}
         onImportFathom={importFathom}
         onLoadMoreMemos={jest.fn()}
         onSelectMemo={jest.fn()}
@@ -518,7 +668,7 @@ describe("TranscriptFeedPanel", () => {
         loading={false}
         hasMoreMemos={false}
         loadingMoreMemos={false}
-        recorderPanel={<div data-testid="feed-recorder" />}
+        onRecordNewMemo={jest.fn()}
         importingFathom
         fathomImportMessage="Imported 2 Fathom meetings."
         onImportFathom={jest.fn()}
@@ -538,7 +688,7 @@ describe("TranscriptFeedPanel", () => {
         loading={false}
         hasMoreMemos={false}
         loadingMoreMemos={false}
-        recorderPanel={<div data-testid="feed-recorder" />}
+        onRecordNewMemo={jest.fn()}
         fathomSettings={{
           configured: true,
           connectionStatus: "connected",
@@ -566,9 +716,82 @@ describe("TranscriptFeedPanel", () => {
 });
 
 describe("MemoSidebar", () => {
+  it("does not reserve the full sidebar width on mobile viewports", () => {
+    const { container } = render(
+      <MemoSidebar
+        activeView="record"
+        filteredMemos={[]}
+        filteredBookmarkedMemos={[]}
+        isSignedIn
+        loading={false}
+        searchQuery=""
+        selectedMemoId={null}
+        onShowFeed={jest.fn()}
+        onShowRecord={jest.fn()}
+        onSearchQueryChange={jest.fn()}
+        onSelectMemo={jest.fn()}
+      />
+    );
+
+    expect(container.querySelector("aside")).toHaveClass("hidden", "md:flex");
+  });
+
+  it("renders record and feed as stacked menu rows above memo history", () => {
+    const showFeed = jest.fn();
+    const showRecord = jest.fn();
+
+    render(
+      <MemoSidebar
+        activeView="feed"
+        filteredMemos={[
+          {
+            id: "memo-history-1",
+            title: "History memo",
+            transcript: "History transcript.",
+            createdAt: "2026-04-01T10:00:00.000Z",
+            wordCount: 2,
+          },
+        ]}
+        filteredBookmarkedMemos={[]}
+        isSignedIn
+        loading={false}
+        searchQuery=""
+        selectedMemoId={null}
+        onShowFeed={showFeed}
+        onShowRecord={showRecord}
+        onSearchQueryChange={jest.fn()}
+        onSelectMemo={jest.fn()}
+      />
+    );
+
+    const navigation = screen.getByRole("navigation", {
+      name: "Workspace views",
+    });
+    const recordButton = within(navigation).getByRole("button", {
+      name: "Record",
+    });
+    const feedButton = within(navigation).getByRole("button", { name: "Feed" });
+
+    expect(navigation).toHaveClass("flex", "flex-col", "gap-1");
+    expect(navigation).not.toHaveClass("grid", "grid-cols-2");
+    expect(recordButton).toHaveClass("w-full", "justify-start");
+    expect(feedButton).toHaveClass("w-full", "justify-start");
+    expect(navigation.compareDocumentPosition(screen.getByText("History memo"))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
+    expect(feedButton).toHaveAttribute("aria-current", "page");
+
+    fireEvent.click(recordButton);
+    fireEvent.click(feedButton);
+
+    expect(showRecord).toHaveBeenCalledTimes(1);
+    expect(showFeed).toHaveBeenCalledTimes(1);
+  });
+
   it("renders bookmarked shared memos with creator avatar and display name", () => {
     render(
       <MemoSidebar
+        activeView="record"
         filteredMemos={[]}
         filteredBookmarkedMemos={[
           {
@@ -585,6 +808,8 @@ describe("MemoSidebar", () => {
         loading={false}
         searchQuery=""
         selectedMemoId={null}
+        onShowFeed={jest.fn()}
+        onShowRecord={jest.fn()}
         onSearchQueryChange={jest.fn()}
         onSelectMemo={jest.fn()}
       />
@@ -602,6 +827,7 @@ describe("MemoSidebar", () => {
   it("falls back to the anonymous public-share label when creator identity is unavailable", () => {
     render(
       <MemoSidebar
+        activeView="record"
         filteredMemos={[]}
         filteredBookmarkedMemos={[
           {
@@ -618,6 +844,8 @@ describe("MemoSidebar", () => {
         loading={false}
         searchQuery=""
         selectedMemoId={null}
+        onShowFeed={jest.fn()}
+        onShowRecord={jest.fn()}
         onSearchQueryChange={jest.fn()}
         onSelectMemo={jest.fn()}
       />
