@@ -28,8 +28,8 @@ Live coaching, the recording route, and pixel-diff polish are all post-MVP.
        anchor scroll (§2). Skip animations and Call Brief tab.
 6. [ ] **Responsive floor** — don't break below ~1280px; a usable single-column
        fallback is enough (§1).
-7. [ ] **Contract regression test** — render a `SalesDoc` fixture through
-       ArtifactDocument so pipeline output changes can't silently break the UI (§5).
+7. [x] **Contract regression test** — generated-payload fixture renders through
+       ArtifactDocument + LiveCoachingPanel (`ArtifactDocument.test.tsx`) (§5).
 
 Explicitly **not** MVP: live coaching audio (rail can show a "demo" badge or be
 hidden), `/sales-docs-recording` completion, avatar imagery, pixel overlay-diff,

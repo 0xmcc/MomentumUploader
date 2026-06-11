@@ -1,96 +1,7 @@
 /** @jest-environment node */
 
-import {
-  buildSessionFromPayload,
-  deriveLiveCoaching,
-  type GeneratedPayload,
-} from "./sales-doc-generation";
-
-function makePayload(): GeneratedPayload {
-  return {
-    title: "Alex — Fitness Coach Discovery Call",
-    sidebarLabel: "Fitness Coach — Discovery",
-    prospect: {
-      name: "Alex",
-      businessType: "Fitness Coaching",
-      offer: "1:1 Coaching",
-      pricePoint: "$3,500",
-      mainChallenge: "Low close rate",
-      callGoal: "Close as ideal client",
-      stage: "Discovery",
-    },
-    callBrief: {
-      title: "Executive Call Brief",
-      summary: "Summary.",
-      objective: "Objective.",
-      keyFacts: [{ label: "Business", value: "Fitness Coaching" }],
-    },
-    salesDiagnosis: {
-      title: "Sales Diagnosis",
-      summary: "Summary.",
-      likelyGaps: [
-        { label: "No discovery structure", description: "Jumps to pitch." },
-        { label: "Pitching features", description: "Sells the program." },
-      ],
-    },
-    beliefLadder: [
-      {
-        id: "pain",
-        label: "Pain",
-        status: "covered",
-        goal: "Surface the core problem.",
-        questions: [{ id: "pain_q1", text: "What happened?", priority: "high" }],
-      },
-      {
-        id: "doubt",
-        label: "Doubt",
-        status: "needs_work",
-        goal: "Show effort alone has not worked.",
-        questions: [
-          { id: "doubt_q1", text: "What have you tried?", priority: "medium" },
-          {
-            id: "doubt_q2",
-            text: "Why didn't it stick?",
-            priority: "high",
-            reason: "Failed attempts are evidence.",
-          },
-        ],
-      },
-      {
-        id: "cost",
-        label: "Cost",
-        status: "not_covered",
-        goal: "Quantify staying stuck.",
-        questions: [{ id: "cost_q1", text: "What does it cost?", priority: "high" }],
-      },
-    ],
-    pitchScript: {
-      highLevelPromise: { title: "Promise", script: "Script.", coachNotes: [] },
-      bridgePillars: [
-        { id: "pillar_1", title: "Pillar", script: "Script.", coachNotes: ["Note"] },
-      ],
-      delivery: { title: "Delivery", script: "Script.", coachNotes: [] },
-    },
-    objectionPrep: [
-      {
-        id: "obj_1",
-        objection: "Too expensive.",
-        likelyMeaning: "Priority objection.",
-        isolateQuestion: "Is it the price?",
-        recommendedResponse: "Reframe.",
-      },
-    ],
-    callFlow: [{ id: "flow_1", step: "Open", goal: "Set frame.", talkTrack: "Hi." }],
-    nextBestQuestions: [
-      { id: "nbq_1", question: "Why now?", why: "Urgency.", useCase: "discovery" },
-    ],
-    chat: {
-      assistantIntro: "Got it.",
-      generatedChecklist: ["Call brief generated"],
-      assistantOutro: "Review before the call.",
-    },
-  };
-}
+import { buildSessionFromPayload, deriveLiveCoaching } from "./sales-doc-generation";
+import { makeGeneratedPayload as makePayload } from "./sales-doc-generation.fixtures";
 
 describe("deriveLiveCoaching", () => {
   it("maps belief statuses to progress with a single active belief", () => {
@@ -140,7 +51,7 @@ describe("buildSessionFromPayload", () => {
     );
     expect(session.doc.sourceInputs.uploadedFiles).toBeUndefined();
     expect(session.doc.beliefLadder).toHaveLength(3);
-    expect(session.chat.assistantIntro).toBe("Got it.");
+    expect(session.chat.assistantIntro).toBe("Got it — building your prep doc now.");
     expect(session.chat.userTimestamp).toBeTruthy();
   });
 
