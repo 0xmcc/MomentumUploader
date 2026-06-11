@@ -26,10 +26,12 @@ Live coaching, the recording route, and pixel-diff polish are all post-MVP.
        data, doc survives reload (§4).
 4. [~] **Auth-gate** `/sales-docs` deferred; landing CTAs ("Generate a call
        prep doc", "Get started", "Sign in") now route to `/sales-docs` (§5).
-5. [ ] **Minimum interaction credibility** — working copy-to-clipboard, outline
-       anchor scroll (§2). Skip animations and Call Brief tab.
-6. [ ] **Responsive floor** — don't break below ~1280px; a usable single-column
-       fallback is enough (§1).
+5. [x] **Minimum interaction credibility** — section + document copy-to-clipboard
+       with Copied feedback, outline smooth-scroll with click-driven active
+       state (§2). Animations and Call Brief tab skipped per cut.
+6. [x] **Responsive floor** — desktop ≥1280px pixel-identical; coaching rail
+       drawers <1280, sidebar drawer <1024, chat bottom sheet <768; landing
+       hero clamps and mockup scales; verified no h-scroll at 390–1440 (§1).
 7. [x] **Contract regression test** — generated-payload fixture renders through
        ArtifactDocument + LiveCoachingPanel (`ArtifactDocument.test.tsx`) (§5).
 
