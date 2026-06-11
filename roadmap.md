@@ -15,9 +15,11 @@ call notes) → get a real generated SalesDoc → it persists and reloads.**
 Live coaching, the recording route, and pixel-diff polish are all post-MVP.
 
 1. [x] **Generation endpoint** — `POST /api/sales-docs/generate` emits a
-       `SalesDoc` via Claude structured outputs (`src/lib/sales-doc-generation.ts`).
-       ⚠️ End-to-end run blocked: the Anthropic key in `.env.local` has no API
-       credits (billing 400) — top up at console.anthropic.com, then re-test.
+       `SalesDoc` (`src/lib/sales-doc-generation.ts`). E2E verified in the
+       browser 2026-06-11: prompt → real doc rendered in ~90s. Note: the
+       contract exceeds Anthropic's structured-outputs grammar limit, so the
+       schema rides in the system prompt and `assertPayloadShape` enforces it
+       at runtime (one corrective retry).
 2. [x] **Wire the chat composer** — composer submits, loading bubble while
        generating, error banner on failure, new session prepends + activates.
 3. [ ] **Persistence** — save sessions (Supabase), Recent Sessions lists real
