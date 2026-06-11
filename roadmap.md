@@ -14,13 +14,16 @@ real users in front of `/sales-docs`. The MVP is: **type a prompt (or paste
 call notes) → get a real generated SalesDoc → it persists and reloads.**
 Live coaching, the recording route, and pixel-diff polish are all post-MVP.
 
-1. [ ] **Generation endpoint** — prompt/notes → `SalesDoc` JSON conforming to
-       `salesDocTypes.ts` (§4). This is the product; UI needs zero changes.
-2. [ ] **Wire the chat composer** to that endpoint, replacing mock sessions;
-       loading/streaming state in the chat panel (§4).
+1. [x] **Generation endpoint** — `POST /api/sales-docs/generate` emits a
+       `SalesDoc` via Claude structured outputs (`src/lib/sales-doc-generation.ts`).
+       ⚠️ End-to-end run blocked: the Anthropic key in `.env.local` has no API
+       credits (billing 400) — top up at console.anthropic.com, then re-test.
+2. [x] **Wire the chat composer** — composer submits, loading bubble while
+       generating, error banner on failure, new session prepends + activates.
 3. [ ] **Persistence** — save sessions (Supabase), Recent Sessions lists real
        data, doc survives reload (§4).
-4. [ ] **Auth-gate** `/sales-docs` (landing stays public) + CTA → sign-in (§5).
+4. [~] **Auth-gate** `/sales-docs` deferred; landing CTAs ("Generate a call
+       prep doc", "Get started", "Sign in") now route to `/sales-docs` (§5).
 5. [ ] **Minimum interaction credibility** — working copy-to-clipboard, outline
        anchor scroll (§2). Skip animations and Call Brief tab.
 6. [ ] **Responsive floor** — don't break below ~1280px; a usable single-column

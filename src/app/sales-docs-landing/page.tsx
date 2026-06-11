@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { ArrowRight, ArrowUpRight, FileText, Heart, ListChecks, Mic } from "lucide-react";
 import "@/components/sales-docs/sales-docs.css";
 import SalesDocsWorkspace from "@/components/sales-docs/SalesDocsWorkspace";
@@ -81,12 +82,18 @@ export default function SalesDocsLandingPage() {
               </a>
             </nav>
             <div className="flex items-center gap-2.5">
-              <button className="rounded-[10px] border border-[var(--sd-border-strong)] bg-[var(--sd-panel-raised)] px-4 py-2 text-[13.5px] font-medium text-[var(--sd-text)] transition-colors hover:border-white/20">
+              <Link
+                href="/sales-docs"
+                className="rounded-[10px] border border-[var(--sd-border-strong)] bg-[var(--sd-panel-raised)] px-4 py-2 text-[13.5px] font-medium text-[var(--sd-text)] transition-colors hover:border-white/20"
+              >
                 Sign in
-              </button>
-              <button className="sd-gradient-btn rounded-[10px] px-4 py-2 text-[13.5px] font-medium">
+              </Link>
+              <Link
+                href="/sales-docs"
+                className="sd-gradient-btn rounded-[10px] px-4 py-2 text-[13.5px] font-medium"
+              >
                 Get started
-              </button>
+              </Link>
             </div>
           </div>
         </header>
@@ -110,10 +117,13 @@ export default function SalesDocsLandingPage() {
             objection prep, and real-time coaching.
           </p>
 
-          <button className="sd-gradient-btn mt-9 flex items-center gap-2.5 rounded-full px-7 py-3.5 text-[15.5px] font-medium">
+          <Link
+            href="/sales-docs"
+            className="sd-gradient-btn mt-9 flex items-center gap-2.5 rounded-full px-7 py-3.5 text-[15.5px] font-medium"
+          >
             Generate a call prep doc
             <ArrowRight size={16} strokeWidth={2.2} />
-          </button>
+          </Link>
 
           {/* Feature row */}
           <div className="mt-14 flex items-center gap-12">
