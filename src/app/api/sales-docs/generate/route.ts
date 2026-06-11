@@ -3,6 +3,7 @@ import {
   generateSalesDoc,
   SalesDocGenerationError,
 } from "@/lib/sales-doc-generation";
+import { saveSalesDocSession } from "@/lib/sales-doc-sessions";
 
 // Generation streams a full document from the model; allow up to 5 minutes.
 export const maxDuration = 300;
@@ -42,6 +43,11 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   try {
     const session = await generateSalesDoc({ prompt, transcript });
+    try {
+      await saveSalesDocSession(session, { prompt, transcript });
+    } catch (error) {
+      console.error("[sales-docs/generate] failed to persist session", error);
+    }
     return Response.json({ session });
   } catch (error) {
     if (error instanceof SalesDocGenerationError) {

@@ -6,6 +6,7 @@ import {
   generateSalesDoc,
   SalesDocGenerationError,
 } from "@/lib/sales-doc-generation";
+import { saveSalesDocSession } from "@/lib/sales-doc-sessions";
 
 jest.mock("@/lib/sales-doc-generation", () => {
   class SalesDocGenerationError extends Error {}
@@ -15,6 +16,10 @@ jest.mock("@/lib/sales-doc-generation", () => {
   };
 });
 
+jest.mock("@/lib/sales-doc-sessions", () => ({
+  saveSalesDocSession: jest.fn(),
+}));
+
 function makeRequest(body: unknown) {
   return {
     json: jest.fn().mockResolvedValue(body),
@@ -22,8 +27,15 @@ function makeRequest(body: unknown) {
 }
 
 describe("POST /api/sales-docs/generate", () => {
+  let errorSpy: jest.SpyInstance;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    errorSpy.mockRestore();
   });
 
   it("rejects an empty prompt", async () => {
@@ -52,6 +64,38 @@ describe("POST /api/sales-docs/generate", () => {
       prompt: "Discovery call with Alex.",
       transcript: undefined,
     });
+    expect(saveSalesDocSession).toHaveBeenCalledWith(
+      { id: "session_abc" },
+      {
+        prompt: "Discovery call with Alex.",
+        transcript: undefined,
+      }
+    );
+    await expect(res.json()).resolves.toEqual({
+      session: { id: "session_abc" },
+    });
+  });
+
+  it("still returns the generated session when persistence fails", async () => {
+    (generateSalesDoc as jest.Mock).mockResolvedValue({ id: "session_abc" });
+    (saveSalesDocSession as jest.Mock).mockRejectedValue(new Error("db down"));
+
+    const res = await POST(
+      makeRequest({ prompt: "Discovery call.", transcript: "Call notes" })
+    );
+
+    expect(res.status).toBe(200);
+    expect(saveSalesDocSession).toHaveBeenCalledWith(
+      { id: "session_abc" },
+      {
+        prompt: "Discovery call.",
+        transcript: "Call notes",
+      }
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[sales-docs/generate] failed to persist session",
+      expect.any(Error)
+    );
     await expect(res.json()).resolves.toEqual({
       session: { id: "session_abc" },
     });

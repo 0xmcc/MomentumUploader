@@ -23,3 +23,32 @@ export function isMissingColumnError(
         message.includes(`could not find the '${column}' column of "${table}"`)
     );
 }
+
+export function isMissingTableError(
+    error: SupabaseErrorLike | null | undefined,
+    table: string
+): boolean {
+    const message = readErrorMessage(error);
+    if (!message) return error?.code === "42P01" || error?.code === "PGRST205";
+
+    const tableName = table.toLowerCase();
+    const unqualifiedTable = tableName.split(".").pop() ?? tableName;
+    const qualifiedTable = tableName.includes(".")
+        ? tableName
+        : `public.${tableName}`;
+    const mentionsTable =
+        message.includes(`"${qualifiedTable}"`) ||
+        message.includes(`'${qualifiedTable}'`) ||
+        message.includes(` ${qualifiedTable}`) ||
+        message.includes(`"${unqualifiedTable}"`) ||
+        message.includes(`'${unqualifiedTable}'`) ||
+        message.includes(` ${unqualifiedTable}`) ||
+        message.includes(`table ${unqualifiedTable}`);
+
+    return (
+        ((error?.code === "42P01" || error?.code === "PGRST205") &&
+            mentionsTable) ||
+        (message.includes("does not exist") && mentionsTable) ||
+        (message.includes("could not find the table") && mentionsTable)
+    );
+}
