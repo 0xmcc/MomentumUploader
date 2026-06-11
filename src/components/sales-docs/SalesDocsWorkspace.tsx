@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { MessageCircle } from "lucide-react";
 import "./sales-docs.css";
 import type { SalesSession } from "@/data/salesDocTypes";
 import ArtifactDocument from "./ArtifactDocument";
@@ -30,6 +31,9 @@ export default function SalesDocsWorkspace({
   const [activeSessionId, setActiveSessionId] = useState(initialSessions[0].id);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [isSidebarDrawerOpen, setSidebarDrawerOpen] = useState(false);
+  const [isLiveDrawerOpen, setLiveDrawerOpen] = useState(false);
+  const [isChatDrawerOpen, setChatDrawerOpen] = useState(false);
 
   const session =
     sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
@@ -38,6 +42,11 @@ export default function SalesDocsWorkspace({
     ...sessions.map((s) => ({ id: s.id as string | null, label: s.sidebarLabel, lastActive: s.lastActive })),
     ...staticSessions.map((s) => ({ id: null, label: s.label, lastActive: s.lastActive })),
   ];
+
+  function handleSelectSession(id: string) {
+    setActiveSessionId(id);
+    setSidebarDrawerOpen(false);
+  }
 
   async function handleGenerate(prompt: string) {
     if (pendingPrompt) return;
@@ -70,13 +79,18 @@ export default function SalesDocsWorkspace({
     }
   }
 
-  return (
-    <div className="sd-root flex h-full w-full overflow-hidden text-[var(--sd-text)]">
+  function renderSidebar() {
+    return (
       <Sidebar
         sessions={sidebarSessions}
         activeSessionId={session.id}
-        onSelectSession={setActiveSessionId}
+        onSelectSession={handleSelectSession}
       />
+    );
+  }
+
+  function renderChatPanel() {
+    return (
       <ChatPanel
         key={`chat-${session.id}`}
         prompt={session.doc.sourceInputs.prompt}
@@ -85,17 +99,104 @@ export default function SalesDocsWorkspace({
         pendingPrompt={pendingPrompt}
         error={generationError}
       />
+    );
+  }
+
+  function renderLiveCoachingPanel() {
+    return (
+      <LiveCoachingPanel
+        liveCoaching={session.doc.liveCoaching}
+        animated={animated}
+      />
+    );
+  }
+
+  return (
+    <div className="sd-root relative flex h-full w-full overflow-hidden text-[var(--sd-text)]">
+      <div data-testid="sales-docs-sidebar-rail" className="hidden lg:contents">
+        {renderSidebar()}
+      </div>
+      <div data-testid="sales-docs-chat-rail" className="hidden md:contents">
+        {renderChatPanel()}
+      </div>
       <div className="flex min-w-0 flex-1 flex-col">
-        <WorkspaceTopBar liveCoaching={session.doc.liveCoaching} animated={animated} />
+        <WorkspaceTopBar
+          liveCoaching={session.doc.liveCoaching}
+          animated={animated}
+          onOpenSidebar={() => setSidebarDrawerOpen(true)}
+          onOpenLiveCoaching={() => setLiveDrawerOpen(true)}
+        />
         <div className="flex min-h-0 flex-1">
           {/* key forces a remount so document scroll resets per session */}
           <ArtifactDocument key={`doc-${session.id}`} doc={session.doc} />
-          <LiveCoachingPanel
-            liveCoaching={session.doc.liveCoaching}
-            animated={animated}
-          />
+          <div data-testid="sales-docs-live-rail" className="hidden xl:contents">
+            {renderLiveCoachingPanel()}
+          </div>
         </div>
       </div>
+
+      {isSidebarDrawerOpen && (
+        <div className="absolute inset-0 z-40 lg:hidden">
+          <button
+            aria-label="Close navigation"
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setSidebarDrawerOpen(false)}
+            type="button"
+          />
+          <div
+            data-testid="sales-docs-sidebar-drawer"
+            className="absolute inset-y-0 left-0 h-full lg:hidden"
+          >
+            {renderSidebar()}
+          </div>
+        </div>
+      )}
+
+      {isLiveDrawerOpen && (
+        <div className="absolute inset-0 z-40 xl:hidden">
+          <button
+            aria-label="Close live coaching"
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setLiveDrawerOpen(false)}
+            type="button"
+          />
+          <div
+            data-testid="sales-docs-live-drawer"
+            className="absolute inset-y-0 right-0 h-full max-w-[calc(100%-2rem)] xl:hidden"
+          >
+            {renderLiveCoachingPanel()}
+          </div>
+        </div>
+      )}
+
+      {isChatDrawerOpen && (
+        <div className="absolute inset-0 z-50 md:hidden">
+          <button
+            aria-label="Close assistant"
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setChatDrawerOpen(false)}
+            type="button"
+          />
+          <div
+            data-testid="sales-docs-chat-drawer"
+            className="absolute inset-x-0 bottom-0 top-14 overflow-hidden rounded-t-2xl border-t border-[var(--sd-border-strong)] bg-[var(--sd-bg)] md:hidden [&>div]:w-full [&>div]:border-r-0"
+          >
+            {renderChatPanel()}
+          </div>
+        </div>
+      )}
+
+      {!isChatDrawerOpen && (
+        <button
+          aria-label="Open assistant"
+          className="sd-gradient-btn absolute bottom-4 right-4 z-30 flex items-center gap-2 rounded-full px-4 py-3 text-[13px] font-medium shadow-2xl md:hidden"
+          onClick={() => setChatDrawerOpen(true)}
+          type="button"
+        >
+          <MessageCircle size={15} strokeWidth={2.2} />
+          Assistant
+        </button>
+      )}
     </div>
   );
 }

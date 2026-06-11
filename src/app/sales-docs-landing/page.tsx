@@ -36,6 +36,7 @@ const MOCKUP_NATIVE_WIDTH = 1512;
 const MOCKUP_NATIVE_HEIGHT = 940;
 const MOCKUP_DISPLAY_WIDTH = 1160;
 const MOCKUP_SCALE = MOCKUP_DISPLAY_WIDTH / MOCKUP_NATIVE_WIDTH;
+const MOCKUP_DISPLAY_HEIGHT = Math.round(MOCKUP_NATIVE_HEIGHT * MOCKUP_SCALE);
 
 export default function SalesDocsLandingPage() {
   return (
@@ -53,7 +54,7 @@ export default function SalesDocsLandingPage() {
         }}
       />
 
-      <div className="relative mx-auto max-w-[1200px] px-6">
+      <div className="relative mx-auto max-w-[1200px] px-4 sm:px-6">
         {/* Header */}
         <header className="flex h-[72px] items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -66,8 +67,8 @@ export default function SalesDocsLandingPage() {
             <span className="text-[17px] font-semibold tracking-tight">Sales Docs</span>
           </div>
 
-          <div className="flex items-center gap-7">
-            <nav className="flex items-center gap-7 text-[13.5px] text-[var(--sd-text-secondary)]">
+          <div className="flex items-center gap-4 lg:gap-7">
+            <nav className="hidden items-center gap-7 text-[13.5px] text-[var(--sd-text-secondary)] lg:flex">
               {NAV_LINKS.map((link) => (
                 <a key={link} href="#" className="transition-colors hover:text-[var(--sd-text)]">
                   {link}
@@ -81,7 +82,7 @@ export default function SalesDocsLandingPage() {
                 <ArrowUpRight size={13} />
               </a>
             </nav>
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2 sm:gap-2.5">
               <Link
                 href="/sales-docs"
                 className="rounded-[10px] border border-[var(--sd-border-strong)] bg-[var(--sd-panel-raised)] px-4 py-2 text-[13.5px] font-medium text-[var(--sd-text)] transition-colors hover:border-white/20"
@@ -99,7 +100,7 @@ export default function SalesDocsLandingPage() {
         </header>
 
         {/* Hero */}
-        <section className="flex flex-col items-center pt-24 text-center">
+        <section className="flex flex-col items-center pt-16 text-center md:pt-20 xl:pt-24">
           <div className="flex items-center gap-2 rounded-full border border-[var(--sd-border-strong)] bg-[rgba(17,17,24,0.7)] px-4 py-1.5">
             <Heart size={13} className="fill-[var(--sd-pink)] text-[var(--sd-pink)]" />
             <span className="text-[12.5px] text-[var(--sd-text-secondary)]">
@@ -107,11 +108,11 @@ export default function SalesDocsLandingPage() {
             </span>
           </div>
 
-          <h1 className="mt-8 max-w-[900px] text-[76px] font-semibold leading-[1.04] tracking-[-0.03em] text-[var(--sd-text)]">
+          <h1 className="mt-8 max-w-[900px] text-[clamp(40px,7vw,76px)] font-semibold leading-[1.04] tracking-[-0.03em] text-[var(--sd-text)]">
             Never enter a sales call <span className="sd-gradient-text">unprepared again.</span>
           </h1>
 
-          <p className="mt-7 max-w-[640px] text-[18px] leading-[1.6] text-[var(--sd-text-muted)]">
+          <p className="mt-5 max-w-[640px] text-[16px] leading-[1.55] text-[var(--sd-text-muted)] md:mt-7 md:text-[18px] md:leading-[1.6]">
             Paste a transcript, describe the prospect, or record live. Sales Docs turns your
             sales frameworks into tailored call briefs, discovery questions, pitch scripts,
             objection prep, and real-time coaching.
@@ -119,14 +120,14 @@ export default function SalesDocsLandingPage() {
 
           <Link
             href="/sales-docs"
-            className="sd-gradient-btn mt-9 flex items-center gap-2.5 rounded-full px-7 py-3.5 text-[15.5px] font-medium"
+            className="sd-gradient-btn mt-7 flex items-center gap-2.5 rounded-full px-7 py-3.5 text-[15.5px] font-medium md:mt-9"
           >
             Generate a call prep doc
             <ArrowRight size={16} strokeWidth={2.2} />
           </Link>
 
           {/* Feature row */}
-          <div className="mt-14 flex items-center gap-12">
+          <div className="mt-10 flex flex-col items-start gap-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center sm:gap-8 xl:mt-14 xl:gap-12">
             {FEATURES.map(({ icon: Icon, title, subtitle }) => (
               <div key={title} className="flex items-center gap-3.5">
                 <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[var(--sd-border)] bg-[rgba(17,17,24,0.7)]">
@@ -143,21 +144,23 @@ export default function SalesDocsLandingPage() {
       </div>
 
       {/* Product mockup — the real /sales-docs workspace, scaled down */}
-      <section className="relative mx-auto mt-20 max-w-[1200px] px-6 pb-24">
+      <section className="relative mx-auto mt-14 max-w-[1200px] px-4 pb-24 md:mt-20 sm:px-6">
         <div
           aria-hidden
+          data-testid="sales-docs-product-mockup"
           className="pointer-events-none mx-auto select-none overflow-hidden rounded-2xl border border-[rgba(139,92,246,0.3)]"
           style={{
-            width: MOCKUP_DISPLAY_WIDTH,
-            height: Math.round(MOCKUP_NATIVE_HEIGHT * MOCKUP_SCALE),
+            width: `min(${MOCKUP_DISPLAY_WIDTH}px, calc(100vw - 32px))`,
+            aspectRatio: `${MOCKUP_DISPLAY_WIDTH} / ${MOCKUP_DISPLAY_HEIGHT}`,
             boxShadow:
               "0 0 80px rgba(139, 92, 246, 0.22), 0 0 120px rgba(236, 72, 153, 0.12), 0 30px 80px rgba(0, 0, 0, 0.6)",
           }}
         >
           <div
+            data-testid="sales-docs-product-mockup-inner"
             style={{
-              width: MOCKUP_NATIVE_WIDTH,
-              height: MOCKUP_NATIVE_HEIGHT,
+              width: `calc(100% / ${MOCKUP_SCALE})`,
+              height: `calc(100% / ${MOCKUP_SCALE})`,
               transform: `scale(${MOCKUP_SCALE})`,
               transformOrigin: "top left",
             }}
