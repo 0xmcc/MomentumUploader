@@ -12,7 +12,17 @@ export const metadata: Metadata = {
     "AI call prep workspace: tailored briefs, Belief Ladder discovery, pitch scripts, and live coaching.",
 };
 
-export default async function SalesDocsPage() {
+export default async function SalesDocsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ prompt?: string }>;
+} = {}) {
+  const params = await searchParams;
+  const initialPrompt =
+    typeof params?.prompt === "string" && params.prompt.trim()
+      ? params.prompt
+      : undefined;
+
   let persistedSessions: SalesSession[] = [];
   try {
     persistedSessions = await listSalesDocSessions();
@@ -29,6 +39,7 @@ export default async function SalesDocsPage() {
       <SalesDocsWorkspace
         sessions={hasPersistedSessions ? persistedSessions : mockSessions}
         staticSessions={hasPersistedSessions ? [] : staticRecentSessions}
+        initialPrompt={initialPrompt}
       />
     </main>
   );

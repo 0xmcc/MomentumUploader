@@ -22,16 +22,11 @@ Live coaching, the recording route, and pixel-diff polish are all post-MVP.
        at runtime (one corrective retry).
 2. [x] **Wire the chat composer** — composer submits, loading bubble while
        generating, error banner on failure, new session prepends + activates.
-3. [x] **Persistence (code)** — `sales_doc_sessions` migration + data access
-       (`src/lib/sales-doc-sessions.ts`); generate route saves best-effort;
-       `/sales-docs` lists persisted sessions, falls back to mocks on empty/
-       missing-table/error (§4).
-       ⚠️ Migration NOT applied: local/remote migration histories are diverged
-       (5 local files unrecorded remotely, 4 remote-only entries — see
-       `supabase migration list`). Don't blind `db push`; apply
-       `supabase/migrations/20260611152301_add_sales_doc_sessions.sql` alone
-       (dashboard SQL editor or psql), then
-       `supabase migration repair --status applied 20260611152301`.
+3. [x] **Persistence** — `sales_doc_sessions` migration applied 2026-06-12;
+       data access (`src/lib/sales-doc-sessions.ts`); generate route saves
+       best-effort; `/sales-docs` lists persisted sessions, falls back to mocks
+       on empty/error. Migration history reconciled (22 local-only repaired,
+       34 remote-only reverted, `db push --include-all` applied cleanly).
 4. [~] **Auth-gate** `/sales-docs` deferred; landing CTAs ("Generate a call
        prep doc", "Get started", "Sign in") now route to `/sales-docs` (§5).
 5. [x] **Minimum interaction credibility** — section + document copy-to-clipboard

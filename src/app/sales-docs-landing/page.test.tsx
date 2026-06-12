@@ -8,6 +8,26 @@ jest.mock("@/components/sales-docs/SalesDocsWorkspace", () => ({
   default: () => <div data-testid="mock-sales-docs-workspace" />,
 }));
 
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({ push: jest.fn() }),
+}));
+
+describe("SalesDocsLandingPage hero prompt", () => {
+  it("replaces the CTA link with a first-prompt form", () => {
+    render(<SalesDocsLandingPage />);
+
+    expect(
+      screen.getByPlaceholderText("Describe your client or situation...")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Generate a call prep doc" })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /Generate a call prep doc/ })
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe("SalesDocsLandingPage responsive layout", () => {
   it("uses fluid hero type and a scale-to-fit product mockup", () => {
     render(<SalesDocsLandingPage />);

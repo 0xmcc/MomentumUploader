@@ -41,6 +41,21 @@ describe("SalesDocsPage", () => {
     );
   });
 
+  it("forwards the landing prompt to the workspace as initialPrompt", async () => {
+    (listSalesDocSessions as jest.Mock).mockResolvedValue([]);
+
+    render(
+      await SalesDocsPage({
+        searchParams: Promise.resolve({ prompt: "Prep me for Jamie" }),
+      })
+    );
+
+    expect(SalesDocsWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ initialPrompt: "Prep me for Jamie" }),
+      undefined
+    );
+  });
+
   it("falls back to the mock spike sessions when none are persisted", async () => {
     (listSalesDocSessions as jest.Mock).mockResolvedValue([]);
 

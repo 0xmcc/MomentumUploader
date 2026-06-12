@@ -30,6 +30,7 @@ export default function ChatPanel({
   onGenerate,
   pendingPrompt = null,
   error = null,
+  showSessionChat = true,
 }: {
   prompt: string;
   chat: ChatSession;
@@ -37,6 +38,8 @@ export default function ChatPanel({
   onGenerate?: (prompt: string) => void;
   pendingPrompt?: string | null;
   error?: string | null;
+  /** Off while seeding a new session: the pending prompt is the first message. */
+  showSessionChat?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -70,54 +73,58 @@ export default function ChatPanel({
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-2">
-        {/* User prompt */}
-        <div className="flex items-end justify-end gap-2">
-          <div className="max-w-[85%] rounded-2xl rounded-br-md border border-[rgba(139,92,246,0.25)] bg-[rgba(99,82,200,0.22)] px-3.5 py-3">
-            <p className="text-[12.5px] leading-relaxed text-[var(--sd-text)]">{prompt}</p>
-            <div className="mt-2 text-[10px] text-[var(--sd-text-faint)]">
-              {chat.userTimestamp}
-            </div>
-          </div>
-          <UserAvatar name={userName} />
-        </div>
-
-        {/* Assistant intro */}
-        <div className="mt-4 flex items-end gap-2">
-          <AssistantAvatar />
-          <div className="max-w-[85%] rounded-2xl rounded-bl-md border border-[var(--sd-border)] bg-[var(--sd-panel-raised)] px-3.5 py-3">
-            <p className="text-[12.5px] leading-relaxed text-[var(--sd-text-secondary)]">
-              {chat.assistantIntro}
-            </p>
-            <div className="mt-2 text-[10px] text-[var(--sd-text-faint)]">
-              {chat.assistantTimestamp}
-            </div>
-          </div>
-        </div>
-
-        {/* Generated checklist */}
-        <div className="mt-3 ml-8 rounded-xl border border-[var(--sd-border)] bg-[var(--sd-panel)] px-3.5 py-3">
-          <div className="flex flex-col gap-2.5">
-            {chat.generatedChecklist.map((item) => (
-              <div key={item} className="flex items-center gap-2.5">
-                <CheckCircle2 size={14} className="shrink-0 text-[var(--sd-green)]" />
-                <span className="text-[12px] text-[var(--sd-text-secondary)]">{item}</span>
+        {showSessionChat && (
+          <>
+          {/* User prompt */}
+          <div className="flex items-end justify-end gap-2">
+            <div className="max-w-[85%] rounded-2xl rounded-br-md border border-[rgba(139,92,246,0.25)] bg-[rgba(99,82,200,0.22)] px-3.5 py-3">
+              <p className="text-[12.5px] leading-relaxed text-[var(--sd-text)]">{prompt}</p>
+              <div className="mt-2 text-[10px] text-[var(--sd-text-faint)]">
+                {chat.userTimestamp}
               </div>
-            ))}
+            </div>
+            <UserAvatar name={userName} />
           </div>
-        </div>
 
-        {/* Assistant outro */}
-        <div className="mt-4 flex items-end gap-2">
-          <AssistantAvatar />
-          <div className="max-w-[85%] rounded-2xl rounded-bl-md border border-[var(--sd-border)] bg-[var(--sd-panel-raised)] px-3.5 py-3">
-            <p className="text-[12.5px] leading-relaxed text-[var(--sd-text-secondary)]">
-              {chat.assistantOutro}
-            </p>
-            <div className="mt-2 text-[10px] text-[var(--sd-text-faint)]">
-              {chat.assistantTimestamp}
+          {/* Assistant intro */}
+          <div className="mt-4 flex items-end gap-2">
+            <AssistantAvatar />
+            <div className="max-w-[85%] rounded-2xl rounded-bl-md border border-[var(--sd-border)] bg-[var(--sd-panel-raised)] px-3.5 py-3">
+              <p className="text-[12.5px] leading-relaxed text-[var(--sd-text-secondary)]">
+                {chat.assistantIntro}
+              </p>
+              <div className="mt-2 text-[10px] text-[var(--sd-text-faint)]">
+                {chat.assistantTimestamp}
+              </div>
             </div>
           </div>
-        </div>
+
+          {/* Generated checklist */}
+          <div className="mt-3 ml-8 rounded-xl border border-[var(--sd-border)] bg-[var(--sd-panel)] px-3.5 py-3">
+            <div className="flex flex-col gap-2.5">
+              {chat.generatedChecklist.map((item) => (
+                <div key={item} className="flex items-center gap-2.5">
+                  <CheckCircle2 size={14} className="shrink-0 text-[var(--sd-green)]" />
+                  <span className="text-[12px] text-[var(--sd-text-secondary)]">{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Assistant outro */}
+          <div className="mt-4 flex items-end gap-2">
+            <AssistantAvatar />
+            <div className="max-w-[85%] rounded-2xl rounded-bl-md border border-[var(--sd-border)] bg-[var(--sd-panel-raised)] px-3.5 py-3">
+              <p className="text-[12.5px] leading-relaxed text-[var(--sd-text-secondary)]">
+                {chat.assistantOutro}
+              </p>
+              <div className="mt-2 text-[10px] text-[var(--sd-text-faint)]">
+                {chat.assistantTimestamp}
+              </div>
+            </div>
+          </div>
+          </>
+        )}
 
         {/* In-flight generation: the new prompt + a working indicator */}
         {isGenerating && (

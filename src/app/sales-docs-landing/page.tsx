@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight, FileText, Heart, ListChecks, Mic } from "lucide-react";
+import { ArrowUpRight, FileText, Heart, ListChecks, Mic } from "lucide-react";
 import "@/components/sales-docs/sales-docs.css";
+import LandingPromptForm from "@/components/sales-docs/LandingPromptForm";
 import SalesDocsWorkspace from "@/components/sales-docs/SalesDocsWorkspace";
 import { mockSessions, staticRecentSessions } from "@/data/mockSalesDoc";
 
@@ -118,13 +119,7 @@ export default function SalesDocsLandingPage() {
             objection prep, and real-time coaching.
           </p>
 
-          <Link
-            href="/sales-docs"
-            className="sd-gradient-btn mt-7 flex items-center gap-2.5 rounded-full px-7 py-3.5 text-[15.5px] font-medium md:mt-9"
-          >
-            Generate a call prep doc
-            <ArrowRight size={16} strokeWidth={2.2} />
-          </Link>
+          <LandingPromptForm className="mt-7 md:mt-9" />
 
           {/* Feature row */}
           <div className="mt-10 flex flex-col items-start gap-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center sm:gap-8 xl:mt-14 xl:gap-12">

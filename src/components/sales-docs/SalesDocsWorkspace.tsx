@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MessageCircle } from "lucide-react";
 import "./sales-docs.css";
 import type { SalesSession } from "@/data/salesDocTypes";
@@ -17,23 +17,31 @@ import WorkspaceTopBar from "./WorkspaceTopBar";
  *
  * `animated` is off when embedded as a scaled-down landing-page mockup
  * (which also leaves the composer inert — the mockup is aria-hidden).
+ *
+ * `initialPrompt` seeds a brand-new session from the landing page form:
+ * generation fires immediately and the chat shows only that prompt (no prior
+ * session transcript) until the generated session arrives.
  */
 export default function SalesDocsWorkspace({
   sessions: initialSessions,
   staticSessions = [],
   animated = true,
+  initialPrompt,
 }: {
   sessions: SalesSession[];
   staticSessions?: Array<{ label: string; lastActive: string }>;
   animated?: boolean;
+  initialPrompt?: string;
 }) {
   const [sessions, setSessions] = useState(initialSessions);
   const [activeSessionId, setActiveSessionId] = useState(initialSessions[0].id);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [isSeeding, setIsSeeding] = useState(false);
   const [isSidebarDrawerOpen, setSidebarDrawerOpen] = useState(false);
   const [isLiveDrawerOpen, setLiveDrawerOpen] = useState(false);
   const [isChatDrawerOpen, setChatDrawerOpen] = useState(false);
+  const seedFiredRef = useRef(false);
 
   const session =
     sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
@@ -79,6 +87,18 @@ export default function SalesDocsWorkspace({
     }
   }
 
+  // Seed a new session from the landing page prompt (?prompt=...). Fires
+  // once; the URL is cleaned so a refresh doesn't re-generate.
+  useEffect(() => {
+    const seed = initialPrompt?.trim();
+    if (!seed || seedFiredRef.current) return;
+    seedFiredRef.current = true;
+    window.history.replaceState(null, "", window.location.pathname);
+    setIsSeeding(true);
+    void handleGenerate(seed).finally(() => setIsSeeding(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPrompt]);
+
   function renderSidebar() {
     return (
       <Sidebar
@@ -98,6 +118,7 @@ export default function SalesDocsWorkspace({
         onGenerate={animated ? handleGenerate : undefined}
         pendingPrompt={pendingPrompt}
         error={generationError}
+        showSessionChat={!isSeeding}
       />
     );
   }
