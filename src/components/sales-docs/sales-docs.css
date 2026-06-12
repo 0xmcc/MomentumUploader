@@ -135,6 +135,34 @@
   animation: sd-blink 1.6s ease-in-out infinite;
 }
 
+/* Skeleton placeholder bars for the generating-document state */
+@keyframes sd-skeleton-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+.sd-skeleton {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  animation: sd-skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+/* One-time fade-in when a generated document replaces the skeleton */
+@keyframes sd-doc-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.sd-doc-enter {
+  animation: sd-doc-enter 0.3s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sd-skeleton, .sd-doc-enter, .sd-blink, .sd-wave-bar {
+    animation: none;
+  }
+}
+
 /* Document section hover affordances (edit/copy/regenerate icons) */
 .sd-doc-section .sd-section-actions {
   opacity: 0;

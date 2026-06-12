@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import type { SalesDoc } from "@/data/salesDocTypes";
 
-const OUTLINE = [
+export const OUTLINE = [
   { id: "sd-brief", label: "Brief" },
   { id: "sd-diagnosis", label: "Diagnosis" },
   { id: "sd-discovery", label: "Discovery" },
@@ -412,7 +412,7 @@ export default function ArtifactDocument({ doc }: { doc: SalesDoc }) {
 
           {/* Document canvas */}
           <article
-            className="min-w-0 flex-1 rounded-2xl border border-[var(--sd-border)] bg-[var(--sd-paper)] px-12 py-12"
+            className="sd-doc-enter min-w-0 flex-1 rounded-2xl border border-[var(--sd-border)] bg-[var(--sd-paper)] px-12 py-12"
             style={{ boxShadow: "var(--sd-shadow-panel)" }}
           >
             {/* Doc header */}
