@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, CheckCircle2, ClipboardPaste, FileText, Lightbulb, Upload } from "lucide-react";
 import type { ChatSession } from "@/data/salesDocTypes";
+import WhimsicalLoadingSpinner from "./WhimsicalLoadingSpinner";
 
 function AssistantAvatar() {
   return (
@@ -140,10 +141,7 @@ export default function ChatPanel({
             <div className="mt-4 flex items-end gap-2">
               <AssistantAvatar />
               <div className="max-w-[85%] rounded-2xl rounded-bl-md border border-[var(--sd-border)] bg-[var(--sd-panel-raised)] px-3.5 py-3">
-                <p className="flex items-center gap-2 text-[12.5px] leading-relaxed text-[var(--sd-text-secondary)]">
-                  <span className="sd-blink h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--sd-purple)]" />
-                  Generating your call prep document… this can take a minute.
-                </p>
+                <WhimsicalLoadingSpinner />
               </div>
             </div>
           </>

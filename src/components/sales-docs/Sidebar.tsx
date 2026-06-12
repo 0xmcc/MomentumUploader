@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   BarChart3,
   FileText,
@@ -44,7 +45,7 @@ export default function Sidebar({
   return (
     <aside className="flex h-full w-[236px] shrink-0 flex-col border-r border-[var(--sd-border)] bg-[var(--sd-bg)]">
       {/* Logo row */}
-      <div className="flex items-center gap-2.5 px-4 pt-5 pb-4">
+      <Link href="/sales-docs-landing" className="flex items-center gap-2.5 px-4 pt-5 pb-4 transition-opacity hover:opacity-80">
         <div
           className="flex h-7 w-7 items-center justify-center rounded-lg text-white"
           style={{ background: "var(--sd-gradient-btn)" }}
@@ -57,7 +58,7 @@ export default function Sidebar({
         <span className="rounded-md border border-[var(--sd-border-strong)] bg-[var(--sd-panel-raised)] px-1.5 py-px text-[10px] font-medium text-[var(--sd-text-secondary)]">
           Pro
         </span>
-      </div>
+      </Link>
 
       {/* New Session */}
       <div className="px-3 pb-4">

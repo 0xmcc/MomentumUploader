@@ -133,7 +133,7 @@ describe("SalesDocsWorkspace initial prompt seeding", () => {
       within(chatRail).queryByText(mockSessions[0].doc.sourceInputs.prompt)
     ).not.toBeInTheDocument();
     expect(
-      within(chatRail).getByText(/Generating your call prep document/)
+      within(chatRail).getByTestId("sales-docs-generating-indicator")
     ).toBeInTheDocument();
 
     expect(screen.getByTestId("sales-docs-generating-canvas")).toBeInTheDocument();
