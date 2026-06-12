@@ -28,8 +28,10 @@ function formatRelativeLastActive(createdAt: string | null | undefined): string 
 
 export async function saveSalesDocSession(
   session: SalesSession,
-  input: { prompt: string; transcript?: string }
+  input: { prompt: string; transcript?: string; userId: string }
 ): Promise<void> {
+  await ensureSalesDocUserExists(input.userId);
+
   const { error } = await supabaseAdmin.from(SALES_DOC_SESSIONS_TABLE).insert({
     id: session.id,
     title: session.doc.documentMetadata.title,
@@ -37,7 +39,7 @@ export async function saveSalesDocSession(
     prompt: input.prompt,
     transcript: input.transcript ?? null,
     session_json: session,
-    user_id: null,
+    user_id: input.userId,
   });
 
   if (!error) return;
@@ -52,12 +54,27 @@ export async function saveSalesDocSession(
   throw error;
 }
 
+async function ensureSalesDocUserExists(userId: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from("users")
+    .upsert({ id: userId }, { onConflict: "id", ignoreDuplicates: true });
+
+  if (error) {
+    console.error("[sales-doc-sessions] failed to provision user", {
+      userId,
+      error,
+    });
+  }
+}
+
 export async function listSalesDocSessions(
+  userId: string,
   limit = 20
 ): Promise<SalesSession[]> {
   const { data, error } = await supabaseAdmin
     .from(SALES_DOC_SESSIONS_TABLE)
     .select("session_json, created_at")
+    .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(limit);
 

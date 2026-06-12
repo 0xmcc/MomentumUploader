@@ -7,6 +7,11 @@ import {
   SalesDocGenerationError,
 } from "@/lib/sales-doc-generation";
 import { saveSalesDocSession } from "@/lib/sales-doc-sessions";
+import { auth } from "@clerk/nextjs/server";
+
+jest.mock("@clerk/nextjs/server", () => ({
+  auth: jest.fn(),
+}));
 
 jest.mock("@/lib/sales-doc-generation", () => {
   class SalesDocGenerationError extends Error {}
@@ -31,11 +36,26 @@ describe("POST /api/sales-docs/generate", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    (auth as unknown as jest.Mock).mockResolvedValue({ userId: "user_sales_123" });
     errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
   });
 
   afterEach(() => {
     errorSpy.mockRestore();
+  });
+
+  it("returns 401 when the user is signed out", async () => {
+    (auth as unknown as jest.Mock).mockResolvedValue({ userId: null });
+    const req = makeRequest({ prompt: "Discovery call." });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(401);
+    await expect(res.json()).resolves.toEqual({
+      error: "Sign in to generate documents.",
+    });
+    expect(req.json).not.toHaveBeenCalled();
+    expect(generateSalesDoc).not.toHaveBeenCalled();
   });
 
   it("rejects an empty prompt", async () => {
@@ -69,6 +89,7 @@ describe("POST /api/sales-docs/generate", () => {
       {
         prompt: "Discovery call with Alex.",
         transcript: undefined,
+        userId: "user_sales_123",
       }
     );
     await expect(res.json()).resolves.toEqual({
@@ -90,6 +111,7 @@ describe("POST /api/sales-docs/generate", () => {
       {
         prompt: "Discovery call.",
         transcript: "Call notes",
+        userId: "user_sales_123",
       }
     );
     expect(errorSpy).toHaveBeenCalledWith(

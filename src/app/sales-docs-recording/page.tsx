@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { auth } from "@clerk/nextjs/server";
 import {
   ArrowUpRight,
   FileText,
@@ -10,6 +11,7 @@ import {
   Sun,
   Upload,
 } from "lucide-react";
+import { redirect } from "next/navigation";
 import "@/components/sales-docs/sales-docs.css";
 
 export const metadata: Metadata = {
@@ -45,7 +47,15 @@ function IdleWaveform() {
   );
 }
 
-export default function SalesDocsRecordingPage() {
+export default async function SalesDocsRecordingPage() {
+  const { userId } = await auth();
+
+  if (!userId) {
+    redirect(
+      `/sign-in?redirect_url=${encodeURIComponent("/sales-docs-recording")}`
+    );
+  }
+
   return (
     <main className="sd-root fixed inset-0 z-50 flex h-dvh w-screen bg-[var(--sd-bg)]">
       {/* Sidebar */}

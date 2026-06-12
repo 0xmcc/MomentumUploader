@@ -27,8 +27,10 @@ Live coaching, the recording route, and pixel-diff polish are all post-MVP.
        best-effort; `/sales-docs` lists persisted sessions, falls back to mocks
        on empty/error. Migration history reconciled (22 local-only repaired,
        34 remote-only reverted, `db push --include-all` applied cleanly).
-4. [~] **Auth-gate** `/sales-docs` deferred; landing CTAs ("Generate a call
-       prep doc", "Get started", "Sign in") now route to `/sales-docs` (§5).
+4. [x] **Auth-gate** — `/sales-docs`, `/sales-docs-recording`, and the generate
+       API are Clerk-gated (sign-in redirect preserves the landing prompt);
+       sessions are saved with `user_id` and listed per-user. Landing stays
+       public (§5).
 5. [x] **Minimum interaction credibility** — section + document copy-to-clipboard
        with Copied feedback, outline smooth-scroll with click-driven active
        state (§2). Animations and Call Brief tab skipped per cut.

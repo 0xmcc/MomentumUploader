@@ -3,6 +3,20 @@ import SalesDocsPage, { dynamic } from "./page";
 import SalesDocsWorkspace from "@/components/sales-docs/SalesDocsWorkspace";
 import { listSalesDocSessions } from "@/lib/sales-doc-sessions";
 import { mockSessions, staticRecentSessions } from "@/data/mockSalesDoc";
+import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
+
+const redirectError = new Error("NEXT_REDIRECT");
+
+jest.mock("@clerk/nextjs/server", () => ({
+  auth: jest.fn(),
+}));
+
+jest.mock("next/navigation", () => ({
+  redirect: jest.fn(() => {
+    throw redirectError;
+  }),
+}));
 
 jest.mock("@/components/sales-docs/SalesDocsWorkspace", () => ({
   __esModule: true,
@@ -16,6 +30,7 @@ jest.mock("@/lib/sales-doc-sessions", () => ({
 describe("SalesDocsPage", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (auth as unknown as jest.Mock).mockResolvedValue({ userId: "user_sales_123" });
   });
 
   it("is dynamic so Recent Sessions are fresh per request", () => {
@@ -31,7 +46,7 @@ describe("SalesDocsPage", () => {
     render(await SalesDocsPage());
 
     expect(screen.getByTestId("mock-sales-docs-workspace")).toBeInTheDocument();
-    expect(listSalesDocSessions).toHaveBeenCalledWith();
+    expect(listSalesDocSessions).toHaveBeenCalledWith("user_sales_123");
     expect(SalesDocsWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({
         sessions: persistedSessions,
@@ -54,6 +69,23 @@ describe("SalesDocsPage", () => {
       expect.objectContaining({ initialPrompt: "Prep me for Jamie" }),
       undefined
     );
+  });
+
+  it("redirects signed-out viewers to sign-in with the landing prompt preserved", async () => {
+    const prompt = "Prep me for Jamie & A/C";
+    (auth as unknown as jest.Mock).mockResolvedValue({ userId: null });
+
+    await expect(
+      SalesDocsPage({
+        searchParams: Promise.resolve({ prompt }),
+      })
+    ).rejects.toThrow("NEXT_REDIRECT");
+
+    const target = `/sales-docs?prompt=${encodeURIComponent(prompt)}`;
+    expect(redirect).toHaveBeenCalledWith(
+      `/sign-in?redirect_url=${encodeURIComponent(target)}`
+    );
+    expect(listSalesDocSessions).not.toHaveBeenCalled();
   });
 
   it("falls back to the mock spike sessions when none are persisted", async () => {

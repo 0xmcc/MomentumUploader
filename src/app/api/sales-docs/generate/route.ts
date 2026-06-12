@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import {
   generateSalesDoc,
   SalesDocGenerationError,
@@ -12,6 +13,14 @@ const MAX_PROMPT_CHARS = 4_000;
 const MAX_TRANSCRIPT_CHARS = 200_000;
 
 export async function POST(req: NextRequest): Promise<Response> {
+  const { userId } = await auth();
+  if (!userId) {
+    return Response.json(
+      { error: "Sign in to generate documents." },
+      { status: 401 }
+    );
+  }
+
   let body: { prompt?: string; transcript?: string };
   try {
     body = (await req.json()) as { prompt?: string; transcript?: string };
@@ -44,7 +53,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   try {
     const session = await generateSalesDoc({ prompt, transcript });
     try {
-      await saveSalesDocSession(session, { prompt, transcript });
+      await saveSalesDocSession(session, { prompt, transcript, userId });
     } catch (error) {
       console.error("[sales-docs/generate] failed to persist session", error);
     }
