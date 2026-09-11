@@ -1,0 +1,31 @@
+- generic [active] [ref=e1]:
+  - main [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - heading "Memos" [level=1] [ref=e13]
+          - generic [ref=e14]:
+            - button "Collapse sidebar" [ref=e15]
+            - button "New Recording" [ref=e19]
+        - textbox "Search transcripts..." [ref=e25]
+        - navigation "Workspace views" [ref=e26]:
+          - button "Record" [ref=e27]
+          - button "Feed" [ref=e32]
+      - paragraph [ref=e39]: Loading from Supabase...
+    - generic [ref=e40]:
+      - generic [ref=e41]:
+        - link "API Docs ↗" [ref=e42] [cursor=pointer]:
+          - /url: /docs
+        - button "Change theme" [ref=e44]
+      - generic [ref=e52]:
+        - generic [ref=e53]:
+          - generic [ref=e55]:
+            - heading "New Recording" [level=2] [ref=e57]
+            - paragraph [ref=e58]: Ready to record
+          - paragraph [ref=e65]: Tap the button below to start
+          - generic [ref=e67]:
+            - button "Start recording" [ref=e69]
+            - button "Upload MP3/M4A" [ref=e76]
+        - paragraph [ref=e78]: Powered by Supabase & NVIDIA NIM
+  - button "Open Next.js Dev Tools" [ref=e84] [cursor=pointer]
+  - alert [ref=e88]

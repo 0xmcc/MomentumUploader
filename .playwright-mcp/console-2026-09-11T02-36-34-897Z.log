@@ -1,0 +1,9 @@
+[     527ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/437c0_next_dist_3d3ac552._.js:2297
+[     590ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/437c0_next_dist_3d3ac552._.js:2297
+[     647ms] [WARNING] GoTrueClient@sb-wyzcizewwswwnqllzoyl-auth-token:1 (2.97.0) 2026-09-11T02:36:35.541Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key. @ http://localhost:3000/_next/static/chunks/437c0_next_dist_3d3ac552._.js:2297
+[     670ms] [LOG] [chunk-upload] effect:skip {reason: missing-memo-id, enabled: true, memoId: null, totalChunks: 0, lastUploadedIndex: 0} @ http://localhost:3000/_next/static/chunks/437c0_next_dist_3d3ac552._.js:2297
+[     728ms] [WARNING] Clerk: Clerk has been loaded with development keys. Development instances have strict usage limits and should not be used when deploying your application to production. Learn more: https://clerk.com/docs/deployments/overview @ http://localhost:3000/_next/static/chunks/437c0_next_dist_3d3ac552._.js:2297
+[   18588ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/437c0_next_dist_3d3ac552._.js:2297
+[   18609ms] [LOG] [Fast Refresh] done in 105ms @ http://localhost:3000/_next/static/chunks/437c0_next_dist_3d3ac552._.js:2297
+[   20359ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/437c0_next_dist_3d3ac552._.js:2297
+[   20378ms] [LOG] [Fast Refresh] done in 93ms @ http://localhost:3000/_next/static/chunks/437c0_next_dist_3d3ac552._.js:2297

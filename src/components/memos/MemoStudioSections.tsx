@@ -174,6 +174,32 @@ function AuthControls() {
   );
 }
 
+function StudioSectionToggle({
+  label,
+  expanded,
+  onToggle,
+}: {
+  label: string;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      className="studio-section-toggle flex items-center gap-2 text-white/70 hover:text-white/90 font-semibold text-base transition-colors"
+    >
+      {expanded ? (
+        <ChevronUp size={18} className="studio-section-toggle-icon" />
+      ) : (
+        <ChevronDown size={18} className="studio-section-toggle-icon" />
+      )}
+      {label}
+    </button>
+  );
+}
+
 export const MemoTranscript = React.memo(function MemoTranscript({
   transcript,
   transcriptSegments,
@@ -310,6 +336,7 @@ export function MemoDetailView({
   const [editValue, setEditValue] = useState("");
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [titleError, setTitleError] = useState<string | null>(null);
+  const [showTranscript, setShowTranscript] = useState(true);
   const [showVoiceoverStudio, setShowVoiceoverStudio] = useState(false);
   const [showTranscriptTimestamps, setShowTranscriptTimestamps] = useState(() => {
     if (typeof window === "undefined") {
@@ -599,23 +626,22 @@ export function MemoDetailView({
             </div>
           )}
 
-          {transcriptPanel}
+          <div className="flex flex-col gap-4 min-h-0">
+            <StudioSectionToggle
+              label="Transcript"
+              expanded={showTranscript}
+              onToggle={() => setShowTranscript((v) => !v)}
+            />
+            {showTranscript && transcriptPanel}
+          </div>
 
           {!isFailed && memo.transcript && memo.url && (
-            <div className="mt-2">
-              <button
-                type="button"
-                onClick={() => setShowVoiceoverStudio((v) => !v)}
-                className="voiceover-studio-toggle flex items-center gap-2 text-white/70 hover:text-white/90 font-semibold text-base transition-colors"
-                aria-expanded={showVoiceoverStudio}
-              >
-                {showVoiceoverStudio ? (
-                  <ChevronUp size={18} className="voiceover-studio-toggle-icon" />
-                ) : (
-                  <ChevronDown size={18} className="voiceover-studio-toggle-icon" />
-                )}
-                Voiceover Studio
-              </button>
+            <div className="flex flex-col gap-4">
+              <StudioSectionToggle
+                label="Voiceover Studio"
+                expanded={showVoiceoverStudio}
+                onToggle={() => setShowVoiceoverStudio((v) => !v)}
+              />
               {showVoiceoverStudio && <VoiceoverStudio memo={memo} />}
             </div>
           )}

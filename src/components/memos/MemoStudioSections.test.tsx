@@ -229,6 +229,109 @@ describe("MemoDetailView", () => {
     expect(blocks[0]).toHaveTextContent("Forty two seconds in.");
   });
 
+  it("presents Transcript and Voiceover Studio as peer collapsible sections", () => {
+    const memo = {
+      id: "memo-sections-1",
+      title: "Sections Memo",
+      transcript: "Transcript body copy.",
+      url: "https://example.com/memo-sections-1.webm",
+      createdAt: "2026-03-16T12:00:00.000Z",
+      wordCount: 3,
+    } as never;
+
+    const { container } = render(<MemoDetailView memo={memo} />);
+
+    const transcriptToggle = screen.getByRole("button", { name: "Transcript" });
+    const voiceoverToggle = screen.getByRole("button", { name: "Voiceover Studio" });
+
+    expect(transcriptToggle).toHaveClass("studio-section-toggle");
+    expect(voiceoverToggle).toHaveClass("studio-section-toggle");
+
+    const toggles = container.querySelectorAll(".studio-section-toggle");
+    expect(toggles).toHaveLength(2);
+    expect(toggles[0]).toBe(transcriptToggle);
+    expect(toggles[1]).toBe(voiceoverToggle);
+
+    expect(
+      transcriptToggle.querySelector(".studio-section-toggle-icon")
+    ).not.toBeNull();
+    expect(
+      voiceoverToggle.querySelector(".studio-section-toggle-icon")
+    ).not.toBeNull();
+  });
+
+  it("expands the transcript by default and collapses it on toggle", () => {
+    const memo = {
+      id: "memo-sections-2",
+      title: "Sections Memo",
+      transcript: "Transcript body copy.",
+      url: "https://example.com/memo-sections-2.webm",
+      createdAt: "2026-03-16T12:00:00.000Z",
+      wordCount: 3,
+    } as never;
+
+    render(<MemoDetailView memo={memo} />);
+
+    const transcriptToggle = screen.getByRole("button", { name: "Transcript" });
+    expect(transcriptToggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Transcript body copy.")).toBeInTheDocument();
+
+    fireEvent.click(transcriptToggle);
+
+    expect(
+      screen.getByRole("button", { name: "Transcript" })
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Transcript body copy.")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Transcript" }));
+    expect(screen.getByText("Transcript body copy.")).toBeInTheDocument();
+  });
+
+  it("collapses the transcript and Voiceover Studio independently", () => {
+    const memo = {
+      id: "memo-sections-3",
+      title: "Sections Memo",
+      transcript: "Transcript body copy.",
+      url: "https://example.com/memo-sections-3.webm",
+      createdAt: "2026-03-16T12:00:00.000Z",
+      wordCount: 3,
+    } as never;
+
+    render(<MemoDetailView memo={memo} />);
+
+    expect(screen.queryByTestId("voiceover-studio")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Voiceover Studio" }));
+    expect(screen.getByTestId("voiceover-studio")).toBeInTheDocument();
+    expect(screen.getByText("Transcript body copy.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Transcript" }));
+    expect(screen.queryByText("Transcript body copy.")).toBeNull();
+    expect(screen.getByTestId("voiceover-studio")).toBeInTheDocument();
+  });
+
+  it("keeps the timestamp control inside the expanded transcript section", () => {
+    const memo = {
+      id: "memo-sections-4",
+      title: "Sections Memo",
+      transcript: "Fallback transcript.",
+      url: "https://example.com/memo-sections-4.webm",
+      createdAt: "2026-03-16T12:00:00.000Z",
+      wordCount: 4,
+      transcriptSegments: [
+        { id: "0", startMs: 0, endMs: 1000, text: "First segment." },
+      ],
+    } as never;
+
+    render(<MemoDetailView memo={memo} />);
+
+    expect(screen.getByRole("button", { name: "Show timestamps" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Transcript" }));
+
+    expect(screen.queryByRole("button", { name: "Show timestamps" })).toBeNull();
+  });
+
   it("uses a single-column detail layout without the memo room sidebar", () => {
     const { container } = render(
       <MemoDetailView

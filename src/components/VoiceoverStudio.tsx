@@ -39,7 +39,7 @@ export default function VoiceoverStudio({ memo }: VoiceoverStudioProps) {
   const canPlay = voState === "ready" && Boolean(voObjectUrl);
 
   return (
-    <section className="mt-10 rounded-3xl border border-white/10 bg-white/[0.02] p-5 sm:p-6 shadow-[0_20px_40px_rgba(0,0,0,0.35)]">
+    <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-5 sm:p-6 shadow-[0_20px_40px_rgba(0,0,0,0.35)]">
       <audio ref={audioRef} src={voObjectUrl ?? undefined} preload="metadata" />
 
       <div className="flex items-center justify-between gap-4 pb-4 border-b border-white/10">
