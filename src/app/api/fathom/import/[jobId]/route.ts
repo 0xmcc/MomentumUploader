@@ -4,6 +4,7 @@ import {
   FathomTimeoutError,
   getImportRun,
   processImportRunPage,
+  serializeImportRun,
 } from "@/lib/fathom-import";
 import { resolveMemoUserId } from "@/lib/memo-api-auth";
 
@@ -38,16 +39,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
   }
 
   if (run.status === "succeeded" || run.status === "failed") {
-    return json({
-      jobId: run.id,
-      status: run.status,
-      imported: run.imported_count,
-      meetings: run.meeting_count,
-      processedPages: run.processed_pages,
-      startedAt: run.started_at,
-      completedAt: run.completed_at,
-      error: run.last_error,
-    });
+    return json(serializeImportRun(run));
   }
 
   const fathomApiKey = process.env.FATHOM_API_KEY?.trim();

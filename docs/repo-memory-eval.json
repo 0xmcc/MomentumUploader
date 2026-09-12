@@ -1,0 +1,215 @@
+{
+  "version": 1,
+  "description": "Clean-session retrieval evaluation for the MomentumUploader repo-memory CLI. A case passes when every path in requiredTop5 appears within the first five results and every path in requiredTop10 appears within the first ten results.",
+  "cases": [
+    {
+      "id": "frontend-workspace-routing",
+      "question": "Where does the main memo UI decide whether to show the recorder, transcript feed, or selected memo, and what stops a user from switching views during a live recording?",
+      "requiredTop5": [
+        "src/app/page.tsx"
+      ],
+      "requiredTop10": [
+        "src/components/memos/MemoStudioSections.tsx"
+      ],
+      "notes": "Tests retrieval of the Home component, its record/feed/detail branch, and the live-recording confirmation boundary."
+    },
+    {
+      "id": "frontend-workspace-state-owner",
+      "question": "Which code owns memo pagination, bookmarks, search, optimistic upload rows, selected-memo detail refresh, title updates, and Fathom import polling?",
+      "requiredTop5": [
+        "src/hooks/useMemosWorkspace.ts"
+      ],
+      "requiredTop10": [
+        "src/app/page.tsx",
+        "src/lib/memo-ui.ts"
+      ],
+      "notes": "The workspace hook should rank first or nearly first because all named state machines converge there."
+    },
+    {
+      "id": "frontend-manual-audio-upload",
+      "question": "What exact browser-to-server path does a manually selected MP3 or M4A take before it becomes a finalized memo?",
+      "requiredTop5": [
+        "src/components/AudioRecorder.tsx",
+        "src/lib/audio-upload.ts"
+      ],
+      "requiredTop10": [
+        "src/app/api/memos/live/route.ts",
+        "src/app/api/transcribe/upload-chunks/route.ts",
+        "src/app/api/transcribe/finalize/route.ts"
+      ],
+      "notes": "Distinguishes the current signed-upload path from the older FormData-to-/api/transcribe description."
+    },
+    {
+      "id": "frontend-live-recording-pipeline",
+      "question": "Trace a live microphone recording from the first captured chunk through live transcript updates, signed chunk uploads, and finalization after Stop.",
+      "requiredTop5": [
+        "src/components/AudioRecorder.tsx",
+        "src/hooks/useLiveTranscription.session.ts",
+        "src/hooks/useChunkUpload.ts"
+      ],
+      "requiredTop10": [
+        "src/hooks/useLiveTranscription.persistence.ts",
+        "src/hooks/useLiveTranscription.share.ts",
+        "src/app/api/transcribe/finalize/route.ts"
+      ],
+      "notes": "Multi-hop flow case intended to exercise both semantic retrieval and call-graph edges."
+    },
+    {
+      "id": "frontend-detail-sections",
+      "question": "Where are Transcript and Voiceover Studio made into independently collapsible sections, and where is the timestamp preference persisted?",
+      "requiredTop5": [
+        "src/components/memos/MemoStudioSections.tsx"
+      ],
+      "requiredTop10": [
+        "src/components/VoiceoverStudio.tsx",
+        "src/hooks/useVoiceoverStudio.ts"
+      ],
+      "notes": "Targets the current main-branch MemoDetailView rather than older documentation about a monolithic transcript panel."
+    },
+    {
+      "id": "sales-docs-landing-seed",
+      "question": "How does a prospect description submitted on the Sales Docs landing page survive sign-in and automatically start a new generated workspace session?",
+      "requiredTop5": [
+        "src/components/sales-docs/LandingPromptForm.tsx",
+        "src/app/sales-docs/page.tsx",
+        "src/components/sales-docs/SalesDocsWorkspace.tsx"
+      ],
+      "requiredTop10": [
+        "src/app/sign-in/[[...sign-in]]/page.tsx",
+        "src/app/api/sales-docs/generate/route.ts"
+      ],
+      "notes": "Covers query-string handoff, Clerk redirect preservation, client-side URL cleanup, and one-shot generation."
+    },
+    {
+      "id": "sales-docs-pending-state",
+      "question": "While a Sales Doc is generating, who owns the pending sidebar row, skeleton canvas, old-session restoration, errors, and session activation on success?",
+      "requiredTop5": [
+        "src/components/sales-docs/SalesDocsWorkspace.tsx"
+      ],
+      "requiredTop10": [
+        "src/components/sales-docs/ChatPanel.tsx",
+        "src/components/sales-docs/GeneratingDocument.tsx",
+        "src/components/sales-docs/SalesDocsWorkspace.test.tsx"
+      ],
+      "notes": "The workspace component is the state owner; child panels only render the pending state and composer."
+    },
+    {
+      "id": "sales-docs-generation-contract",
+      "question": "How is Anthropic output constrained, validated, retried, and converted into the full SalesSession that the UI renders?",
+      "requiredTop5": [
+        "src/lib/sales-doc-generation.ts",
+        "src/data/salesDocTypes.ts"
+      ],
+      "requiredTop10": [
+        "src/lib/sales-doc-generation.test.ts",
+        "src/lib/sales-doc-generation.fixtures.ts"
+      ],
+      "notes": "Targets GENERATION_SCHEMA, runtime validation, the corrective retry, coaching derivation, and buildSessionFromPayload."
+    },
+    {
+      "id": "sales-docs-persistence-auth",
+      "question": "How are Sales Docs sessions scoped to the signed-in user, persisted, reloaded, and degraded when the database table is missing or saving fails?",
+      "requiredTop5": [
+        "src/app/sales-docs/page.tsx",
+        "src/app/api/sales-docs/generate/route.ts",
+        "src/lib/sales-doc-sessions.ts"
+      ],
+      "requiredTop10": [
+        "supabase/migrations/20260611152301_add_sales_doc_sessions.sql",
+        "src/lib/supabase-compat.ts"
+      ],
+      "notes": "Requires both request-level Clerk scoping and the best-effort/missing-table persistence behavior."
+    },
+    {
+      "id": "sales-docs-demo-coaching",
+      "question": "Is the Live Coaching rail connected to call audio, or is it derived preview data? Show where its waveform, belief progress, insights, and next question come from.",
+      "requiredTop5": [
+        "src/lib/sales-doc-generation.ts",
+        "src/components/sales-docs/LiveCoachingPanel.tsx"
+      ],
+      "requiredTop10": [
+        "src/data/salesDocTypes.ts",
+        "src/components/sales-docs/WorkspaceTopBar.tsx"
+      ],
+      "notes": "A correct answer should find deriveLiveCoaching and conclude that the current rail is demo-mode prep data, not realtime audio."
+    },
+    {
+      "id": "sales-docs-inert-controls",
+      "question": "Which Sales Docs controls are currently visual-only, especially upload and paste, recording, export, share, regenerate, and navigation controls?",
+      "requiredTop5": [
+        "src/components/sales-docs/ChatPanel.tsx",
+        "src/app/sales-docs-recording/page.tsx",
+        "src/components/sales-docs/ArtifactDocument.tsx"
+      ],
+      "requiredTop10": [
+        "src/components/sales-docs/Sidebar.tsx",
+        "src/components/sales-docs/WorkspaceTopBar.tsx",
+        "src/components/sales-docs/LiveCoachingPanel.tsx"
+      ],
+      "notes": "Negative-evidence case: retrieved UI definitions must show buttons without handlers rather than relying on roadmap prose alone."
+    },
+    {
+      "id": "cross-boundary-memos-to-sales-docs",
+      "question": "Can an existing Sonic Memo recording or transcript currently feed a Sales Doc, or are the two products isolated? What code proves the boundary?",
+      "requiredTop5": [
+        "src/app/page.tsx",
+        "src/app/sales-docs/page.tsx"
+      ],
+      "requiredTop10": [
+        "src/components/AudioRecorder.tsx",
+        "src/hooks/useMemosWorkspace.ts",
+        "src/components/sales-docs/SalesDocsWorkspace.tsx",
+        "src/app/api/sales-docs/generate/route.ts"
+      ],
+      "notes": "Cross-product negative case. Results must include evidence from both Sonic Memos and Sales Docs; one-sided retrieval is insufficient."
+    },
+    {
+      "id": "cross-boundary-clerk-protection",
+      "question": "Does Clerk middleware itself protect every page and API, or which Sales Docs entrypoints explicitly enforce authentication?",
+      "requiredTop5": [
+        "src/middleware.ts",
+        "src/app/sales-docs/page.tsx",
+        "src/app/api/sales-docs/generate/route.ts"
+      ],
+      "requiredTop10": [
+        "src/app/sales-docs-recording/page.tsx",
+        "src/app/layout.tsx",
+        "src/app/sign-in/[[...sign-in]]/page.tsx"
+      ],
+      "notes": "Tests the distinction between installing Clerk context globally and explicitly requiring a user in a page or route."
+    },
+    {
+      "id": "cross-boundary-signed-out-recording",
+      "question": "Why might recording from the public main page fail silently for a signed-out visitor, and what older sign-in and pending-upload path is no longer wired into Home?",
+      "requiredTop5": [
+        "src/app/page.tsx",
+        "src/components/AudioRecorder.tsx",
+        "src/hooks/useMemosWorkspace.ts"
+      ],
+      "requiredTop10": [
+        "src/hooks/useLiveTranscription.share.ts",
+        "src/app/__tests__/page.composition.test.tsx",
+        "src/lib/audio-upload.ts"
+      ],
+      "notes": "Requires noticing the intentional omission of onAudioInput, the orphaned pending-blob login flow, and the live-share 401 reset."
+    },
+    {
+      "id": "docs-codebase-map-drift",
+      "question": "Which claims in the existing codebase map are stale now that Sales Docs and the newer memo-detail and upload flows exist?",
+      "requiredTop5": [
+        "docs/codebase-map.md",
+        "src/app/sales-docs/page.tsx",
+        "src/lib/sales-doc-generation.ts"
+      ],
+      "requiredTop10": [
+        "src/components/sales-docs/SalesDocsWorkspace.tsx",
+        "src/lib/sales-doc-sessions.ts",
+        "src/components/memos/MemoStudioSections.tsx",
+        "src/lib/audio-upload.ts",
+        "docs/sales-docs-ui-spike.md",
+        "roadmap.md"
+      ],
+      "notes": "Documentation-drift case spanning the obsolete nested-repo claim, omitted Sales Docs subsystem, signed manual upload flow, and newer detail layout."
+    }
+  ]
+}

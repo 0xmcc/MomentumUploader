@@ -1,15 +1,71 @@
 # Codebase Map
 
-Last mapped: 2026-06-09
+Last mapped: 2026-09-10 (`main` at `5f8b992`)
 
-This map describes the `voice-memos/` application inside `MomentumUploader`. The root
-`/Users/marko/Code/MomentumUploader` folder is a container; the active git repo, package,
-tests, Next app, Supabase migrations, and worker live under `voice-memos/`.
+This is the canonical map for the repository rooted at
+`/Users/marko/Documents/Code/MomentumUploader`. The Next app, root package, tests,
+Supabase migrations, worker package, scripts, and native Swift sources all live directly
+under this repository root. There is no nested `voice-memos/` repository.
+
+The product currently contains two mostly separate browser applications:
+
+- **Sonic Memos** at `/`: recording, transcription, memo feed/detail, sharing,
+  collaboration, imports, voiceover, and memo-agent chat.
+- **Sales Docs** at `/sales-docs*`: authenticated AI sales-call preparation with a
+  public landing page, persisted generated sessions, and still-static recording/live
+  coaching concepts.
+
+They share the global Next.js/Clerk/theme shell, `supabaseAdmin`, the Anthropic SDK,
+and deployment, but Sales Docs does not reuse the memo recording, transcript, room,
+Fathom, OpenClaw, or agent-worker pipelines.
+
+Machine-readable named relationships live in `docs/codebase-graph.yaml`. Use this file
+for change-impact questions (`who calls this`, `what depends on this`, `what crosses the
+trust boundary`) and this Markdown map for subsystem purpose, flows, and known risks.
+
+## Durable Repository Memory
+
+This map is the always-on layer; it should remain small enough to read at the start of a
+substantial task. The graph is the relationship layer. Exact implementation truth remains
+in code and nearby tests, found with `rg` by path/symbol rather than copied into this file.
+
+Update both files when a change does any of the following:
+
+- adds/removes a runtime, route family, persistence table, provider, or auth mechanism;
+- changes the owner of client state or a cross-boundary data flow;
+- changes a named dependency edge or known blast radius;
+- resolves or introduces a risk recorded here.
+
+Do not turn this into a session log. Recent attempts, temporary debugging state, and
+unmerged plans belong in task context, not durable repo memory.
+
+The retrieval layer is `scripts/repo-memory.mjs`. It builds an ignored
+`.repo-memory/index.json` from source, tests, migrations, Swift, configuration, and
+Markdown. TypeScript/JavaScript uses the installed TypeScript compiler API for real
+top-level boundaries; Swift, SQL, and Markdown use structure-aware local parsers. The
+index stores stable chunk keys, content hashes, exact line spans, symbols, imports,
+calls, Supabase table/RPC operations, fetches, and environment-variable references.
+An index-wide resolution pass connects relative and `@/` imports, imported call names,
+local calls, and internal API fetches to target paths/symbols with resolved, probable,
+or textual confidence. Unchanged files are reused by hash, and index replacement is atomic.
+
+Retrieval is deliberately offline and deterministic. Hybrid mode combines BM25-style
+ranking, local concept normalization, explicit file references, and import/API-neighbor
+expansion. `--mode lexical` retains a strict BM25-only comparison path. There is no
+embedding service or external database. `docs/repo-memory-eval.json` contains 15
+clean-session path-recall cases; it is excluded from the index to prevent answer leakage.
+The current retrieval MVP is an orientation tool, not proof of behavior: read every cited
+range and its nearest tests before making a change. Its 2026-09-10 baseline is 3/15
+strict cases, 63.6% path recall@5, 52.7% path recall@10, and 0.751 MRR in hybrid mode.
+Lexical-only mode scores 2/15 strict, 48.5% recall@5, 40.5% recall@10, and 0.506 MRR.
+Multi-hop
+questions that require many distinct files are the clearest next retrieval-quality target.
 
 ## System Shape
 
-`voice-memos` is a Next.js App Router application for recording, uploading, transcribing,
-sharing, discussing, importing, and querying voice memos.
+`MomentumUploader` is a Next.js App Router repository whose original Sonic Memos product
+records, uploads, transcribes, shares, discusses, imports, and queries voice memos. It now
+also hosts the separate Sales Docs application.
 
 Primary runtime boundaries:
 
@@ -20,8 +76,10 @@ Primary runtime boundaries:
 - **Auth:** Clerk for web sessions, HMAC bearer tokens for desktop/API clients, OpenClaw API keys for agent runtimes.
 - **Transcription:** NVIDIA Riva/Parakeet gRPC through `src/lib/riva.ts`, with `ffmpeg-static` transcoding.
 - **LLM artifacts:** Anthropic in `src/lib/memo-artifacts.ts`.
+- **Sales-document generation:** Anthropic in `src/lib/sales-doc-generation.ts`.
 - **Memo agent worker:** separate Node package in `agent-worker/`, polling `job_runs`.
-- **Native client:** Swift sources in `MomentumMemos/`, using desktop token claims and memo APIs.
+- **Native client:** incomplete Swift source fragments in `MomentumMemos/`; they currently
+  write directly to Supabase and do not implement the repository's desktop bearer-token flow.
 
 The app generally uses Clerk or bearer auth to resolve a `userId`, then server route handlers use
 `supabaseAdmin` service-role access. RLS exists on many tables, but most server reads/writes rely on
@@ -35,13 +93,38 @@ explicit route-level ownership checks rather than RLS.
 | `src/app/page.tsx` | Main authenticated/unauthed memo workspace shell. |
 | `src/app/s/[shareRef]/route.ts` | Public share page, Markdown, JSON, and HEAD/OPTIONS rendering. |
 | `src/components/` | Client UI components for recorder, memo workspace, share chat, theme, voiceover. |
+| `src/components/sales-docs/` | Sales Docs workspace, document renderer, chat, coaching preview, drawers, and scoped CSS. |
 | `src/hooks/` | Browser state machines for recording, live transcription, chunk upload, workspace list state, playback, voiceover. |
 | `src/lib/` | Auth, Supabase, transcription, memo data contracts, sharing, rooms, OpenClaw, Fathom, jobs, artifacts. |
+| `src/data/` | Sales Docs render contract plus large mock/fallback sessions. |
 | `supabase/migrations/` | Checked-in schema evolution and SQL function tests. |
 | `agent-worker/` | Separate memo-agent job runner package and Docker image. |
 | `public/openclaw/memo-room/v1/` | Static OpenClaw skill bundle served to external agent runtimes. |
 | `docs/` | Product, schema, OpenClaw, and architecture docs. |
 | `MomentumMemos/` | Swift app sources for native recording/upload. |
+
+## Repository Scale And Hotspots
+
+At this revision the tracked repository is roughly 91k lines across 405 files. The
+application contains 52 API route handlers, 102 tests under `src`, 23 SQL migrations,
+and a separate worker test suite. Root Jest and TypeScript explicitly exclude the
+worker, and no native test/build target is checked in.
+
+Largest and/or highest-coupling files:
+
+| File | Why it matters |
+| --- | --- |
+| `src/lib/share-contract.ts` (~3,600 lines) | Generates public share HTML/CSS/JS, Markdown, JSON, boot payload, and client behavior. |
+| `src/components/memos/MemoStudioSections.tsx` (~1,371) | Owns most memo workspace presentation and several local UI state machines. |
+| `src/lib/sales-doc-generation.ts` (~1,020) | Schema/prompt, validation, retry, session assembly, and demo coaching for Sales Docs. |
+| `src/data/mockSalesDoc.ts` (~808) | Full fallback/demo data used by landing and authenticated empty/error states. |
+| `src/components/sales-docs/ArtifactDocument.tsx` (~752) | Entire Sales Doc document surface plus outline and copy behavior. |
+| `src/hooks/useMemosWorkspace.ts` (~677) | Memo list/detail, pagination, bookmarks, optimistic upload, title updates, and Fathom orchestration. |
+| `src/components/memos/MemoAgentPanel.tsx` (~562) | Public-share chat session/history, Realtime subscription, and send state. |
+| `src/lib/memo-artifacts.ts` (~510) | Artifact generation and job enqueueing. |
+
+Import fan-in makes `src/lib/supabase.ts` and `src/lib/memo-api-auth.ts` the most
+important backend dependency boundaries. Changes there have repo-wide blast radius.
 
 ## Configuration And Scripts
 
@@ -53,6 +136,13 @@ Main package: `package.json`
 - `npm run lint`: ESLint.
 - `npm run sync:openclaw-skill`: syncs OpenClaw skill bundle.
 - `npm run fetch:memos`: local fetch script.
+- `npm run memory:index`: incrementally write `.repo-memory/index.json`.
+- `npm run memory:ask -- "question"`: return ranked `path:start-end` citations; add
+  `--json`, `--limit N`, or `--mode lexical` after `--` for agent consumption.
+- `npm run memory:graph -- "path-or-symbol"`: list structural/data edges, including
+  resolved target paths and symbols with confidence when available.
+- `npm run memory:eval`: run the tracked 15-case clean-session retrieval suite.
+- `npm run test:memory`: run the dependency-free repo-memory parser/index tests.
 
 Test setup:
 
@@ -72,7 +162,8 @@ Global app shell:
 
 ## Core Data Model
 
-Canonical schema reference: `docs/database-schema.md`.
+Historical consolidated schema reference: `docs/database-schema.md` (currently stale;
+see guidance below). Migration files remain the source for changes after 2026-05-19.
 
 Important memo-native tables:
 
@@ -85,6 +176,8 @@ Important memo-native tables:
 - `memo_voiceovers`: persisted ElevenLabs speech-to-speech outputs.
 - `shared_memo_bookmarks`: signed-in viewer bookmarks for public memos.
 - `fathom_import_runs`: client-polled import state.
+- `sales_doc_sessions`: owner-scoped Sales Docs snapshots stored as JSON plus
+  redundant prompt/title/transcript/sidebar fields.
 
 Collaboration and OpenClaw tables:
 
@@ -97,6 +190,10 @@ Schema guidance:
 - Treat `memos` and `memo_transcript_segments` as the memo-native foundation.
 - Use `memo_transcript_chunks`, `memo_artifacts`, and `job_runs` for memo artifact orchestration.
 - Do not route transcript infrastructure through generic `chunks`, `items`, or generic `artifacts` unless those schemas are explicitly extended with memo semantics.
+- `docs/database-schema.md` is not currently a complete fresh-install source: it omits
+  Fathom source fields/import runs and `sales_doc_sessions`. Checked-in migrations also
+  assume pre-existing `users`, `memos`, and `job_runs` tables and the `voice-memos`
+  storage bucket/policies.
 
 ## Auth And Trust Boundaries
 
@@ -108,6 +205,12 @@ Schema guidance:
 | Public shares | `src/lib/memo-share.ts`, `src/lib/share-route.ts`, `src/app/s/[shareRef]/route.ts` | Share token validates format, revoked/expired state, and read-only response formats. |
 | Memo room participants | `src/lib/memo-rooms.ts`, `src/lib/agents.ts` | Human participants use Clerk/bearer user IDs; agent participants can use OpenClaw API keys or internal gateway headers. |
 | OpenClaw runtime auth | `src/lib/openclaw-registry.ts`, `src/app/api/openclaw/*` | Runtime secrets are SHA-256 hashed and compared timing-safely. |
+| Sales Docs | `src/app/sales-docs/page.tsx`, `src/app/sales-docs-recording/page.tsx`, `src/app/api/sales-docs/generate/route.ts` | Pages and generation explicitly call Clerk `auth()`; middleware alone does not protect them. |
+
+`src/middleware.ts` initializes Clerk across matched pages and APIs, but does not enforce
+authentication. Each page or route must still validate the viewer. Because most server
+code uses the service-role client, ownership must be enforced in the route or query before
+reading/mutating rows or storage objects.
 
 ## Main Browser Data Flow
 
@@ -115,9 +218,13 @@ Entry point: `src/app/page.tsx`
 
 1. Clerk `useUser()` decides signed-in state.
 2. `useMemosWorkspace()` owns memo list, pagination, search, selected memo, upload state, Fathom import polling, optimistic memo insertion, and selected memo detail refresh.
-3. `MemoSidebar`, `TranscriptFeedPanel`, `MemoDetailView`, and `RecorderPanel` are exported from `src/components/memos/MemoStudioSections.tsx`.
-4. `AudioRecorder` owns browser media capture and delegates to recording/live/chunk hooks.
-5. Completed recordings call `handleUploadComplete`, which creates or updates an optimistic memo row, selects it, and later reconciles with `/api/memos`.
+3. `src/app/page.tsx` owns only navigation-level state: `record` versus `feed`, the
+   selected memo, and the guard that warns before navigation stops a live recording.
+4. Exactly one center surface renders: `RecorderPanel`, `TranscriptFeedPanel`, or
+   `MemoDetailView`. The feed defaults to summarized memo posts but can show transcript rows.
+5. `MemoSidebar`, `TranscriptFeedPanel`, `MemoDetailView`, and `RecorderPanel` are exported from `src/components/memos/MemoStudioSections.tsx`.
+6. `AudioRecorder` owns browser media capture and delegates to recording/live/chunk hooks.
+7. Completed recordings call `handleUploadComplete`, which creates or updates an optimistic memo row, selects it, and later reconciles with `/api/memos`.
 
 Important state owners:
 
@@ -131,10 +238,12 @@ Important state owners:
 - `src/hooks/useChunkUpload.ts`: signed Supabase Storage chunk uploads and pruning.
 - `src/hooks/useMemoPlayback.ts`: audio playback and share-link copy state.
 - `src/hooks/useVoiceoverStudio.ts`: speech-to-speech fetch/cache/playback state.
+- `src/components/memos/MemoStudioSections.tsx`: memo-side presentation cluster; the
+  transcript and Voiceover Studio are independently collapsible peer sections.
 
 ## Recording And Transcription Flow
 
-Short/manual upload path:
+Legacy multipart upload path (still implemented, but no longer wired from production `Home`):
 
 1. UI sends `FormData(file, memoId?, provisionalTranscript?)` to `POST /api/transcribe`.
 2. `src/app/api/transcribe/route.ts` resolves user ID and delegates to `src/app/api/transcribe/workflow-*`.
@@ -145,6 +254,13 @@ Short/manual upload path:
 7. `updateMemoFinal()` stores transcript, generates title, persists final segments, compacts chunks, and runs/enqueues artifact jobs.
 8. If ASR fails after audio storage, `updateMemoFailed()` marks the memo failed but returns a degraded success response with saved audio.
 
+Current manual MP3/M4A path:
+
+1. `src/lib/audio-upload.ts` creates a live memo.
+2. It requests signed chunk-upload data from `/api/transcribe/upload-chunks`.
+3. The browser uploads the file directly with Supabase `uploadToSignedUrl`.
+4. It calls `/api/transcribe/finalize`, sharing the same finalization path as recordings.
+
 Live/long recording path:
 
 1. `useLiveTranscriptionShare.startLiveShareSession()` calls `POST /api/memos/live`, then `POST /api/memos/[id]/share`.
@@ -153,6 +269,10 @@ Live/long recording path:
 4. `useChunkUpload` periodically asks `/api/transcribe/upload-chunks` for signed upload URLs and uploads chunk ranges directly to Supabase Storage.
 5. On stop, `AudioRecorder.handleFinalize()` flushes chunks and calls `POST /api/transcribe/finalize`.
 6. Finalize either promotes provisional live segments to final or assembles uploaded chunk files, saves full audio, calls ASR, and finalizes.
+
+Current production `/` does not pass `onAudioInput` into `RecorderPanel`. The older
+`useMemosWorkspace.handleAudioInput` multipart/login-retry machinery remains in code and
+tests but has no production caller.
 
 Provider details:
 
@@ -276,7 +396,15 @@ Worker constraints:
 
 - Max 5 global active jobs and 2 per user.
 - Allowed model tools are read/search only: `Read`, `Glob`, `Grep`.
-- Default provider is Anthropic, with config stubs for OpenAI/Google model names.
+- Execution always uses the Claude Agent SDK. OpenAI/Google are model-name/config stubs,
+  not implemented provider clients.
+- `agent-worker/src/index.ts` resets chat jobs running over five minutes, subscribes to
+  `job_runs`, polls every ten seconds, and cleans stale workspaces hourly.
+- `/tmp/memo-workspaces/<sessionId>` contains `context.md`, preferred final
+  `transcript.md`, `.last_active`, and optional downloaded audio. Cleanup removes entries
+  inactive for more than 24 hours.
+- Concurrency limits are process-local. Cross-replica single-claim behavior comes from
+  `claim_pending_agent_job()` and `FOR UPDATE SKIP LOCKED`.
 
 ## Fathom Import
 
@@ -318,6 +446,70 @@ Flow:
 
 The route has fallback behavior for deployments where `memo_voiceovers` is missing, but proper persistence requires the migration.
 
+## Sales Docs
+
+Sales Docs is a second application inside the same Next deployment, not a mode of Sonic
+Memos. Its implementation is isolated under `src/app/sales-docs*`,
+`src/components/sales-docs/`, `src/data/salesDocTypes.ts`, `src/data/mockSalesDoc.ts`,
+`src/lib/sales-doc-generation.ts`, and `src/lib/sales-doc-sessions.ts`.
+
+Routes:
+
+- `/sales-docs-landing`: public marketing page. It embeds the real workspace component
+  with mock sessions as a scaled, inert product mockup.
+- `/sales-docs`: Clerk-gated server page. It loads the newest 20 owner sessions and falls
+  back to polished mocks when no rows exist or loading fails.
+- `/sales-docs-recording`: Clerk-gated static recording prototype. It does not record,
+  upload, transcribe, or generate.
+- `POST /api/sales-docs/generate`: Clerk-gated generation and best-effort persistence.
+
+Canonical UI contract:
+
+```text
+SalesSession
+├── chat -> ChatPanel
+└── doc: SalesDoc
+    ├── sourceInputs -> prompt/upload descriptors
+    ├── callBrief, salesDiagnosis, beliefLadder
+    ├── pitchScript, objectionPrep, callFlow, nextBestQuestions
+    └── liveCoaching -> demo-derived prep preview
+```
+
+Client flow:
+
+1. `LandingPromptForm` sends the prompt in `/sales-docs?prompt=...`.
+2. The server page preserves that target through Clerk sign-in and loads persisted sessions.
+3. `SalesDocsWorkspace` removes the query string after hydration and starts generation once.
+4. A pending sidebar row, `GeneratingDocument`, and pending coaching rail replace the
+   stale active document.
+5. `POST /api/sales-docs/generate` returns a complete new `SalesSession`; composer sends
+   also create new sessions rather than mutating the active one.
+6. Success prepends/activates the new session. Failure restores the prior document and
+   leaves the chat error visible.
+
+Server flow:
+
+1. The route caps prompts at 4,000 characters and transcripts at 200,000.
+2. `generateSalesDoc()` calls `claude-opus-4-8` with adaptive thinking and up to 32k
+   output tokens. The full JSON schema is placed in the prompt, not enforced through
+   provider structured output.
+3. Returned text is fence-stripped, JSON-parsed, runtime-validated, and retried once only
+   for invalid JSON or contract validation failure.
+4. Server code assigns IDs/timestamps/source metadata and derives a static demo coaching
+   preview from diagnosis gaps and Belief Ladder status.
+5. `saveSalesDocSession()` provisions `users` and inserts the whole session JSON plus
+   scalar columns. Save failure is logged but does not fail the generation response.
+
+Implemented interaction is narrower than the visual surface. Session selection, prompt
+generation, outline scrolling, section/document copy, responsive drawers, auth, loading,
+and persistence work. Recording/upload/paste, real live coaching, export, regenerate,
+share, session CRUD, most navigation/top-bar actions, and the Call Brief alternate view
+are still inert concepts.
+
+Sales Docs does not currently reuse memo audio, transcription, Fathom, artifacts, rooms,
+OpenClaw, or the agent worker. Although the API accepts a `transcript`, no Sales Docs UI
+submits one.
+
 ## Desktop And Native Client
 
 Files:
@@ -334,8 +526,15 @@ Flow:
 
 - Web user can issue a bearer token directly through `/api/auth/token`.
 - Desktop connection flow creates a one-time short code via `/api/connect/desktop/start`.
-- Native client claims that code via `/api/auth/claim` and then uses bearer auth against memo APIs.
+- `/api/auth/claim` can atomically exchange that code for a bearer token.
 - `resolveMemoUserId()` accepts Clerk session first, then bearer token.
+- The checked-in Swift sources do **not** implement this server contract. They directly
+  upload with a Supabase anon key, contain unresolved symbols/missing project metadata,
+  and should be treated as a non-buildable prototype rather than a supported client.
+
+The Swift tree has no `.xcodeproj`, `Package.swift`, entitlements, `Info.plist`, tests, or
+CI. It also lacks connect-code UI, token persistence, bearer headers, and server
+transcription/finalization calls.
 
 ## Feature And Marketing Pages
 
@@ -344,6 +543,9 @@ Flow:
 - `/docs`: API documentation page.
 - `/portfolio`: lightweight showcase.
 - `/sign-in/[[...sign-in]]`: Clerk sign-in page.
+- `/sales-docs-landing`: public Sales Docs marketing and product mockup.
+- `/sales-docs`: authenticated Sales Docs workspace.
+- `/sales-docs-recording`: authenticated but static recording concept.
 
 These are user-facing but mostly separate from memo data flow, except `/docs` exposes API-token guidance and `/features/openclaw` links into OpenClaw flows.
 
@@ -352,6 +554,7 @@ These are user-facing but mostly separate from memo data flow, except `/docs` ex
 | Product area | Likely files |
 | --- | --- |
 | Main memo list/workspace UI | `src/app/page.tsx`, `src/hooks/useMemosWorkspace.ts`, `src/components/memos/MemoStudioSections.tsx`, `src/lib/memo-ui.ts` |
+| Memo record/feed/detail navigation | `src/app/page.tsx`, `src/components/memos/MemoStudioSections.tsx` |
 | Recording controls and mic behavior | `src/components/AudioRecorder.tsx`, `src/hooks/useAudioRecording.ts`, `src/components/audio-recorder/*` |
 | Live transcript UX/windowing | `src/hooks/useLiveTranscription*.ts`, `src/hooks/live-transcript-*`, `src/components/audio-recorder/LiveTranscriptView.tsx` |
 | Chunk upload/finalization | `src/hooks/useChunkUpload.ts`, `/api/transcribe/upload-chunks`, `/api/transcribe/finalize`, `src/app/api/transcribe/workflow-*` |
@@ -367,6 +570,9 @@ These are user-facing but mostly separate from memo data flow, except `/docs` ex
 | Fathom import | `src/lib/fathom-import.ts`, `src/hooks/useMemosWorkspace.ts`, `/api/fathom/import/**`, Fathom migration |
 | Voiceover Studio | `src/hooks/useVoiceoverStudio.ts`, `src/components/VoiceoverStudio.tsx`, `/api/memos/[id]/voiceover`, `src/lib/elevenlabs-voices.ts` |
 | Desktop/native auth | `src/lib/api-token.ts`, `src/lib/desktop-token-claims.ts`, `/api/auth/*`, `/api/connect/desktop/start`, `MomentumMemos/Sources/**` |
+| Sales Docs workspace/UI | `src/app/sales-docs*/`, `src/components/sales-docs/*`, `src/data/salesDocTypes.ts`, `src/data/mockSalesDoc.ts` |
+| Sales Docs generation | `/api/sales-docs/generate`, `src/lib/sales-doc-generation.ts`, `src/lib/sales-doc-generation.fixtures.ts` |
+| Sales Docs persistence | `src/lib/sales-doc-sessions.ts`, `supabase/migrations/20260611152301_add_sales_doc_sessions.sql` |
 | Database schema | `supabase/migrations/*.sql`, `docs/database-schema.md`, nearby migration tests |
 
 ## Test Map
@@ -384,30 +590,109 @@ There is broad test coverage. Use nearest tests first, then full suite.
 | Memo-agent worker | `agent-worker/src/*.test.ts` with `npm --prefix agent-worker test` |
 | Fathom | `src/app/api/fathom/**/*.test.ts`, `src/lib/fathom-import.ts` coverage through route tests |
 | Voiceover | `src/app/api/memos/[id]/voiceover/route.test.ts`, `src/hooks/useVoiceoverStudio.ts` indirectly through component tests |
+| Sales Docs | `src/app/sales-docs*/page.test.tsx`, `src/app/api/sales-docs/generate/route.test.ts`, `src/components/sales-docs/*.test.tsx`, `src/lib/sales-doc-*.test.ts`, Sales Docs migration test |
 | Migrations | `supabase/migrations/*.test.ts` |
+| Repository memory | `scripts/repo-memory.test.mjs` (chunking, incremental reuse, resolved calls, deterministic hybrid/lexical ranking); clean-session retrieval cases in `docs/repo-memory-eval.json` |
+
+Root verification does not include `agent-worker/`; use `npm --prefix agent-worker test`
+separately. The native prototype has no test/build target. Only the worker Docker smoke
+test has checked-in CI; there is no root lint/test/build CI workflow.
 
 ## Risks And Unclear Boundaries
 
+- **Unauthenticated live-ASR spend:** `POST /api/transcribe/live` performs ffmpeg and
+  NVIDIA work without auth, an explicit maximum size, or rate limiting.
+- **Chunk download ownership gap:** `/api/memos/[id]/download-chunks` requires Clerk but
+  does not verify that the requested memo belongs to the viewer before listing/downloading
+  `audio/chunks/<memoId>`.
+- **Anonymous orphan memos:** `POST /api/memos` permits a missing user and inserts
+  `user_id: null`.
+- **Provisional-finalize tenant gap:** the provisional transcript branch calls
+  `promoteLiveSegmentsToFinal(memoId, userId)`, whose segment select/delete filters by
+  memo ID but not owner. `updateMemoFinal()` filters its memo update by owner but does not
+  prove a row changed, so a guessed foreign memo ID can corrupt final segments and still
+  produce a success response.
+- **Server-side arbitrary URL fetch:** manual memo creation accepts `audioUrl`, while
+  Voiceover and the worker fetch stored memo audio URLs. This forms an SSRF boundary and
+  needs URL/host/size/time restrictions.
+- **Public storage capability:** original audio and generated voiceovers use permanent
+  public object URLs. Row ownership protects discovery, not possession of the URL.
+- **Security-definer grants:** queue/credit RPC migrations use `SECURITY DEFINER` without
+  revoking default `PUBLIC` execute and granting only the intended service role. Verify
+  live grants before assuming these functions are private.
 - **`supabaseAdmin` fallback:** `src/lib/supabase.ts` falls back from service role to anon key if `SUPABASE_SERVICE_ROLE_KEY` is missing. Many routes assume service-role behavior, so missing env can become confusing authorization/storage failures.
 - **Route-level authorization is critical:** Server handlers bypass RLS, so every new route must explicitly check ownership/participant visibility before reading or mutating.
 - **Share renderer size:** `src/lib/share-contract.ts` is a 3,600-line string renderer with embedded CSS/JS/HTML. Changes are high risk and should be covered by `share-contract.test.ts` plus route tests.
 - **Large UI files:** `MemoStudioSections.tsx`, `useMemosWorkspace.ts`, `AudioRecorder.tsx`, and `MemoAgentPanel.tsx` contain several concerns each. Avoid broad refactors unless adding focused tests first.
 - **Live/final transcript race:** Live PATCHes can arrive after finalization. `/api/memos/[id]` returns 409 when transcript status is complete/failed, but related live segment and job behavior should be considered for changes.
 - **Chunk continuity:** Finalization requires contiguous chunk ranges from 0 to `totalChunks`. Any change to pruning, start/end indices, or header handling must update chunk-upload and finalize tests together.
-- **Job type overloading:** `job_runs` powers memo artifact jobs and memo-agent chat jobs. Different SQL functions claim different subsets. New jobs need careful uniqueness/index/status compatibility.
+- **Job type overloading:** `job_runs` powers memo artifact jobs and memo-agent chat jobs.
+  `claim_pending_memo_job` claims any pending `entity_type='memo'` row, including unsupported
+  job types that TypeScript later fails. New jobs need careful claim/uniqueness/status compatibility.
 - **`job_runs` base table is not created in checked-in migrations:** migrations add indexes/functions/columns against `job_runs`, while `docs/database-schema.md` reconstructs the base table. Fresh installs must follow the consolidated schema doc or add a base-table migration.
 - **Type mismatch risk around job IDs:** app code and docs often treat `job_runs.id` as UUID, while `agent-worker/src/types.ts` and some tests type job IDs as `number`. Verify the live schema before changing credit transactions or worker code.
 - **Fathom import is request-driven:** Long imports depend on client polling. If the browser stops polling, the run stalls in queued/running state until polled again.
 - **Provider/env-dependent paths:** NVIDIA, Anthropic, ElevenLabs, Fathom, Clerk, Supabase, and OpenClaw code paths depend on env. Tests mock most of these; production failures often appear as route-level 500/502/503.
+- Fathom requests remove copy/paste whitespace from API keys and reject remaining
+  non-printable/non-ASCII characters before fetch. Transport errors use credential-free
+  messages; import serialization redacts historical invalid-header errors.
+- **Deployment-global Fathom account:** `FATHOM_API_KEY` is global, not per-user OAuth;
+  every authorized user imports from the same configured Fathom account.
 - **OpenClaw schema compatibility:** Several OpenClaw routes intentionally degrade when migrations are missing. Check `openclaw-compat.ts` and relevant migration tests before removing fallbacks.
 - **Public discussion/bookmark scripts:** Public share engagement lives partly in generated HTML/JS rather than React components, so normal component patterns do not apply.
-- **Native app boundary:** Swift sources exist but this map focused on the web/worker implementation. Changes to token issuance or upload contract should inspect `MomentumMemos/Sources/Core/*`.
+- **Native app boundary:** the Swift tree is not buildable as checked in and bypasses the
+  server auth/transcription contracts. Treat it as a prototype until a project, missing
+  symbols, bearer flow, server upload flow, tests, and CI exist.
+- **Worker slot leak:** `processJob()` increments its per-user active count before session
+  lookup/workspace materialization, but the protecting `finally` begins afterward.
+  Early failure leaks the slot until process restart and leaves the job for stale recovery.
+- **Worker event race:** the browser enqueues before subscribing to the returned Realtime
+  channel. There is no status/result catch-up endpoint, so fast completion, reload, socket
+  loss, or worker failure can strand client send state.
+- **Worker credits are postpaid:** enqueue only checks for balance >= 1, while actual cost
+  is deducted after provider work. Expensive output can be generated and then discarded.
+- **Worker multi-replica semantics:** database claiming prevents the same pending row from
+  being claimed concurrently, but process-local per-user limits and five-minute stale-job
+  recovery do not coordinate across replicas; slow active work can be requeued.
+- **Worker materialized data:** memo transcript/audio is written under a persistent
+  `/tmp/memo-workspaces` volume for up to 24 hours. Audio download is fully buffered and
+  has no explicit byte limit, timeout, or hostname policy.
+- **Sales Docs persistence ambiguity:** generation succeeds even when save fails, and
+  missing/empty/error states render mocks. A successful-looking document can disappear
+  after refresh while the UI still appears populated.
+- **Unvalidated stored Sales Docs JSON:** listing casts `session_json` directly to
+  `SalesSession`; malformed or old-schema rows can crash the workspace. The component
+  also assumes at least one initial session.
+- **Sales Docs cost/idempotency:** generation allows five minutes, Opus, 32k output,
+  adaptive thinking, and one full corrective retry, with no cancellation or idempotency.
+- **Sales Docs prompt URL exposure:** landing inputs travel in the query string and Clerk
+  redirect before hydration removes them, exposing prospect details to history/log/referrer
+  surfaces.
+- **Sales Docs schema/query mismatch:** `user_id` is nullable and the index is global
+  `created_at`; the actual access pattern needs `(user_id, created_at desc)`. There is no
+  schema version, update/delete API, or direct-user RLS policy.
+- **Sales Docs UI overstates implementation:** recording, input upload/paste, live coaching,
+  export/regenerate/share, session CRUD, and many navigation/top-bar controls are visual only.
+- **Orphaned upload implementation:** `useMemosWorkspace.handleAudioInput` remains tested
+  but production `Home` no longer connects it; current manual files use signed chunk upload.
+- **Auth capability inconsistency:** some memo APIs accept Clerk or bearer auth while memo
+  detail/update/delete, live creation, share, artifacts, title, voiceover, bookmarks, and
+  share discussion are Clerk-only. Desktop/API clients do not have a uniform surface.
+- **Non-atomic workflows:** memo finalization, Fathom import, rooms/invocations, artifacts,
+  voiceovers, and worker completion span multiple row/storage operations. Partial success is
+  an expected state that callers and repair tooling must handle.
 
 ## Change Workflow Recommendations
 
-- For any behavior change, write or update the nearest failing test first per `AGENTS.md`.
+- Root `AGENTS.md` points nontrivial tasks to this map and the relationship graph. Treat
+  them as orientation, then read the nearest implementation and tests before changing behavior.
+- Refresh the local retrieval index with `npm run memory:index` after source or memory-map
+  changes; use `memory:ask` and `memory:graph` to orient, then verify citations in code.
+- For any behavior change, write or update the nearest failing test first.
 - Prefer route tests for API behavior and hook/component tests for client state.
 - For schema changes, add a migration test next to the SQL migration.
 - For share HTML changes, test both rendered contract helpers and `/s/[shareRef]` route formats.
 - For live recording changes, test browser hook state and server finalize/chunk behavior together.
 - Before declaring feature work complete, run `npm test -- --passWithNoTests` and `npm run build`.
+- When touching the worker, also run `npm --prefix agent-worker test`; root Jest/build do
+  not cover it. There is currently no repository-native verification path for Swift.

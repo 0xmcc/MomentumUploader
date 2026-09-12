@@ -1,0 +1,131 @@
+# MomentumUploader relationship graph
+# Mapped 2026-09-10 from main@5f8b992.
+# This is intentionally compact: nodes are stable subsystem boundaries and edges name
+# the dependency or data flow that matters for change-impact analysis.
+
+version: 1
+repository: /Users/marko/Documents/Code/MomentumUploader
+
+nodes:
+  global_shell:
+    paths: [src/app/layout.tsx, src/middleware.ts, src/components/ThemeProvider.tsx]
+  sonic_home:
+    paths: [src/app/page.tsx]
+  memo_workspace:
+    paths: [src/hooks/useMemosWorkspace.ts, src/components/memos/MemoStudioSections.tsx]
+  recorder:
+    paths: [src/components/AudioRecorder.tsx, src/components/audio-recorder]
+  recording_state:
+    paths: [src/hooks/useAudioRecording.ts]
+  live_transcription:
+    paths: [src/hooks/useLiveTranscription.ts, src/hooks/useLiveTranscription.session.ts, src/hooks/useLiveTranscription.persistence.ts, src/hooks/useLiveTranscription.share.ts, src/hooks/useLiveTranscription.windowing.ts]
+  chunk_upload:
+    paths: [src/hooks/useChunkUpload.ts, src/lib/audio-upload.ts]
+  memo_api:
+    paths: [src/app/api/memos]
+  transcribe_api:
+    paths: [src/app/api/transcribe]
+  transcription_provider:
+    paths: [src/lib/riva.ts]
+  memo_artifacts:
+    paths: [src/lib/memo-chunks.ts, src/lib/memo-artifacts.ts, src/lib/memo-jobs.ts]
+  public_share:
+    paths: ["src/app/s/[shareRef]", src/lib/memo-share.ts, src/lib/share-route.ts, src/lib/share-contract.ts]
+  memo_rooms:
+    paths: [src/app/api/memo-rooms, src/lib/memo-rooms.ts, src/lib/memo-discussion.ts, src/components/memos/MemoRoomPanel.tsx]
+  openclaw:
+    paths: [src/app/api/openclaw, src/app/api/agents, src/lib/agents.ts, src/lib/openclaw-claims.ts, src/lib/openclaw-registry.ts, src/lib/openclaw-compat.ts]
+  memo_agent_ui:
+    paths: [src/components/memos/MemoAgentPanel.tsx, src/app/api/memo-agent]
+  memo_agent_worker:
+    paths: [agent-worker/src/index.ts, agent-worker/src/worker.ts, agent-worker/src/workspace.ts, agent-worker/src/credits.ts]
+  fathom_import:
+    paths: [src/app/api/fathom, src/lib/fathom-import.ts]
+    credential_boundary: whitespace_normalized_ascii_key_and_sanitized_transport_errors
+  voiceover:
+    paths: ["src/app/api/memos/[id]/voiceover/route.ts", src/components/VoiceoverStudio.tsx, src/hooks/useVoiceoverStudio.ts]
+  sales_docs_pages:
+    paths: [src/app/sales-docs, src/app/sales-docs-landing, src/app/sales-docs-recording]
+  sales_docs_ui:
+    paths: [src/components/sales-docs, src/data/salesDocTypes.ts, src/data/mockSalesDoc.ts]
+  sales_docs_generation:
+    paths: [src/app/api/sales-docs/generate/route.ts, src/lib/sales-doc-generation.ts]
+  sales_docs_persistence:
+    paths: [src/lib/sales-doc-sessions.ts, supabase/migrations/20260611152301_add_sales_doc_sessions.sql]
+  human_auth:
+    paths: [src/lib/memo-api-auth.ts, src/lib/api-token.ts, src/lib/desktop-token-claims.ts]
+  supabase:
+    paths: [src/lib/supabase.ts, supabase/migrations]
+  native_prototype:
+    paths: [MomentumMemos/Sources]
+  repository_memory:
+    paths: [AGENTS.md, scripts/repo-memory.mjs, scripts/repo-memory.test.mjs, docs/codebase-map.md, docs/codebase-graph.yaml, docs/repo-memory-eval.json]
+    retrieval: [hybrid_concept_rerank, lexical_fallback, exact_line_citations]
+    structural_edges: [resolved_imports, resolved_local_calls, probable_imported_calls, internal_api_fetches, supabase_data, rpc, environment]
+
+edges:
+  - {from: global_shell, to: sonic_home, type: wraps}
+  - {from: global_shell, to: sales_docs_pages, type: wraps}
+  - {from: global_shell, to: human_auth, type: initializes_clerk_only}
+
+  - {from: sonic_home, to: memo_workspace, type: composes_and_owns_navigation}
+  - {from: memo_workspace, to: memo_api, type: lists_selects_updates}
+  - {from: memo_workspace, to: fathom_import, type: starts_and_polls}
+  - {from: memo_workspace, to: recorder, type: renders}
+  - {from: memo_workspace, to: voiceover, type: renders_for_memo_detail}
+  - {from: memo_workspace, to: memo_rooms, type: renders_for_memo_detail}
+
+  - {from: recorder, to: recording_state, type: composes}
+  - {from: recorder, to: live_transcription, type: composes}
+  - {from: recorder, to: chunk_upload, type: composes}
+  - {from: recording_state, to: live_transcription, type: supplies_media_chunks}
+  - {from: live_transcription, to: transcribe_api, type: posts_rolling_snapshots}
+  - {from: live_transcription, to: memo_api, type: creates_live_memo_and_persists_segments}
+  - {from: chunk_upload, to: transcribe_api, type: requests_signed_upload_and_finalizes}
+  - {from: transcribe_api, to: transcription_provider, type: calls_ffmpeg_and_nvidia_riva}
+  - {from: transcribe_api, to: supabase, type: writes_audio_memo_segments_jobs}
+  - {from: transcribe_api, to: memo_artifacts, type: compacts_and_enqueues_after_finalization}
+  - {from: memo_artifacts, to: supabase, type: claims_jobs_and_persists_artifacts}
+
+  - {from: memo_api, to: human_auth, type: mixed_clerk_or_bearer}
+  - {from: memo_api, to: supabase, type: service_role_queries}
+  - {from: public_share, to: supabase, type: resolves_capability_and_transcript}
+  - {from: public_share, to: memo_agent_ui, type: links_chat_surface}
+  - {from: public_share, to: memo_rooms, type: exposes_public_discussion}
+  - {from: memo_rooms, to: openclaw, type: registers_participants_and_invocations}
+  - {from: memo_rooms, to: supabase, type: multi_table_service_role_flow}
+  - {from: openclaw, to: supabase, type: credentials_claims_state_work_items}
+
+  - {from: memo_agent_ui, to: memo_agent_worker, type: enqueues_job_then_subscribes_realtime}
+  - {from: memo_agent_worker, to: supabase, type: claims_materializes_streams_persists_charges}
+  - {from: memo_agent_worker, to: public_share, type: reads_memo_context_by_job_ids}
+
+  - {from: fathom_import, to: supabase, type: request_polled_upserts_and_segment_replace}
+  - {from: voiceover, to: supabase, type: reads_public_audio_and_persists_voiceover}
+
+  - {from: sales_docs_pages, to: sales_docs_ui, type: renders}
+  - {from: sales_docs_pages, to: sales_docs_persistence, type: server_loads_owner_sessions}
+  - {from: sales_docs_ui, to: sales_docs_generation, type: posts_prompt_and_prepends_session}
+  - {from: sales_docs_generation, to: sales_docs_persistence, type: best_effort_save}
+  - {from: sales_docs_generation, to: human_auth, type: requires_clerk}
+  - {from: sales_docs_persistence, to: supabase, type: provisions_user_and_stores_json_snapshot}
+
+  - {from: native_prototype, to: supabase, type: direct_anon_upload_and_insert}
+  - {from: human_auth, to: native_prototype, type: intended_but_not_implemented}
+
+  - {from: repository_memory, to: sonic_home, type: hybrid_retrieves_with_resolved_imports}
+  - {from: repository_memory, to: sales_docs_pages, type: hybrid_retrieves_with_resolved_imports}
+  - {from: repository_memory, to: memo_agent_worker, type: hybrid_retrieves_with_resolved_calls}
+  - {from: repository_memory, to: supabase, type: indexes_migrations_and_data_edges}
+
+high_blast_radius_edges:
+  - edge: transcribe_api -> supabase
+    reason: finalization spans storage, memo state, segments, title, chunks, artifacts, and jobs without a transaction
+  - edge: memo_agent_ui -> memo_agent_worker
+    reason: enqueue occurs before Realtime subscription and no result catch-up endpoint exists
+  - edge: public_share -> supabase
+    reason: share-contract is a large generated HTML/JS boundary and object URLs remain public capabilities
+  - edge: sales_docs_ui -> sales_docs_generation
+    reason: expensive non-idempotent generation creates a full new session and persistence is nonfatal
+  - edge: human_auth -> supabase
+    reason: middleware does not enforce auth and service-role queries require route-level ownership filters

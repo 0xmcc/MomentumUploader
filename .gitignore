@@ -45,3 +45,10 @@ next-env.d.ts
 # clerk configuration (can include secrets)
 /.clerk/
 .gstack/
+
+# local generated repository-memory index
+/.repo-memory/
+
+# local browser debugging artifacts
+/.playwright-mcp/
+/signin-window.png

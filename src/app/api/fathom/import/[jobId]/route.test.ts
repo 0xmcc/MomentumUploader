@@ -28,6 +28,7 @@ describe("GET /api/fathom/import/[jobId]", () => {
   });
 
   it("processes one Fathom page and returns running progress when more pages remain", async () => {
+    process.env.FATHOM_API_KEY = " fathom-\r\ntest-key\n";
     const startedRun = {
       id: "fathom-run-1",
       user_id: "user-1",

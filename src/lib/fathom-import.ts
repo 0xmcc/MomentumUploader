@@ -81,6 +81,14 @@ type ImportedMeeting = {
   segments: ImportedSegment[];
 };
 
+function sanitizeImportError(message: string | null): string | null {
+  // Older runs may contain fetch errors that echo the entire credential.
+  if (message && /headers?\.append|invalid header|header value/i.test(message)) {
+    return "Fathom request contained an invalid header. Check the server configuration and retry the import.";
+  }
+  return message;
+}
+
 export function serializeImportRun(
   run: Pick<
     FathomImportRunRow,
@@ -102,7 +110,7 @@ export function serializeImportRun(
     processedPages: run.processed_pages,
     startedAt: run.started_at,
     completedAt: run.completed_at,
-    error: run.last_error,
+    error: sanitizeImportError(run.last_error),
   };
 }
 
@@ -299,6 +307,12 @@ async function fetchFathomPage(
   url: string,
   apiKey: string
 ): Promise<Response> {
+  // Keys copied from wrapped text can contain embedded whitespace.
+  const normalizedApiKey = apiKey.replace(/\s/g, "");
+  if (!normalizedApiKey || /[^\x21-\x7e]/.test(normalizedApiKey)) {
+    throw new Error("FATHOM_API_KEY contains invalid characters. Update the server configuration.");
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => {
     controller.abort();
@@ -307,7 +321,7 @@ async function fetchFathomPage(
   try {
     return await fetch(url, {
       headers: {
-        "X-Api-Key": apiKey,
+        "X-Api-Key": normalizedApiKey,
         Accept: "application/json",
       },
       signal: controller.signal,
@@ -320,7 +334,8 @@ async function fetchFathomPage(
       throw new FathomTimeoutError();
     }
 
-    throw error;
+    // Fetch/header errors can include credentials; never persist their raw text.
+    throw new Error("Unable to contact Fathom. Please try again.");
   } finally {
     clearTimeout(timeout);
   }
@@ -486,7 +501,7 @@ export async function failImportRun(
   error: unknown
 ): Promise<FathomImportRunSummary> {
   const now = new Date().toISOString();
-  const message = error instanceof Error ? error.message : String(error);
+  const message = sanitizeImportError(error instanceof Error ? error.message : String(error));
   const failedRun: FathomImportRunRow = {
     ...run,
     status: "failed",
