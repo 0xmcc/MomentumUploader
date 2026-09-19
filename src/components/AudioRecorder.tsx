@@ -3,10 +3,15 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useTheme } from "./ThemeProvider";
 import {
+    describeManualUploadError,
     getFileExtensionFromMime,
     resolveUploadMimeType,
     uploadManualAudioBySignedUrl,
 } from "@/lib/audio-upload";
+import {
+    MAX_AUDIO_UPLOAD_BYTES,
+    MAX_AUDIO_UPLOAD_MB,
+} from "@/lib/audio-limits";
 import { SHOW_ARTIFACTS_IN_UI } from "@/lib/feature-flags";
 import { useAudioRecording } from "@/hooks/useAudioRecording";
 import { useArtifacts } from "@/hooks/useArtifacts";
@@ -186,6 +191,7 @@ export default function AudioRecorder({
             onUploadComplete?.({ ...data, durationSeconds: recording.recordingTimeRef.current });
         } catch (error) {
             console.error("Upload error:", error);
+            recording.setMicError(describeManualUploadError(error));
         } finally {
             setIsUploading(false);
         }
@@ -246,6 +252,13 @@ export default function AudioRecorder({
             return;
         }
 
+        if (file.size > MAX_AUDIO_UPLOAD_BYTES) {
+            recording.setMicError(
+                `That file is ${Math.round(file.size / (1024 * 1024))}MB. Uploads have to stay under ${MAX_AUDIO_UPLOAD_MB}MB.`
+            );
+            return;
+        }
+
         recording.setMicError(null);
         if (onAudioInput) {
             onAudioInput({
@@ -267,6 +280,7 @@ export default function AudioRecorder({
             })
             .catch((error) => {
                 console.error("Upload error:", error);
+                recording.setMicError(describeManualUploadError(error));
             })
             .finally(() => {
                 setIsUploading(false);

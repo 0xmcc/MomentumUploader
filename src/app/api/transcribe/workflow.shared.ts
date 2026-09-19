@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 
-export const MAX_AUDIO_UPLOAD_BYTES = 75 * 1024 * 1024;
-export const MAX_AUDIO_UPLOAD_MB = Math.round(MAX_AUDIO_UPLOAD_BYTES / (1024 * 1024));
-export const MIN_SUPABASE_SOCKET_SIZE_CAP_BYTES = 50 * 1024 * 1024;
+export {
+    MAX_AUDIO_UPLOAD_BYTES,
+    MAX_AUDIO_UPLOAD_MB,
+    MIN_SUPABASE_SOCKET_SIZE_CAP_BYTES,
+} from "@/lib/audio-limits";
 export const TRANSCRIBE_MODEL = "nvidia/parakeet-rnnt-1.1b";
 export const PROVISIONAL_MEMO_TITLE = "Voice Memo";
 

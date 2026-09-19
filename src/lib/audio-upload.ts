@@ -86,6 +86,42 @@ export async function uploadAudioForTranscription(
   });
 }
 
+/** A manual upload failure that knows which step broke, so the UI can say so. */
+export class ManualUploadError extends Error {
+  readonly step: string;
+  readonly status?: number;
+
+  constructor(step: string, status?: number) {
+    super(
+      status
+        ? `Could not ${step} (server said ${status}).`
+        : `Could not ${step}.`
+    );
+    this.name = "ManualUploadError";
+    this.step = step;
+    this.status = status;
+  }
+}
+
+/** One sentence a person can act on, for any manual-upload failure. */
+export function describeManualUploadError(error: unknown): string {
+  if (error instanceof ManualUploadError) {
+    if (error.status === 401 || error.status === 403) {
+      return "Upload failed — you are signed out. Sign in and try again.";
+    }
+    if (error.status === 413) {
+      return "Upload failed — the file is too large for the server.";
+    }
+    if (error.status === 504 || error.status === 408) {
+      return "Upload failed — the server timed out. Long recordings can exceed the limit.";
+    }
+    return `Upload failed — ${error.message}`;
+  }
+  const detail =
+    error instanceof Error && error.message ? ` ${error.message}` : "";
+  return `Upload failed.${detail}`.trim();
+}
+
 export async function uploadManualAudioBySignedUrl(
   file: File,
   mimeType: string,
@@ -94,7 +130,7 @@ export async function uploadManualAudioBySignedUrl(
     method: "POST",
   });
   if (!liveMemoResponse.ok) {
-    throw new Error("Failed to create memo");
+    throw new ManualUploadError("create the memo", liveMemoResponse.status);
   }
 
   const liveMemoPayload =
@@ -117,7 +153,7 @@ export async function uploadManualAudioBySignedUrl(
     }),
   });
   if (!prepareResponse.ok) {
-    throw new Error("Upload failed");
+    throw new ManualUploadError("prepare the upload", prepareResponse.status);
   }
 
   const prepared =
@@ -135,7 +171,7 @@ export async function uploadManualAudioBySignedUrl(
       contentType: mimeType,
     });
   if (error) {
-    throw new Error(`Upload failed: ${error.message}`);
+    throw new ManualUploadError(`send the audio (${error.message})`);
   }
 
   const finalizeResponse = await fetch("/api/transcribe/finalize", {
@@ -151,7 +187,7 @@ export async function uploadManualAudioBySignedUrl(
     }),
   });
   if (!finalizeResponse.ok) {
-    throw new Error("Upload failed");
+    throw new ManualUploadError("transcribe the audio", finalizeResponse.status);
   }
 
   return (await finalizeResponse.json()) as unknown;
