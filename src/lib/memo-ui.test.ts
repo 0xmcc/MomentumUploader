@@ -1,6 +1,8 @@
 import {
   MEMO_ESTIMATED_COST_PER_MINUTE_USD,
   FAILED_TRANSCRIPT,
+  describeTranscriptProgress,
+  isMemoStalled,
   formatMemoEstimatedCost,
   getMemoAudioDownloadName,
   getMemoEstimatedCostUsd,
@@ -85,5 +87,67 @@ describe("transcript status helpers", () => {
   it("isMemoFailed returns false for complete status even with FAILED_TRANSCRIPT content", () => {
     // Explicit status wins over content heuristic
     expect(isMemoFailed({ transcript: FAILED_TRANSCRIPT, transcriptStatus: "complete" })).toBe(false);
+  });
+});
+
+/**
+ * A memo stuck mid-transcription must eventually say so.
+ *
+ * Reported 2026-09-18: an upload sat on "Transcribing…" for many minutes with
+ * 0:00, 0 words and "Refresh this page when it is ready." The page was in fact
+ * polling every three seconds the whole time, so the instruction was wrong and
+ * there was no way to tell a slow job from a dead one.
+ */
+describe("a transcription that never finishes", () => {
+  const minutesAgo = (n: number) =>
+    new Date(Date.now() - n * 60_000).toISOString();
+
+  it("is not stalled while it is still plausibly working", () => {
+    expect(
+      isMemoStalled(
+        { transcript: "", transcriptStatus: "processing", createdAt: minutesAgo(2) },
+      )
+    ).toBe(false);
+  });
+
+  it("is stalled once it has been processing far too long", () => {
+    expect(
+      isMemoStalled(
+        { transcript: "", transcriptStatus: "processing", createdAt: minutesAgo(45) },
+      )
+    ).toBe(true);
+  });
+
+  it("is never stalled once a transcript exists or the memo finished", () => {
+    expect(
+      isMemoStalled({ transcript: "words", transcriptStatus: "processing", createdAt: minutesAgo(45) })
+    ).toBe(false);
+    expect(
+      isMemoStalled({ transcript: "", transcriptStatus: "complete", createdAt: minutesAgo(45) })
+    ).toBe(false);
+    expect(
+      isMemoStalled({ transcript: "", transcriptStatus: "failed", createdAt: minutesAgo(45) })
+    ).toBe(false);
+  });
+
+  it("never tells the user to refresh a page that refreshes itself", () => {
+    const working = describeTranscriptProgress({
+      transcript: "",
+      transcriptStatus: "processing",
+      createdAt: minutesAgo(3),
+    });
+    expect(working).not.toMatch(/refresh/i);
+    expect(working).toMatch(/3 min/);
+  });
+
+  it("says the job looks stuck, and how long it has been, once it is stalled", () => {
+    const stuck = describeTranscriptProgress({
+      transcript: "",
+      transcriptStatus: "processing",
+      createdAt: minutesAgo(45),
+    });
+    expect(stuck).toMatch(/45 min/);
+    expect(stuck).toMatch(/stuck|stalled|failed/i);
+    expect(stuck).not.toMatch(/refresh this page/i);
   });
 });
