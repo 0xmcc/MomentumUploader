@@ -36,6 +36,53 @@ export function isMemoProcessing(memo: Pick<Memo, "transcriptStatus">) {
   return memo.transcriptStatus === "processing";
 }
 
+/**
+ * How long a transcription may sit in "processing" before we stop pretending
+ * it is on its way. Transcription runs inside one request, so a job that has
+ * not finished by now is almost certainly dead rather than slow.
+ */
+export const TRANSCRIPT_STALLED_AFTER_MS = 10 * 60 * 1000;
+
+function minutesSince(createdAt: string, now: number): number | null {
+  const started = Date.parse(createdAt);
+  if (Number.isNaN(started)) return null;
+  return Math.max(0, Math.floor((now - started) / 60_000));
+}
+
+type ProgressMemo = Pick<Memo, "transcript" | "transcriptStatus" | "createdAt">;
+
+/** Processing, still empty, and old enough that something has gone wrong. */
+export function isMemoStalled(memo: ProgressMemo, now: number = Date.now()) {
+  if (!isMemoProcessing(memo)) return false;
+  if (memo.transcript.trim()) return false;
+  const started = Date.parse(memo.createdAt);
+  if (Number.isNaN(started)) return false;
+  return now - started >= TRANSCRIPT_STALLED_AFTER_MS;
+}
+
+/**
+ * What to show while a transcript is not ready. Never tells the reader to
+ * refresh — the page polls — and always says how long it has been waiting, so
+ * a slow job is distinguishable from a dead one.
+ */
+export function describeTranscriptProgress(
+  memo: ProgressMemo,
+  now: number = Date.now()
+): string {
+  const elapsed = minutesSince(memo.createdAt, now);
+  const waited = elapsed === null ? null : `${elapsed} min`;
+
+  if (isMemoStalled(memo, now)) {
+    return waited
+      ? `Still transcribing after ${waited}. It looks stuck — the job probably failed. Try uploading it again.`
+      : "This looks stuck — the job probably failed. Try uploading it again.";
+  }
+
+  return waited
+    ? `Transcribing. Started ${waited} ago; this page updates on its own.`
+    : "Transcribing. This page updates on its own.";
+}
+
 const PROVISIONAL_TITLES = new Set([
   "Voice Memo",
   "Live recording (in progress)",
