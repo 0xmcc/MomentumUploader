@@ -38,10 +38,25 @@ export function isMemoProcessing(memo: Pick<Memo, "transcriptStatus">) {
 
 /**
  * How long a transcription may sit in "processing" before we stop pretending
- * it is on its way. Transcription runs inside one request, so a job that has
- * not finished by now is almost certainly dead rather than slow.
+ * it is on its way.
+ *
+ * This was ten minutes flat, from when transcription ran inside one request
+ * and nothing could legitimately take longer. It runs in the worker now, and a
+ * long recording legitimately takes a long time — so the allowance grows with
+ * the recording. Telling the owner of a 1h42m meeting that it "looks stuck,
+ * try uploading it again" at minute ten gets you two copies of it and no
+ * transcript.
  */
 export const TRANSCRIPT_STALLED_AFTER_MS = 10 * 60 * 1000;
+
+/** The wait a recording of this length has earned before it looks dead. */
+export function transcriptStalledAfterMs(durationSeconds?: number | null): number {
+  const recordingMs =
+    typeof durationSeconds === "number" && Number.isFinite(durationSeconds)
+      ? Math.max(0, durationSeconds) * 1000
+      : 0;
+  return TRANSCRIPT_STALLED_AFTER_MS + recordingMs;
+}
 
 function minutesSince(createdAt: string, now: number): number | null {
   const started = Date.parse(createdAt);
@@ -49,7 +64,8 @@ function minutesSince(createdAt: string, now: number): number | null {
   return Math.max(0, Math.floor((now - started) / 60_000));
 }
 
-type ProgressMemo = Pick<Memo, "transcript" | "transcriptStatus" | "createdAt">;
+type ProgressMemo = Pick<Memo, "transcript" | "transcriptStatus" | "createdAt"> &
+  Partial<Pick<Memo, "durationSeconds">>;
 
 /** Processing, still empty, and old enough that something has gone wrong. */
 export function isMemoStalled(memo: ProgressMemo, now: number = Date.now()) {
@@ -57,7 +73,7 @@ export function isMemoStalled(memo: ProgressMemo, now: number = Date.now()) {
   if (memo.transcript.trim()) return false;
   const started = Date.parse(memo.createdAt);
   if (Number.isNaN(started)) return false;
-  return now - started >= TRANSCRIPT_STALLED_AFTER_MS;
+  return now - started >= transcriptStalledAfterMs(memo.durationSeconds);
 }
 
 /**

@@ -130,6 +130,45 @@ describe("a transcription that never finishes", () => {
     ).toBe(false);
   });
 
+  /**
+   * Ten minutes was right when transcription ran inside one request: nothing
+   * legitimately took longer. A queued 1h42m recording does, and telling its
+   * owner it "looks stuck — try uploading it again" is how you get two copies
+   * of a two-hour meeting and no transcript.
+   */
+  it("gives a long recording the time its own length needs", () => {
+    expect(
+      isMemoStalled({
+        transcript: "",
+        transcriptStatus: "processing",
+        createdAt: minutesAgo(45),
+        durationSeconds: 6117, // 1h42m
+      })
+    ).toBe(false);
+  });
+
+  it("still calls a long recording stuck once even its length cannot explain it", () => {
+    expect(
+      isMemoStalled({
+        transcript: "",
+        transcriptStatus: "processing",
+        createdAt: minutesAgo(200),
+        durationSeconds: 6117,
+      })
+    ).toBe(true);
+  });
+
+  it("does not tell the owner of a long recording to upload it again", () => {
+    const waiting = describeTranscriptProgress({
+      transcript: "",
+      transcriptStatus: "processing",
+      createdAt: minutesAgo(45),
+      durationSeconds: 6117,
+    });
+    expect(waiting).not.toMatch(/stuck|again/i);
+    expect(waiting).toMatch(/45 min/);
+  });
+
   it("never tells the user to refresh a page that refreshes itself", () => {
     const working = describeTranscriptProgress({
       transcript: "",
