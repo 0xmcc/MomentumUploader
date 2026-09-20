@@ -153,6 +153,7 @@ create unique index if not exists job_runs_one_active_per_entity_type
 | `memo_outline_live` | Live outline artifact |
 | `memo_artifact_final` | Final-pass artifacts after transcription |
 | `memo_agent_chat` | Memo agent worker queue |
+| `memo_transcribe` | Long-form transcription run by the worker |
 
 ### 4. Desktop token claims
 
@@ -897,6 +898,7 @@ Checked-in migrations (apply in filename order if not using the consolidated scr
 | `20260411120000_add_shared_memo_bookmarks` | Bookmarks |
 | `20260412000000_add_memo_agent` | Agent sessions, credits, RPCs |
 | `20260412130000_fix_memo_agent_credit_bootstrap` | Credit bootstrap ensures `users` row |
+| `20260919120000_add_memo_transcribe_jobs` | Transcribe claim, heartbeat, stale recovery |
 
 **Not in migrations (must exist before first migration):** `users`, `memos`, `job_runs`.
 
