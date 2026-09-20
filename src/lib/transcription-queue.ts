@@ -47,10 +47,19 @@ export function shouldQueueTranscription({
  * Write a pending job the existing worker can claim. Throws rather than
  * returning a flag: a caller that cannot queue must not report success.
  */
+export type TranscriptionJobParams = {
+    /** Where the uploaded chunks are, for the worker to join. */
+    chunk_paths?: string[];
+    upload_content_type?: string;
+    upload_file_extension?: string;
+    duration_seconds?: number;
+};
+
 export async function enqueueTranscriptionJob(
     memoId: string,
     userId: string,
-    supabase: SupabaseClient
+    supabase: SupabaseClient,
+    params: TranscriptionJobParams = {}
 ): Promise<void> {
     const { error } = await supabase.from("job_runs").insert({
         user_id: userId,
@@ -58,6 +67,7 @@ export async function enqueueTranscriptionJob(
         entity_type: "memo",
         entity_id: memoId,
         status: "pending",
+        params,
     });
 
     if (error) {

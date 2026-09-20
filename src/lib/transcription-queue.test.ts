@@ -81,6 +81,27 @@ describe("enqueueing the transcription job", () => {
     );
   });
 
+  it("carries what the worker needs to find the audio", async () => {
+    // The request no longer joins the chunks — the worker does, so it has to
+    // be told where they are.
+    const supabase = fakeSupabase();
+
+    await enqueueTranscriptionJob("memo-1", "user-1", supabase.client, {
+      chunk_paths: ["audio/chunks/memo-1/0000000-0000015.webm"],
+      upload_content_type: "audio/webm",
+      duration_seconds: 6117,
+    });
+
+    expect(supabase.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: expect.objectContaining({
+          chunk_paths: ["audio/chunks/memo-1/0000000-0000015.webm"],
+          duration_seconds: 6117,
+        }),
+      })
+    );
+  });
+
   it("throws when the job cannot be queued, so the caller cannot report success", async () => {
     const supabase = fakeSupabase({ error: { message: "insert failed" } });
 

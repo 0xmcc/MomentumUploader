@@ -215,6 +215,10 @@ export default function AudioRecorder({
                     memoId,
                     totalChunks,
                     provisionalTranscript,
+                    // The server decides between transcribing now and queueing
+                    // for the worker, and cannot tell a two-hour recording
+                    // from a voice note without this.
+                    durationSeconds,
                 }),
             });
 

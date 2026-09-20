@@ -313,10 +313,14 @@ describe("AudioRecorder live transcript cadence", () => {
             })
         );
 
+        // durationSeconds goes with it: the server decides between the instant
+        // path and the queue, and cannot tell a two-hour recording from a
+        // voice note without it.
         expect(JSON.parse(String(finalizeCalls[0]?.[1]?.body))).toEqual({
             memoId,
             totalChunks: 2,
             provisionalTranscript: "partial transcript",
+            durationSeconds: expect.any(Number),
         });
     });
 

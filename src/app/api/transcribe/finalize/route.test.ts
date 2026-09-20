@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { POST } from "./route";
 import { resolveMemoUserId } from "@/lib/memo-api-auth";
 import { supabaseAdmin, uploadAudio } from "@/lib/supabase";
+import { enqueueTranscriptionJob } from "@/lib/transcription-queue";
 import {
     persistMemoProvisional,
     promoteLiveSegmentsToFinal,
@@ -52,6 +53,14 @@ jest.mock("@/lib/supabase", () => ({
     },
 }));
 
+jest.mock("@/lib/transcription-queue", () => {
+    const actual = jest.requireActual("@/lib/transcription-queue");
+    return {
+        ...actual,
+        enqueueTranscriptionJob: jest.fn(),
+    };
+});
+
 jest.mock("../workflow", () => ({
     ERR: jest.fn(),
     LOG: jest.fn(),
@@ -77,11 +86,12 @@ describe("POST /api/transcribe/finalize", () => {
         });
         list.mockResolvedValue({
             data: [
-                { name: "0000000-0000015.webm" },
-                { name: "0000015-0000030.webm" },
+                { name: "0000000-0000015.webm", metadata: { size: 400_000 } },
+                { name: "0000015-0000030.webm", metadata: { size: 400_000 } },
             ],
             error: null,
         });
+        (enqueueTranscriptionJob as jest.Mock).mockResolvedValue(undefined);
         download
             .mockResolvedValueOnce({
                 data: {
@@ -165,8 +175,8 @@ describe("POST /api/transcribe/finalize", () => {
     it("returns 409 when the uploaded chunk ranges contain a gap", async () => {
         list.mockResolvedValue({
             data: [
-                { name: "0000000-0000015.webm" },
-                { name: "0000020-0000030.webm" },
+                { name: "0000000-0000015.webm", metadata: { size: 400_000 } },
+                { name: "0000020-0000030.webm", metadata: { size: 400_000 } },
             ],
             error: null,
         });
@@ -263,7 +273,7 @@ describe("POST /api/transcribe/finalize", () => {
             download.mockReset();
             remove.mockReset();
             list.mockResolvedValue({
-                data: [{ name: "0000000-0000001.webm" }],
+                data: [{ name: "0000000-0000001.webm", metadata: { size: 100_000 } }],
                 error: null,
             });
             download.mockResolvedValueOnce({
@@ -305,5 +315,136 @@ describe("POST /api/transcribe/finalize", () => {
         } finally {
             process.env.NVIDIA_API_KEY = originalApiKey;
         }
+    });
+
+    describe("a recording too long to transcribe inside the request", () => {
+        function longChunkListing() {
+            list.mockResolvedValue({
+                data: [
+                    { name: "0000000-0000015.webm", metadata: { size: 40 * 1024 * 1024 } },
+                    { name: "0000015-0000030.webm", metadata: { size: 40 * 1024 * 1024 } },
+                ],
+                error: null,
+            });
+        }
+
+        it("queues it for the worker instead of transcribing it here", async () => {
+            // The 1h42m failure: this request used to hold the whole
+            // transcription and could never finish.
+            longChunkListing();
+
+            const req = {
+                json: async () => ({
+                    memoId: "memo-1",
+                    totalChunks: 30,
+                    durationSeconds: 6117,
+                }),
+            } as unknown as NextRequest;
+
+            const res = await POST(req);
+            const json = await res.json();
+
+            expect(transcribeUploadedAudio).not.toHaveBeenCalled();
+            expect(download).not.toHaveBeenCalled();
+            expect(uploadAudio).not.toHaveBeenCalled();
+
+            expect(enqueueTranscriptionJob).toHaveBeenCalledWith(
+                "memo-1",
+                "user-1",
+                expect.anything(),
+                expect.objectContaining({
+                    chunk_paths: [
+                        "audio/chunks/memo-1/0000000-0000015.webm",
+                        "audio/chunks/memo-1/0000015-0000030.webm",
+                    ],
+                    upload_content_type: "audio/webm",
+                    upload_file_extension: "webm",
+                    duration_seconds: 6117,
+                })
+            );
+
+            // The client has to be able to tell "queued" from "done".
+            expect(json).toMatchObject({
+                success: true,
+                id: "memo-1",
+                queued: true,
+                transcriptStatus: "processing",
+            });
+            expect(res.status).toBe(202);
+        });
+
+        it("leaves the chunks in place — the worker still needs the audio", async () => {
+            longChunkListing();
+
+            await POST({
+                json: async () => ({ memoId: "memo-1", totalChunks: 30, durationSeconds: 6117 }),
+            } as unknown as NextRequest);
+
+            expect(remove).not.toHaveBeenCalled();
+        });
+
+        it("queues an upload whose duration nobody knows, rather than gambling", async () => {
+            longChunkListing();
+
+            await POST({
+                json: async () => ({ memoId: "memo-1", totalChunks: 30 }),
+            } as unknown as NextRequest);
+
+            expect(enqueueTranscriptionJob).toHaveBeenCalled();
+            expect(transcribeUploadedAudio).not.toHaveBeenCalled();
+        });
+
+        it("treats an already-queued memo as queued, not as an error", async () => {
+            longChunkListing();
+            (enqueueTranscriptionJob as jest.Mock).mockRejectedValueOnce(
+                Object.assign(new Error("duplicate key value violates unique constraint"), {
+                    code: "23505",
+                })
+            );
+
+            const res = await POST({
+                json: async () => ({ memoId: "memo-1", totalChunks: 30, durationSeconds: 6117 }),
+            } as unknown as NextRequest);
+            const json = await res.json();
+
+            expect(json).toMatchObject({ success: true, queued: true });
+        });
+
+        it("does not claim it was queued when queueing failed", async () => {
+            longChunkListing();
+            (enqueueTranscriptionJob as jest.Mock).mockRejectedValueOnce(
+                new Error("job_runs is on fire")
+            );
+
+            const res = await POST({
+                json: async () => ({ memoId: "memo-1", totalChunks: 30, durationSeconds: 6117 }),
+            } as unknown as NextRequest);
+            const json = await res.json();
+
+            expect(res.status).toBe(500);
+            expect(json.error).toMatch(/queue/i);
+        });
+
+        it("still finalizes instantly from a live transcript, queue or no queue", async () => {
+            longChunkListing();
+            (updateMemoFinal as jest.Mock).mockResolvedValueOnce(makeResponse({
+                success: true,
+                id: "memo-1",
+                text: "live transcript",
+                transcriptStatus: "complete",
+            }));
+
+            await POST({
+                json: async () => ({
+                    memoId: "memo-1",
+                    totalChunks: 30,
+                    durationSeconds: 6117,
+                    provisionalTranscript: "live transcript",
+                }),
+            } as unknown as NextRequest);
+
+            expect(enqueueTranscriptionJob).not.toHaveBeenCalled();
+            expect(updateMemoFinal).toHaveBeenCalled();
+        });
     });
 });

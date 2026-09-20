@@ -246,6 +246,7 @@ describe("AudioRecorder pipeline coverage", () => {
             memoId: string;
             totalChunks: number;
             provisionalTranscript: string;
+            durationSeconds: number;
         };
 
         expect(chunkCalls.length).toBeGreaterThanOrEqual(2);
@@ -262,6 +263,9 @@ describe("AudioRecorder pipeline coverage", () => {
             memoId,
             totalChunks: ranges[ranges.length - 1]?.endIndex ?? 0,
             provisionalTranscript: "partial transcript",
+            // The length of the recording is what tells the server whether
+            // this can be transcribed now or has to go to the worker.
+            durationSeconds: expect.any(Number),
         });
         expect(directTranscribeCalls(fetchMock)).toHaveLength(0);
         expect(uploadToSignedUrl).toHaveBeenCalledTimes(chunkCalls.length);
@@ -352,6 +356,7 @@ describe("AudioRecorder pipeline coverage", () => {
             memoId: string;
             totalChunks: number;
             provisionalTranscript: string;
+            durationSeconds: number;
         };
         const firstUploadedBatch = readPrepareRequest(chunkCalls[0]?.[1] as RequestInit);
         const secondUploadedBatch = readPrepareRequest(chunkCalls[1]?.[1] as RequestInit);
@@ -368,6 +373,7 @@ describe("AudioRecorder pipeline coverage", () => {
             memoId,
             totalChunks: finalUploadedEndIndex,
             provisionalTranscript: "partial transcript",
+            durationSeconds: expect.any(Number),
         });
 
         await waitFor(() => {
