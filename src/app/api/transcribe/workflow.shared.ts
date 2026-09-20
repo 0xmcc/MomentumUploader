@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 export {
     MAX_AUDIO_UPLOAD_BYTES,
     MAX_AUDIO_UPLOAD_MB,
+    MAX_DIRECT_UPLOAD_BYTES,
+    MAX_DIRECT_UPLOAD_MB,
     MIN_SUPABASE_SOCKET_SIZE_CAP_BYTES,
 } from "@/lib/audio-limits";
 export const TRANSCRIBE_MODEL = "nvidia/parakeet-rnnt-1.1b";

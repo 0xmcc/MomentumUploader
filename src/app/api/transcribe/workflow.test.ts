@@ -17,6 +17,11 @@ import {
     enqueueFinalArtifactsJob,
 } from "@/lib/memo-artifacts";
 import { runPendingMemoJobs } from "@/lib/memo-jobs";
+import {
+    MAX_AUDIO_UPLOAD_BYTES,
+    MAX_DIRECT_UPLOAD_BYTES,
+    MAX_DIRECT_UPLOAD_MB,
+} from "@/lib/audio-limits";
 
 jest.mock("@/lib/supabase", () => ({
     uploadAudio: jest.fn(),
@@ -110,6 +115,42 @@ describe("transcribe workflow legacy transcript_status fallback", () => {
         expect(result.data.fileName).toEqual(expect.stringContaining("iphone-note.m4a"));
         expect(result.data.uploadContentType).toBe("audio/mp4");
         expect(Buffer.isBuffer(result.data.audioBuffer)).toBe(true);
+    });
+
+    it("refuses a single-request upload over the body limit, and says where to go instead", async () => {
+        // The chunked path takes gigabytes; this route reads the whole file
+        // inside one request, so its ceiling is Next's body size. The message
+        // has to name which limit was hit, or it reads as "your recording is
+        // too long" — which is exactly what the pipeline stopped being true.
+        const oversize = new File([Buffer.from("x")], "long-meeting.m4a", {
+            type: "audio/x-m4a",
+        });
+        Object.defineProperty(oversize, "size", {
+            value: MAX_DIRECT_UPLOAD_BYTES + 1,
+        });
+
+        const req = {
+            formData: async () => {
+                const formData = new FormData();
+                formData.set("file", oversize);
+                return formData;
+            },
+        };
+
+        const result = await parseUploadRequest(req as never, Date.now());
+
+        expect(result.ok).toBe(false);
+        if (result.ok) throw new Error("Expected the oversize upload to be refused");
+
+        expect(result.response.status).toBe(413);
+        const body = await result.response.json();
+        expect(body.error).toBe("Audio file too large");
+        expect(body.detail).toContain(`${MAX_DIRECT_UPLOAD_MB}MB`);
+        expect(body.detail).toMatch(/record|chunk/i);
+    });
+
+    it("accepts, on the chunked path's terms, a file far bigger than the old 75MB cap", () => {
+        expect(MAX_AUDIO_UPLOAD_BYTES).toBeGreaterThan(500 * 1024 * 1024);
     });
 
     it("returns a 413 response when storage rejects the upload as too large", async () => {

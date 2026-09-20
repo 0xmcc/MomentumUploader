@@ -7,8 +7,9 @@ import {
     ERR,
     fail,
     LOG,
-    MAX_AUDIO_UPLOAD_BYTES,
     MAX_AUDIO_UPLOAD_MB,
+    MAX_DIRECT_UPLOAD_BYTES,
+    MAX_DIRECT_UPLOAD_MB,
     MIN_SUPABASE_SOCKET_SIZE_CAP_BYTES,
     ok,
     pickNumber,
@@ -65,11 +66,20 @@ function normalizeUploadContentType(
     return "audio/webm";
 }
 
+/**
+ * This route reads the whole file inside one request, so its ceiling is the
+ * server's body size — not how long a recording may be. Say which limit was
+ * hit and where the bigger door is, or it reads as "your recording is too
+ * long", which stopped being true when transcription moved to the worker.
+ */
 function tooLargeBodyResponse() {
     return NextResponse.json(
         {
             error: "Audio file too large",
-            detail: `Please keep uploads under ${MAX_AUDIO_UPLOAD_MB}MB.`,
+            detail:
+                `A single upload request has to stay under ${MAX_DIRECT_UPLOAD_MB}MB. ` +
+                `Longer recordings go through the chunked recorder or the manual ` +
+                `upload, which takes files up to ${MAX_AUDIO_UPLOAD_MB}MB.`,
         },
         { status: 413 }
     );
@@ -183,7 +193,7 @@ export async function parseUploadRequest(
         `File received: name=${file.name}, size=${file.size} bytes, type=${file.type}`
     );
 
-    if (file.size > MAX_AUDIO_UPLOAD_BYTES) {
+    if (file.size > MAX_DIRECT_UPLOAD_BYTES) {
         return fail(tooLargeBodyResponse());
     }
 
