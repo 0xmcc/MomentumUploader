@@ -9,6 +9,11 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY is required}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      # Transcription jobs run here. Without a key they fail with a clear
+      # reason rather than hanging, but they do fail.
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      TRANSCRIPT_WEBHOOK_URL: ${TRANSCRIPT_WEBHOOK_URL:-}
+      TRANSCRIPT_WEBHOOK_SECRET: ${TRANSCRIPT_WEBHOOK_SECRET:-}
     healthcheck:
       test:
         - CMD

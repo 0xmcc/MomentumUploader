@@ -73,6 +73,17 @@ test("production Docker support uses Node 20 slim and required runtime files", a
   assert.match(composeFile, /healthcheck:/m);
   assert.match(composeFile, /\/tmp\/memo-workspaces/m);
 
+  // Transcription runs here too: without a key the jobs fail with a clear
+  // reason, but they do fail, and the webhook is the only way anything
+  // downstream hears that a transcript exists.
+  assert.match(composeFile, /NVIDIA_API_KEY:/m);
+  assert.match(composeFile, /TRANSCRIPT_WEBHOOK_URL:/m);
+  assert.match(composeFile, /TRANSCRIPT_WEBHOOK_SECRET:/m);
+
+  assert.match(envExample, /^NVIDIA_API_KEY=/m);
+  assert.match(envExample, /^TRANSCRIPT_WEBHOOK_URL=/m);
+  assert.match(envExample, /^TRANSCRIPT_WEBHOOK_SECRET=/m);
+
   assert.match(envExample, /^SUPABASE_URL=/m);
   assert.match(envExample, /^SUPABASE_SERVICE_ROLE_KEY=/m);
   assert.match(envExample, /^ANTHROPIC_API_KEY=/m);
