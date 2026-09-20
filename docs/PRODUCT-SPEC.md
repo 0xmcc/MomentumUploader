@@ -138,3 +138,43 @@ Not an exit code and not a 200. The tests that prove this spec:
    is down.
 5. A keyword spoken at minute 90 triggers its automation before the recording
    ends.
+
+---
+
+## Appendix: what the market does and does not sell (2026-09-19)
+
+A survey of ~30 products and repos against the five requirements. Nothing
+satisfies all five. Two findings change how this gets built.
+
+**Requirement 3 — a shareable live transcript URL — is the one nothing sells.**
+It exists as a product feature in essentially one mainstream recorder (Otter,
+whose API is Enterprise-only, read-only, and fires only on completion), as an
+API only in the event-captioning industry (StreamText, Wordly — delivery
+layers that do not record), and in **zero** open-source projects. Every
+open-source local notetaker is single-user desktop with no share URL.
+
+So this is not a rebuild of a solved product. The pieces are commodity; the
+assembly is what nobody offers. Corollary: requirement 3 is the piece that
+cannot be bought later, and the during-recording half of requirement 4 is
+nearly as scarce — only one vendor sells keyword-triggered events on a live
+stream.
+
+**Streaming engines have session caps that sit on top of the normal case.**
+AssemblyAI and Gladia both auto-close a streaming session at exactly 3 hours;
+AssemblyAI bills the full 3 hours regardless. Google caps at 5 minutes.
+Speechmatics allows 48 hours. A three-hour lecture therefore lands precisely on
+the cliff for two of the obvious vendors — a silent truncation, which is the
+failure mode this spec exists to prevent.
+
+Consequences for the acceptance tests above:
+
+- Test 1 must be run against a **real 3h+ recording**, not a ten-minute stand-in.
+  A short test cannot see a cap that only bites at 3:00:00.
+- Test 5 (keyword at minute 90) is **not purchasable from any vendor** and has
+  to be built on our own stream.
+
+**Buy the speech engine, own the share layer.** Renting streaming transcription
+costs roughly $0.12–0.40 per hour depending on vendor; at a few hours a day
+that is tens of dollars a month. Hosting our own model earns nothing back.
+Keep a vendor-neutral interface so the engine stays swappable and a local model
+can stand in offline.
