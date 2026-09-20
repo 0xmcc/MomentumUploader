@@ -86,6 +86,40 @@ function readErrorMessage(error: unknown): string {
   return String(error);
 }
 
+type RivaTranscribeAudio = (
+  audio: Buffer,
+  apiKey: string,
+  mimeType?: string,
+  options?: { priority?: "live" | "final" }
+) => Promise<{ transcript: string; segments: TranscriptSegmentLike[] }>;
+
+/**
+ * The app's riva module crosses a package boundary, and tsx loads it as
+ * CommonJS — so the namespace object carries `default.transcribeAudio`, not
+ * `transcribeAudio`. A plain named destructure yields undefined here and only
+ * shows up as "transcribe is not a function" on a real recording, so take
+ * whichever shape arrives and refuse anything else loudly.
+ */
+export function resolveTranscribeAudio(moduleNamespace: unknown): RivaTranscribeAudio {
+  const namespace = moduleNamespace as {
+    transcribeAudio?: unknown;
+    default?: { transcribeAudio?: unknown };
+  };
+  const candidate = namespace?.transcribeAudio ?? namespace?.default?.transcribeAudio;
+
+  if (typeof candidate !== "function") {
+    throw new Error(
+      "The riva module exported no transcribeAudio — the worker cannot transcribe."
+    );
+  }
+
+  return candidate as RivaTranscribeAudio;
+}
+
+export async function loadRivaTranscribeAudio(): Promise<RivaTranscribeAudio> {
+  return resolveTranscribeAudio(await import("../../src/lib/riva.js"));
+}
+
 /**
  * The real transcriber, resolved late so that a worker with no NVIDIA key
  * fails the job with a clear reason instead of crashing at import time.
@@ -101,7 +135,7 @@ async function defaultTranscribe(
     );
   }
 
-  const { transcribeAudio } = await import("../../src/lib/riva");
+  const transcribeAudio = await loadRivaTranscribeAudio();
   return transcribeAudio(audio, apiKey, contentType, { priority: "final" });
 }
 
@@ -359,16 +393,22 @@ export async function processTranscribeJob(
       }
     }
 
-    await deliverWebhook({
-      event: "transcript.ready",
-      memoId,
-      userId: job.user_id,
-      transcript,
-      transcriptStatus: "complete",
-      durationSeconds: params.duration_seconds,
-      segmentCount: segments.length,
-      audioUrl,
-    });
+    // A receiver being down is not a reason to unfinish a transcript that
+    // exists, so delivery is reported, never thrown.
+    try {
+      await deliverWebhook({
+        event: "transcript.ready",
+        memoId,
+        userId: job.user_id,
+        transcript,
+        transcriptStatus: "complete",
+        durationSeconds: params.duration_seconds,
+        segmentCount: segments.length,
+        audioUrl,
+      });
+    } catch (webhookError) {
+      console.error("[memo-transcribe] transcript.ready webhook threw", webhookError);
+    }
 
     console.log("[memo-transcribe] done", {
       memoId,
@@ -393,14 +433,20 @@ export async function processTranscribeJob(
 
     await finishJob(supabase, job.id, "failed", { error: message });
 
-    await deliverWebhook({
-      event: "transcript.failed",
-      memoId,
-      userId: job.user_id,
-      transcriptStatus: "failed",
-      error: message,
-      audioUrl,
-    });
+    try {
+      await deliverWebhook({
+        event: "transcript.failed",
+        memoId,
+        userId: job.user_id,
+        transcriptStatus: "failed",
+        error: message,
+        audioUrl,
+      });
+    } catch (webhookError) {
+      // Whatever happened to the webhook, the reason the job failed is the
+      // thing worth reporting.
+      console.error("[memo-transcribe] transcript.failed webhook threw", webhookError);
+    }
 
     console.error("[memo-transcribe] failed", { memoId, jobId: job.id, error: message });
 

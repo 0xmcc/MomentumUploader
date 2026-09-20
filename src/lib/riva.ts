@@ -25,6 +25,9 @@ import { existsSync } from "fs";
 import fs from "fs/promises";
 import dns from "node:dns";
 import type { TranscriptSegment } from "@/lib/transcript";
+// Relative, not "@/lib/...": agent-worker loads this module directly and the
+// "@" alias is a Next/tsconfig convenience that does not survive that trip.
+import { resolveProtoRoot } from "./riva-proto-root";
 
 // Prefer IPv4 for node requests to avoid IPv6 'EHOSTUNREACH' routing issues
 // that could affect gRPC or other downstream service connections.
@@ -34,7 +37,9 @@ const execFileAsync = promisify(execFile);
 
 const GRPC_TARGET = "grpc.nvcf.nvidia.com:443";
 const FUNCTION_ID = "d8dd4e9b-fbf5-4fb0-9dba-8cf436c8d965";
-const PROTO_ROOT = path.join(process.cwd(), "src/lib/proto");
+// Not just <cwd>/src/lib/proto any more: the worker transcribes too, and it
+// runs from agent-worker/. See riva-proto-root.ts.
+const PROTO_ROOT = resolveProtoRoot();
 const STREAMING_AUDIO_CHUNK_BYTES = 64 * 1024;
 
 function resolveFfmpegPath(): string {

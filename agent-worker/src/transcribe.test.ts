@@ -20,7 +20,11 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { processTranscribeJob } from "./transcribe";
+import {
+  loadRivaTranscribeAudio,
+  processTranscribeJob,
+  resolveTranscribeAudio,
+} from "./transcribe";
 import type { TranscribeJobRow } from "./transcribe";
 
 type Call = { table: string; op: string; payload?: unknown; filters: Record<string, unknown> };
@@ -435,4 +439,67 @@ test("a memo that no longer exists fails the job instead of hanging it", async (
   assert.match(String(result.error), /memo/i);
   const jobUpdate = findUpdate(db.calls, "job_runs").at(-1);
   assert.equal((jobUpdate!.payload as Record<string, string>).status, "failed");
+});
+
+/**
+ * The real transcriber is reached by a dynamic import across the package
+ * boundary, and tsx loads the app's modules as CommonJS — so the namespace
+ * object carries `default.transcribeAudio`, not `transcribeAudio`. A plain
+ * named destructure silently yields undefined, which would surface as
+ * "transcribe is not a function" only on a real recording.
+ */
+test("finds transcribeAudio whichever shape the module arrives in", async () => {
+  const named = { transcribeAudio: () => {} };
+  const cjs = { default: { transcribeAudio: () => {} } };
+
+  assert.equal(typeof resolveTranscribeAudio(named), "function");
+  assert.equal(typeof resolveTranscribeAudio(cjs), "function");
+  assert.throws(() => resolveTranscribeAudio({}), /transcribeAudio/);
+});
+
+test("the real riva module is actually reachable from the worker", async () => {
+  // Loads the module only — no NVIDIA call, no network, no spend.
+  const transcribeAudio = await loadRivaTranscribeAudio();
+  assert.equal(typeof transcribeAudio, "function");
+});
+
+test("a receiver that is down does not undo a finished transcript", async () => {
+  // The transcript exists. A webhook nobody answered is not a reason to tell
+  // the user their three-hour recording failed.
+  const db = fakeSupabase({ downloads: chunkBytes() });
+
+  const result = await processTranscribeJob(chunkJob(), db.supabase, {
+    transcribe: async () => ({ transcript: "words", segments: [] }),
+    deliverWebhook: (async () => {
+      throw new Error("ECONNREFUSED hooks.example.com");
+    }) as never,
+    startHeartbeat: () => () => {},
+  });
+
+  assert.equal(result.ok, true);
+
+  const completed = findUpdate(db.calls, "memos").find(
+    (call) => (call.payload as Record<string, unknown>).transcript_status === "complete"
+  );
+  assert.ok(completed, "the memo stays complete");
+
+  const jobUpdate = findUpdate(db.calls, "job_runs").at(-1);
+  assert.equal((jobUpdate!.payload as Record<string, string>).status, "succeeded");
+});
+
+test("a failure webhook that throws does not mask the real failure", async () => {
+  const db = fakeSupabase({ downloads: chunkBytes() });
+
+  const result = await processTranscribeJob(chunkJob(), db.supabase, {
+    transcribe: async () => {
+      throw new Error("riva channel closed");
+    },
+    deliverWebhook: (async () => {
+      throw new Error("ECONNREFUSED hooks.example.com");
+    }) as never,
+    startHeartbeat: () => () => {},
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(String(result.error), /riva channel closed/);
 });

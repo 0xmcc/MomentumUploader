@@ -1,6 +1,10 @@
 import { createClient, type RealtimeChannel, type SupabaseClient } from "@supabase/supabase-js";
 import { cleanupStaleWorkspaces } from "./workspace";
 import { MAX_GLOBAL_JOBS, processJob } from "./worker";
+import {
+  drainTranscribeQueue,
+  recoverStaleTranscribeJobs,
+} from "./transcribe-queue";
 import type { JobRow } from "./types";
 
 const POLL_INTERVAL_MS = 10_000;
@@ -83,6 +87,25 @@ async function drainQueue() {
   }
 }
 
+// Transcription drains on its own loop: one long job must not hold up agent
+// chat, and a chat job must not hold up a recording someone is waiting on.
+let drainingTranscribe = false;
+
+async function drainTranscribeJobs() {
+  if (drainingTranscribe) {
+    return;
+  }
+
+  drainingTranscribe = true;
+  try {
+    await drainTranscribeQueue(supabase);
+  } catch (error) {
+    console.error("[memo-transcribe] drain failed", error);
+  } finally {
+    drainingTranscribe = false;
+  }
+}
+
 async function startRealtimeSubscription(client: SupabaseClient) {
   const channel: RealtimeChannel = client
     .channel("memo-agent-jobs")
@@ -96,6 +119,18 @@ async function startRealtimeSubscription(client: SupabaseClient) {
       },
       () => {
         void drainQueue();
+      }
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "job_runs",
+        filter: "job_type=eq.memo_transcribe",
+      },
+      () => {
+        void drainTranscribeJobs();
       }
     );
 
@@ -111,12 +146,16 @@ async function startRealtimeSubscription(client: SupabaseClient) {
 async function main() {
   console.log("[memo-agent-worker] starting");
   await recoverRunningJobs(supabase);
+  // A worker killed mid-transcription left its job `running`. Put it back.
+  await recoverStaleTranscribeJobs(supabase);
   await startRealtimeSubscription(supabase);
   await cleanupStaleWorkspaces();
   await drainQueue();
+  void drainTranscribeJobs();
 
   setInterval(() => {
     void drainQueue();
+    void recoverStaleTranscribeJobs(supabase).then(() => drainTranscribeJobs());
   }, POLL_INTERVAL_MS);
 
   setInterval(() => {
