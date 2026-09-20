@@ -6,6 +6,9 @@ and after.
 
 Written 2026-09-19 after a 1h42m upload sat on "Transcribing…" forever.
 
+The spec itself, in Marko's words, is [PRODUCT-SPEC.md](./PRODUCT-SPEC.md).
+What follows is the summary and the plan.
+
 ## What the spec asks for
 
 1. **Live, shareable transcription** — real time, viewable by others at a URL
