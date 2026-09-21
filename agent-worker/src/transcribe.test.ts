@@ -21,6 +21,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  SEGMENT_INSERT_BATCH_SIZE,
   loadRivaTranscribeAudio,
   processTranscribeJob,
   resolveTranscribeAudio,
@@ -502,4 +503,62 @@ test("a failure webhook that throws does not mask the real failure", async () =>
 
   assert.equal(result.ok, false);
   assert.match(String(result.error), /riva channel closed/);
+});
+
+/**
+ * Segments from a long recording must be written in batches.
+ *
+ * Found by running the real thing on 2026-09-21: a 1h42m call produced 989
+ * segments, the worker sent all 989 rows in ONE insert, and the request died
+ * with "fetch failed". The transcript itself had already landed, so the memo
+ * looked complete while its segments were empty and the job row stayed
+ * `running` forever — which recovery then re-queues, re-transcribing a
+ * 1h42m file on a loop and spending on every pass.
+ *
+ * The 15-minute recording that passed first had 138 segments, which is why no
+ * earlier test caught this. Size is the variable.
+ */
+test("writes a long recording's segments in batches, not one giant insert", async () => {
+  const segments = Array.from({ length: 989 }, (_, index) => ({
+    id: String(index),
+    startMs: index * 1000,
+    endMs: index * 1000 + 900,
+    text: `segment ${index}`,
+  }));
+
+  const db = fakeSupabase({ downloads: chunkBytes() });
+
+  const result = await processTranscribeJob(chunkJob(), db.supabase, {
+    transcribe: async () => ({
+      transcript: segments.map((s) => s.text).join(" "),
+      segments,
+    }),
+    deliverWebhook: async () => ({ ok: true }) as never,
+    startHeartbeat: () => () => {},
+  });
+
+  assert.equal(result.ok, true, "a long recording must still succeed");
+
+  const inserts = db.calls.filter(
+    (call) => call.table === "memo_transcript_segments" && call.op === "insert"
+  );
+
+  assert.ok(
+    inserts.length > 1,
+    `989 segments must not go in a single insert; got ${inserts.length} insert(s)`
+  );
+
+  for (const insert of inserts) {
+    const rows = insert.payload as unknown[];
+    assert.ok(
+      rows.length <= SEGMENT_INSERT_BATCH_SIZE,
+      `each batch must stay small; got ${rows.length} rows in one insert`
+    );
+  }
+
+  const total = inserts.reduce(
+    (sum, insert) => sum + (insert.payload as unknown[]).length,
+    0
+  );
+  assert.equal(total, 989, "every segment must still be written");
 });

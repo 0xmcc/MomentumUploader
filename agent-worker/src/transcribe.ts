@@ -26,6 +26,9 @@ import {
 } from "../../src/lib/transcript-webhook";
 
 const AUDIO_BUCKET = "voice-memos";
+
+/** Rows per segment insert. One request cannot carry a long recording. */
+export const SEGMENT_INSERT_BATCH_SIZE = 250;
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 60_000;
 
 export type TranscriptSegmentLike = {
@@ -271,12 +274,21 @@ async function writeTranscript(
     source: "final" as const,
   }));
 
-  const { error: insertError } = await supabase
-    .from("memo_transcript_segments")
-    .insert(rows);
+  // In batches, because a long recording produces thousands of rows and one
+  // request carrying all of them dies on the wire. A 1h42m call made 989
+  // segments and failed as a single insert on 2026-09-21, leaving a complete
+  // transcript with no segments and a job row stuck `running`.
+  for (let start = 0; start < rows.length; start += SEGMENT_INSERT_BATCH_SIZE) {
+    const batch = rows.slice(start, start + SEGMENT_INSERT_BATCH_SIZE);
+    const { error: insertError } = await supabase
+      .from("memo_transcript_segments")
+      .insert(batch);
 
-  if (insertError) {
-    throw new Error(`Could not save segments: ${readErrorMessage(insertError)}`);
+    if (insertError) {
+      throw new Error(
+        `Could not save segments: ${readErrorMessage(insertError)}`
+      );
+    }
   }
 }
 
