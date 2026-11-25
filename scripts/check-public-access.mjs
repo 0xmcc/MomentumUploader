@@ -33,6 +33,10 @@ for (const t of ["memos", "job_runs"]) {
   const n = Number(s.range?.split("/")[1] ?? 0);
   check(`server can still read ${t}`, s.status < 300 && n > 0, `${n} rows`);
 }
+const claims = await call("/rest/v1/desktop_token_claims?select=code&limit=1", anon);
+check("stranger cannot read sign-in tokens", denied(claims.status), `status ${claims.status}`);
+const claimsServer = await call("/rest/v1/desktop_token_claims?select=code&limit=1", service);
+check("server can still read sign-in tokens", claimsServer.status === 200, `status ${claimsServer.status}`);
 const list = { method: "POST", body: JSON.stringify({ prefix: "audio", limit: 1 }) };
 const la = await call("/storage/v1/object/list/voice-memos", anon, list);
 check("stranger cannot list audio", denied(la.status) || (Array.isArray(la.body) && la.body.length === 0), `status ${la.status}, ${Array.isArray(la.body) ? la.body.length : "-"} files`);
