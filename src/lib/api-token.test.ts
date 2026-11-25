@@ -49,4 +49,27 @@ describe("api-token", () => {
     const verified = verifyApiToken(issued.token, { nowMs: nowMs + 2_000 });
     expect(verified).toBeNull();
   });
+
+  // Clerk's middleware parses any three-part dotted bearer as a JWT and throws,
+  // so a dotted token took the whole request down with a 500 in production.
+  it("never looks like a JWT to the login middleware", () => {
+    const { token } = issueApiToken({ userId: "user_123" });
+
+    expect(token).toMatch(/^vm1~[A-Za-z0-9_-]+~[A-Za-z0-9_-]+$/);
+    expect(token.split(".")).toHaveLength(1);
+    expect(verifyApiToken(token)).toEqual({ userId: "user_123" });
+  });
+
+  it("still verifies tokens issued in the old dotted form", () => {
+    const { token } = issueApiToken({ userId: "user_123" });
+
+    expect(verifyApiToken(token.replace(/~/g, "."))).toEqual({ userId: "user_123" });
+  });
+
+  it("rejects a tampered token and mixed separators", () => {
+    const { token } = issueApiToken({ userId: "user_123" });
+
+    expect(verifyApiToken(`${token}x`)).toBeNull();
+    expect(verifyApiToken(token.replace("~", "."))).toBeNull();
+  });
 });

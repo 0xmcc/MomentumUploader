@@ -47,7 +47,7 @@ const ENDPOINTS: Endpoint[] = [
         },
         responseExample: JSON.stringify({
             tokenType: "Bearer",
-            token: "vm1.<payload>.<signature>",
+            token: "vm1~<payload>~<signature>",
             expiresAt: "2026-03-28T11:15:00.000Z",
             days: 30,
         }, null, 2),

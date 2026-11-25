@@ -64,7 +64,7 @@ describe("POST /api/connect/desktop/start", () => {
     expect(payload.tokenExpiresAt).toEqual(expect.any(String));
     expect(payload.days).toBe(30);
     expect(createDesktopTokenClaim).toHaveBeenCalledWith(
-      expect.stringMatching(/^vm1\./),
+      expect.stringMatching(/^vm1~/),
       expect.any(String)
     );
   });

@@ -1,6 +1,9 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 const TOKEN_PREFIX = "vm1";
+// Not a dot: Clerk's middleware treats a three-part dotted bearer as a JWT and
+// throws on ours. "~" is outside base64url, so it cannot occur in a part.
+const TOKEN_SEPARATOR = "~";
 const DEFAULT_TTL_SECONDS = 60 * 60 * 24 * 30;
 const MAX_TTL_SECONDS = 60 * 60 * 24 * 365;
 
@@ -84,7 +87,7 @@ export function issueApiToken({
   const signature = signPayload(encodedPayload, getSigningSecret());
 
   return {
-    token: `${TOKEN_PREFIX}.${encodedPayload}.${signature}`,
+    token: [TOKEN_PREFIX, encodedPayload, signature].join(TOKEN_SEPARATOR),
     expiresAt: new Date(payload.exp * 1000).toISOString(),
   };
 }
@@ -94,12 +97,13 @@ export function verifyApiToken(
   { nowMs = Date.now() }: VerifyApiTokenOptions = {},
 ): { userId: string } | null {
   try {
-    const [prefix, encodedPayload, providedSignature] = token.split(".");
+    const parts = token.split(token.includes(TOKEN_SEPARATOR) ? TOKEN_SEPARATOR : ".");
+    const [prefix, encodedPayload, providedSignature] = parts;
     if (
       prefix !== TOKEN_PREFIX ||
       !encodedPayload ||
       !providedSignature ||
-      token.split(".").length !== 3
+      parts.length !== 3
     ) {
       return null;
     }
